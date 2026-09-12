@@ -1247,9 +1247,23 @@ This is split out of `build.py` because parent-transcript shapes are the most li
 Create `tests/test_parent.py`:
 
 ```python
+import datetime
 import unittest
 
 from orchestra.parent import ParentIndex
+
+
+def utc(year, month, day, hour, minute, second, frac=0.0):
+    """Expected epoch, computed with datetime rather than the code under test.
+
+    Using a hand-written constant here hides local-time bugs and gets typo'd;
+    computing it a different way than parent.py does still catches a
+    timegm-vs-mktime mistake.
+    """
+    moment = datetime.datetime(year, month, day, hour, minute, second,
+                               tzinfo=datetime.timezone.utc)
+    return moment.timestamp() + frac
+
 
 TS1 = "2026-09-09T04:57:11.912Z"
 TS2 = "2026-09-09T04:57:14.245Z"
@@ -1300,7 +1314,8 @@ class TestParentIndex(unittest.TestCase):
         self.assertEqual(launch.model, "haiku")
         self.assertIn("implementing Task 1", launch.prompt)
         self.assertEqual(launch.turn_uuid, "turn-1")
-        self.assertAlmostEqual(launch.launched_at, 1789196231.912, places=2)
+        self.assertAlmostEqual(launch.launched_at,
+                               utc(2026, 9, 9, 4, 57, 11, 0.912), places=2)
 
     def test_captures_cwd_and_last_entry_time(self):
         idx = ParentIndex()
@@ -2140,10 +2155,11 @@ def agent(agent_id, start, end, parent=None, writes=(), reads=(),
 
 
 class TestNormalizePath(unittest.TestCase):
-    def test_strips_worktree_prefix(self):
+    def test_worktree_path_collapses_onto_the_main_path(self):
         a = normalize_path(r"E:\proj\.claude\worktrees\feature-x\src\main.py")
-        b = normalize_path(r"src/main.py")
+        b = normalize_path(r"E:\proj\src\main.py")
         self.assertEqual(a, b)
+        self.assertNotIn("worktrees", a)
 
     def test_separators_and_case_are_normalized(self):
         self.assertEqual(normalize_path(r"SRC\Main.py"), normalize_path("src/main.py"))
@@ -2293,7 +2309,12 @@ from typing import Dict, List, Optional, Set, Tuple
 from orchestra import constants as C
 from orchestra.model import Agent, Edge, HubFile
 
-_WORKTREE = re.compile(r"^.*?[\\/]\.claude[\\/]worktrees[\\/][^\\/]+[\\/]", re.IGNORECASE)
+# Captures the project root so a worktree path collapses onto the main path:
+# E:\p\.claude\worktrees\wt\src\a.py  ->  E:\p\src\a.py
+# Dropping the root instead would leave worktree paths relative and plain paths
+# absolute, and the two would never compare equal.
+_WORKTREE = re.compile(r"(^.*?)[\\/]\.claude[\\/]worktrees[\\/][^\\/]+[\\/]",
+                       re.IGNORECASE)
 _WORD = re.compile(r"[a-z0-9]+")
 
 WRITE_TOOL_NAMES = ("Write", "Edit", "NotebookEdit")
@@ -2304,7 +2325,7 @@ def normalize_path(path: str) -> str:
     """Make paths from different agents and worktrees comparable."""
     if not path:
         return ""
-    stripped = _WORKTREE.sub("", path)
+    stripped = _WORKTREE.sub(r"\1/", path)
     stripped = stripped.replace("\\", "/")
     stripped = os.path.normpath(stripped).replace("\\", "/")
     return stripped.lower().lstrip("./")
@@ -2441,7 +2462,7 @@ def infer_edges(agents: List[Agent]) -> Tuple[List[Edge], List[HubFile]]:
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `python -m unittest tests.test_edges -v`
-Expected: PASS, 15 tests.
+Expected: PASS, 16 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -2654,10 +2675,17 @@ def build_session(root: str, session_id: str = "s1") -> SessionPaths:
                     usage={"input_tokens": 200, "output_tokens": 20}),
         agent_entry([{"type": "text", "text": "Implemented part one."}], 139),
     ])
+    # a3's Read must be answered by a tool_result. An unanswered tool_use sets
+    # AgentDigest.ended_mid_tool, and a mid-tool death outranks orphaned in the
+    # status precedence — so without this the "orphaned when the session dies"
+    # test would get `failed` instead.
     write_jsonl(os.path.join(subagents, "agent-a3.jsonl"), [
         agent_entry([{"type": "tool_use", "id": "r2", "name": "Read",
                       "input": {"file_path": r"E:\proj\PLAN.md"}}], 80,
                     usage={"input_tokens": 210}),
+        {"isSidechain": True, "type": "user", "timestamp": ts(81),
+         "message": {"role": "user", "content": [
+             {"type": "tool_result", "tool_use_id": "r2", "content": "plan"}]}},
     ])
 
     return SessionPaths(session_id=session_id, session_jsonl=session_jsonl,
