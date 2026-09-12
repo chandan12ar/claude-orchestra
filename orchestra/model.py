@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from orchestra import constants as C
+from orchestra.redact import scrub, scrub_obj
 
 
 @dataclass
@@ -77,7 +78,7 @@ class Agent:
             "parent_agent_id": self.parent_agent_id,
             "spawn_depth": self.spawn_depth,
             "agent_type": self.agent_type,
-            "description": self.description,
+            "description": scrub(self.description),
             "model": self.model,
             "launch_mode": self.launch_mode,
             "status": self.status,
@@ -88,7 +89,7 @@ class Agent:
             "tokens": dict(self.tokens),
             "rounds": [{"started_at": r.started_at, "ended_at": r.ended_at,
                         "status": r.status} for r in self.rounds],
-            "objective": self.objective.text,
+            "objective": scrub(self.objective.text),
             "files_written_count": len(self.files_written),
             "tool_call_count": len(self.tool_calls),
         }
@@ -96,12 +97,12 @@ class Agent:
     def to_detail_dict(self) -> Dict[str, Any]:
         d = self.to_light_dict()
         d.update({
-            "brief": self.brief,
-            "result": self.result,
+            "brief": scrub(self.brief),
+            "result": scrub(self.result),
             "objective_source": self.objective.source,
-            "expected_output": self.expected_output.text,
+            "expected_output": scrub(self.expected_output.text),
             "expected_output_source": self.expected_output.source,
-            "tool_calls": [{"name": t.name, "target": t.target,
+            "tool_calls": [{"name": t.name, "target": scrub(t.target),
                             "timestamp": t.timestamp} for t in self.tool_calls],
             "files_written": list(self.files_written),
             "files_read": list(self.files_read),
@@ -120,7 +121,7 @@ class Edge:
 
     def to_dict(self) -> Dict[str, Any]:
         return {"src": self.src, "dst": self.dst, "kind": self.kind,
-                "confidence": self.confidence, "evidence": dict(self.evidence)}
+                "confidence": self.confidence, "evidence": scrub_obj(self.evidence)}
 
 
 @dataclass

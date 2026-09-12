@@ -72,5 +72,19 @@ class TestRunSerialization(unittest.TestCase):
         self.assertEqual(d["edges"][0]["kind"], "spawn")
 
 
+class TestSerializationRedacts(unittest.TestCase):
+    def test_brief_and_result_are_scrubbed(self):
+        token = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        a = make_agent(brief="use " + token, result="also " + token)
+        d = a.to_detail_dict()
+        self.assertNotIn("ABCDEFGHIJ", d["brief"])
+        self.assertNotIn("ABCDEFGHIJ", d["result"])
+
+    def test_edge_evidence_is_scrubbed(self):
+        e = Edge(src="a1", dst="a2", kind="handoff", confidence="inferred",
+                 evidence={"snippet": "token ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"})
+        self.assertNotIn("ABCDEFGHIJ", e.to_dict()["evidence"]["snippet"])
+
+
 if __name__ == "__main__":
     unittest.main()
