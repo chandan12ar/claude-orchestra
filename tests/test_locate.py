@@ -2,8 +2,8 @@ import os
 import tempfile
 import unittest
 
-from orchestra.locate import (SessionPaths, encode_project_dir, find_session,
-                              list_sessions)
+from orchestra.locate import (SessionPaths, encode_project_dir, find_project_dir,
+                              find_session, list_sessions)
 
 
 class TestEncodeProjectDir(unittest.TestCase):
@@ -63,6 +63,20 @@ class TestFindSession(LocateTestCase):
 
     def test_missing_root_returns_none(self):
         self.assertIsNone(find_session("sess-1", root=os.path.join(self.root, "gone")))
+
+
+class TestFindProjectDir(LocateTestCase):
+    def test_finds_encoded_project_dir_for_cwd(self):
+        cwd = os.path.join(self.root, "workspaces", "my_app")
+        encoded = encode_project_dir(os.path.abspath(cwd))
+        pdir = os.path.join(self.projects, encoded)
+        os.makedirs(pdir)
+        found = find_project_dir(cwd, root=self.root)
+        self.assertEqual(found, pdir)
+
+    def test_no_matching_project_dir_returns_none(self):
+        cwd = os.path.join(self.root, "workspaces", "no_such_app")
+        self.assertIsNone(find_project_dir(cwd, root=self.root))
 
 
 class TestListSessions(LocateTestCase):

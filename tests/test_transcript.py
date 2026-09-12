@@ -62,6 +62,24 @@ class TestIncrementalRead(TranscriptTestCase):
             fh.write(b'{"a": "caf\xe9"}\n')
         entries = self.reader.read_new(self.path)
         self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["a"], "caf�")
+
+    def test_unescaped_line_separator_in_string_is_not_split(self):
+        # Node's JSON.stringify does not escape U+2028/U+2029, so a single
+        # complete, valid JSON line can legally contain a literal (raw,
+        # unescaped) line-separator character inside a string value.
+        # str.splitlines() would treat that character as a line break and
+        # shred the entry into two fragments that both fail to parse;
+        # str.split("\n") must not. Built by hand with chr(0x2028) (not via
+        # self.line/json.dumps) because json.dumps would escape the
+        # character rather than emit it raw, which would not reproduce
+        # the bug.
+        sep = chr(0x2028)
+        raw_line = '{"a": 1, "text": "before' + sep + 'after"}\n'
+        self.write(raw_line)
+        entries = self.reader.read_new(self.path)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["text"], "before" + sep + "after")
 
     def test_truncated_file_resets_offset(self):
         self.write(self.line(a=1) + self.line(a=2))

@@ -57,7 +57,7 @@ class IncrementalReader:
         self._offsets[key] = offset + len(consumable)
 
         entries: List[Dict[str, Any]] = []
-        for raw in consumable.decode("utf-8", errors="replace").splitlines():
+        for raw in consumable.decode("utf-8", errors="replace").split("\n"):
             if not raw.strip():
                 continue
             try:
