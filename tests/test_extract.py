@@ -26,7 +26,14 @@ Return a list of findings, most severe first.
 Do not fix anything.
 """
 
-BRIEF_PLAIN = """Investigate why the build is slow on Windows and figure out
+BRIEF_PLAIN = """## Objective
+
+Investigate why the build is slow on Windows.
+
+Then figure out what the biggest contributor is and keep going.
+"""
+
+BRIEF_NO_SIGNALS = """Investigate why the build is slow on Windows and figure out
 what the biggest contributor is.
 
 Then keep going.
@@ -66,6 +73,28 @@ class TestExpectedOutput(unittest.TestCase):
         e = extract_expected_output("", "")
         self.assertEqual(e.text, "")
         self.assertEqual(e.source, "none")
+
+    def test_new_heading_conventions_are_recognized(self):
+        brief = "# Job\n\n### report contract\n\nReturn JSON with a `status` key.\n"
+        e = extract_expected_output(brief, "")
+        self.assertEqual(e.text.strip(), "Return JSON with a `status` key.")
+        self.assertIn("report contract", e.source)
+
+    def test_fallback_that_genuinely_differs_from_objective_is_kept(self):
+        e = extract_expected_output(BRIEF_PLAIN, "Investigate build speed")
+        objective = extract_objective(BRIEF_PLAIN, "Investigate build speed")
+        self.assertNotEqual(e.text.strip(), objective.text.strip())
+        self.assertEqual(e.source, "fallback")
+        self.assertIn("Investigate build speed", e.text)
+
+    def test_fallback_that_duplicates_objective_is_not_stated(self):
+        e = extract_expected_output(BRIEF_NO_SIGNALS, "Investigate build speed")
+        objective = extract_objective(BRIEF_NO_SIGNALS, "Investigate build speed")
+        # Both would independently fall to the same description+first-paragraph
+        # fallback text -- confirm that premise before checking the fix.
+        self.assertEqual(objective.source, "fallback")
+        self.assertEqual(e.text, "")
+        self.assertEqual(e.source, "not stated")
 
 
 class TestObjective(unittest.TestCase):

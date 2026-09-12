@@ -32,7 +32,7 @@ def normalize_path(path: str) -> str:
     stripped = _WORKTREE.sub(r"\1/", path)
     stripped = stripped.replace("\\", "/")
     stripped = os.path.normpath(stripped).replace("\\", "/")
-    return stripped.lower().lstrip("./")
+    return stripped.lower()
 
 
 def _paths(agent: Agent, names: Tuple[str, ...]) -> List[Tuple[str, Optional[float]]]:
@@ -73,7 +73,7 @@ def _artifact_edges(agents: List[Agent]) -> Tuple[List[Edge], List[HubFile]]:
             for writer_id, write_at in writers:
                 if writer_id == reader_id:
                     continue
-                if read_at is not None and write_at is not None and read_at < write_at:
+                if read_at is None or write_at is None or read_at < write_at:
                     continue
                 edges.append(Edge(src=writer_id, dst=reader_id, kind="artifact",
                                   confidence="exact",
@@ -149,12 +149,16 @@ def infer_edges(agents: List[Agent]) -> Tuple[List[Edge], List[HubFile]]:
         seen[key] = edge
         deduped.append(edge)
 
-    exact_pairs = {(e.src, e.dst): e for e in deduped
-                   if e.kind in ("artifact", "message")}
+    exact_pairs: Dict[Tuple[str, str], List[Edge]] = {}
+    for e in deduped:
+        if e.kind in ("artifact", "message"):
+            exact_pairs.setdefault((e.src, e.dst), []).append(e)
+
     for edge in _handoff_edges(agents):
         existing = exact_pairs.get((edge.src, edge.dst))
-        if existing is not None:
-            existing.evidence["handoff"] = edge.evidence
+        if existing:
+            for e in existing:
+                e.evidence["handoff"] = edge.evidence
             continue
         key = (edge.src, edge.dst, edge.kind)
         if key not in seen:

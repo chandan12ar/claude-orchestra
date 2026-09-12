@@ -15,6 +15,8 @@ _OUTPUT_HEADINGS = (
     "expected output", "expected outputs", "deliverable", "deliverables",
     "output", "outputs", "success criteria", "return", "returns",
     "definition of done", "acceptance", "acceptance criteria",
+    "report contract", "what to return", "return format", "output format",
+    "expected result", "expected results",
 )
 
 _OBJECTIVE_HEADINGS = (
@@ -103,7 +105,12 @@ def extract_expected_output(brief: str, description: str = "") -> Extraction:
     imperative = _find_imperative(brief, _OUTPUT_IMPERATIVES)
     if imperative:
         return Extraction(_truncate(imperative), "imperative line")
-    return _fallback(brief, description)
+    fallback = _fallback(brief, description)
+    if fallback.source == "fallback":
+        objective = extract_objective(brief, description)
+        if fallback.text.strip() == objective.text.strip():
+            return Extraction("", "not stated")
+    return fallback
 
 
 def extract_objective(brief: str, description: str = "") -> Extraction:

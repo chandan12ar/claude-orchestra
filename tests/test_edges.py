@@ -30,6 +30,17 @@ class TestNormalizePath(unittest.TestCase):
     def test_separators_and_case_are_normalized(self):
         self.assertEqual(normalize_path(r"SRC\Main.py"), normalize_path("src/main.py"))
 
+    def test_dot_led_path_is_not_collapsed_onto_a_different_file(self):
+        # A bare `.lstrip("./")` strips characters, not a prefix string, so a
+        # dot-led relative path like a hidden-directory workflow file must not
+        # collapse onto the unrelated file with the same name minus the dot.
+        a = normalize_path(".github/workflows/ci.yml")
+        b = normalize_path("github/workflows/ci.yml")
+        self.assertNotEqual(a, b)
+
+    def test_leading_dot_slash_still_collapses_normally(self):
+        self.assertEqual(normalize_path("./src/a.py"), normalize_path("src/a.py"))
+
 
 class TestSpawnEdges(unittest.TestCase):
     def test_orchestrator_is_the_default_parent(self):
@@ -83,6 +94,18 @@ class TestArtifactEdges(unittest.TestCase):
         self.assertEqual(len(hubs), 1)
         self.assertIn("plan.md", hubs[0].path)
         self.assertEqual(len(hubs[0].reader_ids), C.HUB_FILE_THRESHOLD + 1)
+
+    def test_missing_write_timestamp_creates_no_edge(self):
+        a = agent("a1", 0, 10, writes=[("src/main.py", None)])
+        b = agent("a2", 20, 30, reads=[("src/main.py", 25)])
+        edges, _ = infer_edges([a, b])
+        self.assertEqual([e for e in edges if e.kind == "artifact"], [])
+
+    def test_missing_read_timestamp_creates_no_edge(self):
+        a = agent("a1", 0, 10, writes=[("other.py", 5)])
+        b = agent("a2", 20, 30, reads=[("other.py", None)])
+        edges, _ = infer_edges([a, b])
+        self.assertEqual([e for e in edges if e.kind == "artifact"], [])
 
     def test_a_file_written_during_the_run_is_never_a_hub(self):
         writer = agent("w", 0, 5, writes=[("PLAN.md", 1)])
@@ -146,6 +169,19 @@ class TestHandoffEdges(unittest.TestCase):
         self.assertEqual(len(pair), 1)
         self.assertEqual(pair[0].kind, "artifact")
         self.assertIn("handoff", pair[0].evidence)
+
+    def test_handoff_folds_into_every_exact_edge_for_the_pair(self):
+        a = agent("a1", 0, 10, writes=[("out.md", 5)], sends=[("a2", 6)],
+                  result="Findings: " + SHARED)
+        b = agent("a2", 20, 30, reads=[("out.md", 25)],
+                  brief="Fix this finding: " + SHARED)
+        edges, _ = infer_edges([a, b])
+        pair_edges = [e for e in edges if (e.src, e.dst) == ("a1", "a2")]
+        kinds = {e.kind for e in pair_edges}
+        self.assertEqual(kinds, {"artifact", "message"})
+        self.assertNotIn("handoff", kinds)
+        for e in pair_edges:
+            self.assertIn("handoff", e.evidence)
 
 
 if __name__ == "__main__":
