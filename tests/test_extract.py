@@ -39,6 +39,23 @@ what the biggest contributor is.
 Then keep going.
 """
 
+# Mirrors the real corpus shape the reviewer instrumented: the objective (an
+# imperative "You are..." line) is a strict substring of the fallback, which
+# prepends the description -- never equal to it.
+BRIEF_OBJECTIVE_CONTAINED_IN_FALLBACK = """You are implementing Task 1: Classify and merge the statusLine config.
+
+Read the existing helpers before making changes.
+"""
+
+BRIEF_TIER1_OVERLAPS_OBJECTIVE = """## Objective
+
+Fix the parser bug.
+
+## Deliverable
+
+Fix the parser bug. Then add a regression test.
+"""
+
 
 class TestExpectedOutput(unittest.TestCase):
     def test_tier1_heading_wins(self):
@@ -96,6 +113,33 @@ class TestExpectedOutput(unittest.TestCase):
         self.assertEqual(e.text, "")
         self.assertEqual(e.source, "not stated")
 
+    def test_report_format_heading_is_recognized(self):
+        brief = "# Job\n\n## report format\n\nA table of before/after timings.\n"
+        e = extract_expected_output(brief, "")
+        self.assertEqual(e.text.strip(), "A table of before/after timings.")
+        self.assertIn("report format", e.source)
+
+    def test_fallback_containing_the_objective_is_not_stated(self):
+        # Real-world shape: the fallback is "description + first paragraph",
+        # and the first paragraph IS the objective's imperative line -- so the
+        # objective is a substring of the fallback, never equal to it.
+        description = "Implement Task 1: statusline config helpers"
+        e = extract_expected_output(BRIEF_OBJECTIVE_CONTAINED_IN_FALLBACK, description)
+        objective = extract_objective(BRIEF_OBJECTIVE_CONTAINED_IN_FALLBACK, description)
+        self.assertEqual(objective.source, "imperative line")
+        self.assertNotEqual(objective.text.strip(), "")
+        self.assertEqual(e.text, "")
+        self.assertEqual(e.source, "not stated")
+
+    def test_tier1_result_is_not_suppressed_even_if_it_overlaps_objective(self):
+        e = extract_expected_output(BRIEF_TIER1_OVERLAPS_OBJECTIVE, "")
+        objective = extract_objective(BRIEF_TIER1_OVERLAPS_OBJECTIVE, "")
+        # The objective's text is textually contained in the tier-1 heading
+        # result, but a tier-1 hit must never be suppressed.
+        self.assertIn(objective.text.strip(), e.text.strip())
+        self.assertEqual(e.text.strip(), "Fix the parser bug. Then add a regression test.")
+        self.assertIn("Deliverable", e.source)
+
 
 class TestObjective(unittest.TestCase):
     def test_objective_heading(self):
@@ -110,6 +154,18 @@ class TestObjective(unittest.TestCase):
     def test_objective_falls_back_to_description(self):
         e = extract_objective("Some text with no signals at all.", "Fix the parser")
         self.assertIn("Fix the parser", e.text)
+
+    def test_your_job_heading_is_recognized(self):
+        brief = "## Your Job\n\nMigrate the legacy config loader.\n\n## Notes\n\nBe careful.\n"
+        e = extract_objective(brief, "")
+        self.assertEqual(e.text.strip(), "Migrate the legacy config loader.")
+        self.assertIn("Your Job", e.source)
+
+    def test_task_description_heading_is_recognized(self):
+        brief = "## Task Description\n\nWire up the new logger.\n"
+        e = extract_objective(brief, "")
+        self.assertEqual(e.text.strip(), "Wire up the new logger.")
+        self.assertIn("Task Description", e.source)
 
 
 if __name__ == "__main__":

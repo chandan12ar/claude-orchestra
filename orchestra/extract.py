@@ -16,12 +16,12 @@ _OUTPUT_HEADINGS = (
     "output", "outputs", "success criteria", "return", "returns",
     "definition of done", "acceptance", "acceptance criteria",
     "report contract", "what to return", "return format", "output format",
-    "expected result", "expected results",
+    "expected result", "expected results", "report format",
 )
 
 _OBJECTIVE_HEADINGS = (
     "objective", "objectives", "goal", "goals", "task", "your task",
-    "the task", "mission", "purpose",
+    "the task", "mission", "purpose", "your job", "task description",
 )
 
 _OUTPUT_IMPERATIVES = re.compile(
@@ -108,7 +108,9 @@ def extract_expected_output(brief: str, description: str = "") -> Extraction:
     fallback = _fallback(brief, description)
     if fallback.source == "fallback":
         objective = extract_objective(brief, description)
-        if fallback.text.strip() == objective.text.strip():
+        norm_objective = " ".join(objective.text.split())
+        norm_fallback = " ".join(fallback.text.split())
+        if norm_objective and norm_objective in norm_fallback:
             return Extraction("", "not stated")
     return fallback
 
