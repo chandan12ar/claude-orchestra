@@ -149,7 +149,7 @@ class ParentIndex:
                     model=str(params.get("model", "")),
                     launched_at=at,
                     turn_uuid=str(entry.get("uuid", "")),
-                    launcher_agent_id=launcher,
+                    launcher_agent_id=str(launcher) if launcher is not None else None,
                 )
             elif kind == "tool_result":
                 tool_use_id = str(block.get("tool_use_id", ""))
@@ -183,7 +183,9 @@ class ParentIndex:
                 summary=_tag(body, "summary"),
                 at=at,
             )
-            self.notifications.setdefault(agent_id, []).append(note)
+            bucket = self.notifications.setdefault(agent_id, [])
+            if note not in bucket:
+                bucket.append(note)
         for notes in self.notifications.values():
             notes.sort(key=lambda n: (n.at is None, n.at))
 

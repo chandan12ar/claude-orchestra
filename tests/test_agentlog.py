@@ -39,6 +39,13 @@ class TestTokens(unittest.TestCase):
         self.assertEqual(d.tokens, {})
 
 
+class TestModel(unittest.TestCase):
+    def test_model_is_captured_from_the_message(self):
+        d = AgentDigest()
+        d.ingest([assistant([], model="claude-opus-4-1-20260305")])
+        self.assertEqual(d.model, "claude-opus-4-1-20260305")
+
+
 class TestToolCalls(unittest.TestCase):
     def test_read_and_write_targets_are_file_paths(self):
         d = AgentDigest()
@@ -72,6 +79,14 @@ class TestToolCalls(unittest.TestCase):
         d.ingest([assistant([tool_use("SomeFutureTool", whatever={"a": 1})])])
         self.assertEqual(d.tool_calls[0].name, "SomeFutureTool")
 
+    def test_unknown_tool_target_falls_back_to_first_string_param(self):
+        # No entry in _TARGET_FIELDS for this tool name, so _target_for must
+        # scan params.values() and pick the first string it finds.
+        d = AgentDigest()
+        d.ingest([assistant([tool_use("SomeFutureTool", whatever={"a": 1},
+                                      note="fallback text")])])
+        self.assertEqual(d.tool_calls[0].target, "fallback text")
+
 
 class TestActivityAndFinalText(unittest.TestCase):
     def test_last_activity_tracks_latest_timestamp(self):
@@ -99,6 +114,22 @@ class TestActivityAndFinalText(unittest.TestCase):
                    "content": [{"type": "tool_result", "tool_use_id": "t1",
                                 "content": "ok"}]}}])
         self.assertFalse(d.ended_mid_tool)
+
+    def test_mid_tool_flag_tracks_correctly_across_separate_ingest_calls(self):
+        # Production driving pattern: each poll delivers only the new lines
+        # since the last read, as separate ingest() calls.
+        d = AgentDigest()
+        d.ingest([assistant([tool_use("Bash", command="sleep 100")])])
+        self.assertTrue(d.ended_mid_tool)
+
+        d.ingest([{"type": "user", "timestamp": TS_LATER, "message": {"role": "user",
+                   "content": [{"type": "tool_result", "tool_use_id": "t1",
+                                "content": "ok"}]}}])
+        self.assertFalse(d.ended_mid_tool)
+
+        d.ingest([assistant([tool_use("Bash", command="sleep 200")],
+                            timestamp=TS_LATER)])
+        self.assertTrue(d.ended_mid_tool)
 
 
 if __name__ == "__main__":

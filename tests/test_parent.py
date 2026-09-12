@@ -72,7 +72,10 @@ class TestParentIndex(unittest.TestCase):
         idx = ParentIndex()
         idx.ingest([LAUNCH, BACKGROUND_RESULT])
         self.assertEqual(idx.cwd, r"E:\god_ai\dev-token-dashboard")
-        self.assertGreater(idx.last_entry_at, 0)
+        # BACKGROUND_RESULT (TS2) is later than LAUNCH (TS1); pinning to the
+        # later value catches a regression that latches onto the first entry.
+        self.assertAlmostEqual(idx.last_entry_at,
+                               utc(2026, 9, 9, 4, 57, 14, 0.245), places=2)
 
     def test_background_result_extracts_agent_id(self):
         idx = ParentIndex()
@@ -121,6 +124,27 @@ class TestParentIndex(unittest.TestCase):
         self.assertIn("DONE AGAIN", notes[1].result)
         self.assertLess(notes[0].at, notes[1].at)
 
+    def test_reingesting_the_same_notification_does_not_duplicate_it(self):
+        # transcript.py resets its offset to 0 on truncation/replacement, which
+        # re-delivers the whole file; ingest() must stay idempotent.
+        idx = ParentIndex()
+        idx.ingest([NOTIFICATION])
+        idx.ingest([NOTIFICATION])
+        notes = idx.notifications["ad434e54374f9fc8b"]
+        self.assertEqual(len(notes), 1)
+
+    def test_genuinely_distinct_notifications_for_one_agent_both_land(self):
+        second = dict(NOTIFICATION)
+        second["uuid"] = "n-2"
+        second["timestamp"] = "2026-09-09T05:10:00.000Z"
+        second["message"] = {"role": "user", "content":
+            NOTIFICATION["message"]["content"].replace("DONE", "DONE AGAIN")}
+        idx = ParentIndex()
+        idx.ingest([NOTIFICATION, second])
+        idx.ingest([NOTIFICATION, second])  # re-deliver both; still no duplicates
+        notes = idx.notifications["ad434e54374f9fc8b"]
+        self.assertEqual(len(notes), 2)
+
     def test_non_agent_tool_uses_are_ignored(self):
         entry = {"uuid": "t", "timestamp": TS1, "type": "assistant",
                  "message": {"role": "assistant", "content": [
@@ -142,6 +166,23 @@ class TestParentIndex(unittest.TestCase):
         idx.ingest([{}, {"message": None}, {"message": {"content": "plain string"}},
                     {"message": {"content": [None, 5, {"type": "tool_use"}]}}])
         self.assertEqual(idx.launches, {})
+
+    def test_specific_malformed_shapes_are_skipped_without_polluting_state(self):
+        bare_string_message = {"uuid": "s1", "timestamp": TS1, "type": "user",
+                               "message": "just a string, not a dict"}
+        tool_use_without_id = {"uuid": "s2", "timestamp": TS1, "type": "assistant",
+                               "message": {"role": "assistant", "content": [
+                                   {"type": "tool_use", "name": "Agent",
+                                    "input": {"description": "no id here"}}]}}
+        notification_without_task_id = {
+            "uuid": "s3", "timestamp": TS1, "type": "user",
+            "message": {"role": "user", "content":
+                "<task-notification>\n<tool-use-id>toolu_1</tool-use-id>\n"
+                "<status>completed</status>\n</task-notification>"}}
+        idx = ParentIndex()
+        idx.ingest([bare_string_message, tool_use_without_id, notification_without_task_id])
+        self.assertEqual(idx.launches, {})
+        self.assertEqual(idx.notifications, {})
 
 
 if __name__ == "__main__":
