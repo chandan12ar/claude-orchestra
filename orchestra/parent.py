@@ -186,3 +186,7 @@ class ParentIndex:
             self.notifications.setdefault(agent_id, []).append(note)
         for notes in self.notifications.values():
             notes.sort(key=lambda n: (n.at is None, n.at))
+
+
+content_blocks = _content_blocks
+content_text = _content_text
