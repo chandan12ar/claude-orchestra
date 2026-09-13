@@ -91,6 +91,14 @@ class RunBuilder:
     def _agent_ids(self) -> List[str]:
         ids = set(self._metas) | set(self._digests)
         for result in self._parent.results.values():
+            # An agent id is only real if its tool_result answers an actual
+            # Agent/Task launch. The id is scraped from result TEXT, so a
+            # transcript that merely QUOTES another session's launch output —
+            # which happens whenever anyone inspects transcripts — would
+            # otherwise invent a phantom agent with no meta, no transcript and
+            # no launch, showing up as an empty "unknown" row.
+            if result.tool_use_id not in self._parent.launches:
+                continue
             if result.agent_id:
                 ids.add(result.agent_id)
         return sorted(ids)

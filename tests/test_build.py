@@ -161,5 +161,36 @@ class TestNestedAgents(unittest.TestCase):
         self.assertIn("inner part", self.build().agent("a1b").brief.lower())
 
 
+class TestQuotedAgentIdsDoNotBecomeAgents(BuildTestCase):
+    """Found by running Orchestra against its own session.
+
+    Agent ids are scraped from tool_result TEXT. A transcript that merely
+    quotes another session's launch output — which happens whenever anyone
+    inspects transcripts, or a subagent reads one — must not invent an agent.
+    """
+
+    def test_a_quoted_launch_result_does_not_create_a_phantom_agent(self):
+        import json
+        quoted = {
+            "uuid": "quote-1", "timestamp": ts(90), "type": "user",
+            "message": {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": "toolu_bash_99",
+                 "content": [{"type": "text", "text":
+                              "Async agent launched successfully.\n"
+                              "agentId: deadbeefcafe1234 (internal ID)\n"}]}]}}
+        with open(self.paths.session_jsonl, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(quoted) + "\n")
+
+        run = self.build()
+        self.assertEqual({a.agent_id for a in run.agents}, {"a1", "a2", "a3"})
+        self.assertIsNone(run.agent("deadbeefcafe1234"))
+
+    def test_a_real_launch_result_still_creates_its_agent(self):
+        # The guard must not suppress agents whose meta file has not appeared
+        # yet: the launch record is what makes them real.
+        run = self.build()
+        self.assertIsNotNone(run.agent("a3"))
+
+
 if __name__ == "__main__":
     unittest.main()
