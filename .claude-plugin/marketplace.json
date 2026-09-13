@@ -1,0 +1,11 @@
+{
+  "name": "orchestra-marketplace",
+  "owner": {"name": "Chandan"},
+  "plugins": [
+    {
+      "name": "orchestra",
+      "source": "./",
+      "description": "See what your subagents are actually doing."
+    }
+  ]
+}
