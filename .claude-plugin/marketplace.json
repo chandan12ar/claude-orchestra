@@ -1,5 +1,6 @@
 {
   "name": "orchestra-marketplace",
+  "description": "Observability tooling for Claude Code subagent orchestration.",
   "owner": {"name": "Chandan"},
   "plugins": [
     {
