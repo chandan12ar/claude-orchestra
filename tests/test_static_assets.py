@@ -71,5 +71,52 @@ class TestGraphAndDrawerPresent(unittest.TestCase):
         self.assertIn("expected_output_source", read("app.js"))
 
 
+class TestNoUnescapedInterpolation(unittest.TestCase):
+    """Transcript text reaches innerHTML; every value must pass through esc().
+
+    A tool call's file_path is taken verbatim from the transcript, and `<`,
+    `>` and `"` are all legal in a filename — so an unescaped path is live
+    HTML in a page that holds the dashboard's API token.
+    """
+
+    def _body(self, name):
+        js = read("app.js")
+        start = js.index("function {}(".format(name))
+        return js[start:js.index("\n}", start)]
+
+    def test_show_evidence_escapes_every_interpolated_value(self):
+        body = self._body("showEvidence")
+        for raw in ("+ e.path", "+ edge.kind", "+ edge.src", "+ edge.dst",
+                    "+ e.snippet", "+ e.score", "+ e.run_words"):
+            self.assertNotIn(raw, body,
+                             "unescaped interpolation in showEvidence: " + raw)
+        self.assertIn("esc(e.path)", body)
+        self.assertIn("esc(e.snippet)", body)
+
+    def test_snippet_is_escaped_not_stripped(self):
+        # The old code deleted < > & from snippets, which mutilates legitimate
+        # content instead of rendering it.
+        self.assertNotIn('replace(/[<>&]/g, "")', read("app.js"))
+
+
+class TestGraphLayoutUsesColumnIndex(unittest.TestCase):
+    def test_nodes_are_placed_by_column_not_raw_rank(self):
+        # Artifact edges can form a cycle, which inflates a raw rank far past
+        # the number of occupied columns and pushes nodes outside the viewBox.
+        js = read("app.js")
+        self.assertNotIn("node.x = 20 + r * (NODE_W + COL_GAP)", js)
+        self.assertIn("node.x = 20 + column * (NODE_W + COL_GAP)", js)
+
+
+class TestPollingCannotOverlap(unittest.TestCase):
+    def test_polling_is_generation_guarded(self):
+        js = read("app.js")
+        self.assertIn("function startPolling()", js)
+        self.assertIn("state.generation", js)
+        # Every entry point must go through startPolling, never poll() directly.
+        self.assertNotIn("  poll();", js)
+        self.assertNotIn("if (state.live) poll();", js)
+
+
 if __name__ == "__main__":
     unittest.main()

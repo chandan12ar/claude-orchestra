@@ -10,6 +10,10 @@ const state = {
   view: "timeline",
   backoff: POLL_MS,
   selected: null,
+  // Bumped whenever a new poll loop starts. A loop whose generation is stale
+  // discards its result and stops rescheduling, so toggling Live or switching
+  // sessions cannot leave two loops running on independent cadences.
+  generation: 0,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -190,7 +194,9 @@ function setView(view) {
   $("view-timeline").hidden = view !== "timeline";
   $("view-graph").hidden = view !== "graph";
   for (const tab of document.querySelectorAll(".tab")) {
-    tab.classList.toggle("active", tab.dataset.view === view);
+    const active = tab.dataset.view === view;
+    tab.classList.toggle("active", active);
+    tab.setAttribute("aria-selected", String(active));
   }
   render();
 }
@@ -204,17 +210,30 @@ function render() {
   else renderGraph(state.run);
 }
 
-async function poll() {
+function startPolling() {
+  state.generation += 1;
+  poll(state.generation);
+}
+
+async function poll(generation) {
+  let run = null;
   try {
-    state.run = await api("/api/run");
-    state.backoff = POLL_MS;
-    $("conn").textContent = state.run.session_live ? "" : "session ended";
-    render();
+    run = await api("/api/run");
   } catch (err) {
+    if (generation !== state.generation) return;
     $("conn").textContent = "reconnecting…";
     state.backoff = Math.min(state.backoff * 2, 30000);
+    if (state.live) setTimeout(() => poll(generation), state.backoff);
+    return;
   }
-  if (state.live) setTimeout(poll, state.backoff);
+  // A response that arrived after the session changed, or after this loop was
+  // superseded, must not overwrite the current view.
+  if (generation !== state.generation) return;
+  state.run = run;
+  state.backoff = POLL_MS;
+  $("conn").textContent = run.session_live ? "" : "session ended";
+  render();
+  if (state.live) setTimeout(() => poll(generation), state.backoff);
 }
 
 async function loadSessions() {
@@ -239,19 +258,19 @@ function init() {
     state.live = !state.live;
     event.target.setAttribute("aria-pressed", String(state.live));
     event.target.textContent = state.live ? "Live" : "Paused";
-    if (state.live) poll();
+    if (state.live) startPolling();
   };
   $("session-picker").onchange = (event) => {
     state.sessionId = event.target.value;
     state.run = null;
-    poll();
+    startPolling();
   };
   for (const tab of document.querySelectorAll(".tab")) {
     tab.onclick = () => setView(tab.dataset.view);
   }
   window.addEventListener("resize", () => render());
   loadSessions();
-  poll();
+  startPolling();
 }
 
 document.addEventListener("DOMContentLoaded", init);
@@ -322,12 +341,18 @@ function layoutGraph(run) {
     }
   }
 
-  for (const r of ranks) {
+  // Place by COLUMN INDEX, not by raw rank value. Artifact edges can form a
+  // cycle (two agents each reading what the other wrote), and the rank loop is
+  // bounded by node count rather than convergence, so a raw rank can climb far
+  // past the number of columns actually occupied — putting nodes outside the
+  // viewBox with no error and no visible cue that anything is missing.
+  ranks.forEach((r, column) => {
     columns[r].forEach((node, i) => {
-      node.x = 20 + r * (NODE_W + COL_GAP);
+      node.column = column;
+      node.x = 20 + column * (NODE_W + COL_GAP);
       node.y = 20 + i * (NODE_H + ROW_GAP);
     });
-  }
+  });
   const width = 40 + (ranks.length) * (NODE_W + COL_GAP);
   const height = 40 + Math.max(...ranks.map((r) => columns[r].length)) *
     (NODE_H + ROW_GAP);
@@ -400,17 +425,21 @@ function renderGraph(run) {
 function showEvidence(edge) {
   const box = $("edge-evidence");
   box.hidden = false;
-  const bits = ["<strong>" + edge.kind + "</strong> — " + edge.confidence,
-                edge.src + " → " + edge.dst];
+  // Everything here is transcript-derived and untrusted. e.path in particular
+  // is a tool call's literal file_path argument, and < > " are all legal in a
+  // filename — so this must be escaped exactly as openDrawer escapes the same
+  // data. scrub() redacts credentials; it does not HTML-escape.
+  const bits = ["<strong>" + esc(edge.kind) + "</strong> — " + esc(edge.confidence),
+                esc(edge.src) + " → " + esc(edge.dst)];
   const e = edge.evidence || {};
-  if (e.path) bits.push("file: <code>" + e.path + "</code>");
+  if (e.path) bits.push("file: <code>" + esc(e.path) + "</code>");
   if (e.score !== undefined) {
-    bits.push("overlap score: " + e.score + " · longest match: " +
-              e.run_words + " words");
+    bits.push("overlap score: " + esc(e.score) + " · longest match: " +
+              esc(e.run_words) + " words");
   }
-  if (e.snippet) bits.push("<pre>" + e.snippet.replace(/[<>&]/g, "") + "</pre>");
+  if (e.snippet) bits.push("<pre>" + esc(e.snippet) + "</pre>");
   if (e.handoff) {
-    bits.push("<em>result text also reused:</em> " + e.handoff.run_words +
+    bits.push("<em>result text also reused:</em> " + esc(e.handoff.run_words) +
               " word match");
   }
   box.innerHTML = bits.join("<br>");
