@@ -122,9 +122,12 @@ class Agent:
             "expected_output_source": self.expected_output.source,
             "tool_calls": [{"name": t.name, "target": scrub(t.target),
                             "timestamp": t.timestamp} for t in self.tool_calls],
-            "files_written": list(self.files_written),
-            "files_read": list(self.files_read),
-            "transcript_path": self.transcript_path,
+            # These are transcript-derived paths too: the same string is
+            # scrubbed in tool_calls[].target, so leaving it raw here would
+            # be a hole in the single chokepoint spec section 11 promises.
+            "files_written": [scrub(p) for p in self.files_written],
+            "files_read": [scrub(p) for p in self.files_read],
+            "transcript_path": scrub(self.transcript_path),
         })
         return d
 
@@ -161,7 +164,7 @@ class HubFile:
     reader_ids: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
-        return {"path": self.path, "reader_ids": list(self.reader_ids)}
+        return {"path": scrub(self.path), "reader_ids": list(self.reader_ids)}
 
 
 @dataclass

@@ -22,7 +22,9 @@ _SHELL = """<!doctype html>
 <header>
   <div class="bar">
     <h1>Orchestra</h1>
-    <span class="conn">static report · session {session}</span>
+    <!-- id is load-bearing: app.js sets $("conn").textContent inside poll(),
+         before render(). Without it the whole page throws and stays blank. -->
+    <span id="conn" class="conn">static report · session {session}</span>
   </div>
   <div id="totals" class="totals"></div>
 </header>
@@ -54,6 +56,17 @@ window.ORCHESTRA_DETAILS = {details_json};
 </body>
 </html>
 """
+
+
+def _script_safe(payload: Any) -> str:
+    """JSON for embedding inside an inline <script>.
+
+    json.dumps does not escape "<", so a brief containing "</script>" would
+    close the script element early: a benign case (an agent discussing HTML)
+    truncates the payload into a syntax error and kills the report, and a
+    hostile one executes. Escaping "<" is enough, and leaves the JSON valid.
+    """
+    return json.dumps(payload).replace("<", "\\u003c")
 
 
 def _read_static(name: str) -> str:
@@ -89,8 +102,8 @@ def render_report(run: Run, details: Dict[str, Dict[str, Any]]) -> str:
         session=run.session_id,
         css=_read_static("style.css"),
         js=_offline_shim(_read_static("app.js")),
-        run_json=json.dumps(run.to_summary_dict()),
-        details_json=json.dumps(details),
+        run_json=_script_safe(run.to_summary_dict()),
+        details_json=_script_safe(details),
     )
 
 

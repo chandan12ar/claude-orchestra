@@ -194,3 +194,55 @@ class TestQuotedAgentIdsDoNotBecomeAgents(BuildTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestConcurrentRefreshDoesNotDoubleCount(BuildTestCase):
+    """ThreadingHTTPServer calls refresh() from many threads at once.
+
+    refresh mutates the reader's byte offsets and the per-agent digests, and
+    digests accumulate with += and append. Two interleaved refreshes over the
+    same new bytes ingest them twice and the builder stays permanently
+    poisoned: every later poll reports the inflated figure.
+    """
+
+    def _fatten(self, agent_id, entries):
+        import json
+        path = os.path.join(self.paths.subagents_dir,
+                            "agent-{}.jsonl".format(agent_id))
+        with open(path, "a", encoding="utf-8") as fh:
+            for i in range(entries):
+                fh.write(json.dumps(agent_entry(
+                    [{"type": "tool_use", "id": "t{}".format(i), "name": "Read",
+                      "input": {"file_path": "src/f{}.py".format(i)}}],
+                    100 + (i % 40),
+                    usage={"input_tokens": 1, "output_tokens": 1})) + "\n")
+
+    def test_parallel_refresh_matches_a_single_threaded_build(self):
+        import threading
+
+        self._fatten("a3", 400)
+
+        expected = RunBuilder(self.paths, now_fn=lambda: NOW_LIVE).refresh()
+        expected_tokens = expected.totals()["tokens"]
+        expected_calls = len(expected.agent("a3").tool_calls)
+
+        shared = RunBuilder(self.paths, now_fn=lambda: NOW_LIVE)
+        errors = []
+
+        def hammer():
+            try:
+                for _ in range(4):
+                    shared.refresh()
+            except Exception as exc:  # noqa: BLE001 - surfaced by the assert
+                errors.append(exc)
+
+        threads = [threading.Thread(target=hammer) for _ in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=60)
+
+        self.assertEqual(errors, [])
+        final = shared.refresh()
+        self.assertEqual(final.totals()["tokens"], expected_tokens)
+        self.assertEqual(len(final.agent("a3").tool_calls), expected_calls)

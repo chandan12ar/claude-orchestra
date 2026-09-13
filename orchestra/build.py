@@ -6,6 +6,7 @@ network, no writes. Everything the dashboard shows is decided here.
 
 import glob
 import os
+import threading
 import time
 from typing import Callable, Dict, List, Optional
 
@@ -27,12 +28,22 @@ class RunBuilder:
                  now_fn: Callable[[], float] = time.time) -> None:
         self.paths = paths
         self.now_fn = now_fn
+        # ThreadingHTTPServer runs a thread per connection, and every one of
+        # them calls refresh() on this same builder. refresh mutates the
+        # reader's byte offsets and the per-agent digests, which accumulate
+        # with += and append -- so two interleaved refreshes consume the same
+        # bytes twice and the counts stay permanently doubled.
+        self._lock = threading.Lock()
         self._reader = IncrementalReader()
         self._parent = ParentIndex()
         self._digests: Dict[str, AgentDigest] = {}
         self._metas: Dict[str, dict] = {}
 
     def refresh(self) -> Run:
+        with self._lock:
+            return self._refresh_locked()
+
+    def _refresh_locked(self) -> Run:
         now = self.now_fn()
         self._parent.ingest(self._reader.read_new(self.paths.session_jsonl))
         self._scan_subagents()

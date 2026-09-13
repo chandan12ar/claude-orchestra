@@ -34,9 +34,17 @@ def logfile_path(session_id: str) -> str:
 
 
 def write_portfile(session_id: str, port: int, token: str, pid: int) -> None:
-    with open(portfile_path(session_id), "w", encoding="utf-8") as fh:
+    path = portfile_path(session_id)
+    with open(path, "w", encoding="utf-8") as fh:
         json.dump({"port": port, "token": token, "pid": pid,
                    "session": session_id}, fh)
+    # This file holds the API token, and the server's whole threat model is
+    # that other local processes are hostile. On POSIX the system temp dir is
+    # world-readable (1777) and the default umask would leave this 0644.
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
 
 
 def read_portfile(session_id: str) -> Optional[Dict[str, Any]]:
