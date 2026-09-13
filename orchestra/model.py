@@ -7,6 +7,21 @@ from orchestra import constants as C
 from orchestra.redact import scrub, scrub_obj
 
 
+LIGHT_TEXT_CAP = 200
+
+
+def _cap(text: Optional[str], limit: int = LIGHT_TEXT_CAP) -> str:
+    """Trim a field carried in the 2-second poll payload.
+
+    Applied AFTER scrub, never before, so a credential can never be split
+    across the cut and survive half-redacted. The full text stays available
+    on the per-agent detail endpoint.
+    """
+    if not text:
+        return ""
+    return text if len(text) <= limit else text[:limit] + "…"
+
+
 @dataclass
 class Extraction:
     """A value pulled out of a brief, plus which rule produced it."""
@@ -89,7 +104,7 @@ class Agent:
             "tokens": dict(self.tokens),
             "rounds": [{"started_at": r.started_at, "ended_at": r.ended_at,
                         "status": r.status} for r in self.rounds],
-            "objective": scrub(self.objective.text),
+            "objective": _cap(scrub(self.objective.text)),
             "files_written_count": len(self.files_written),
             "tool_call_count": len(self.tool_calls),
         }
@@ -99,6 +114,9 @@ class Agent:
         d.update({
             "brief": scrub(self.brief),
             "result": scrub(self.result),
+            # Overrides the capped copy inherited from to_light_dict: the
+            # detail endpoint is exactly where the full text belongs.
+            "objective": scrub(self.objective.text),
             "objective_source": self.objective.source,
             "expected_output": scrub(self.expected_output.text),
             "expected_output_source": self.expected_output.source,

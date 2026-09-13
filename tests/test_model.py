@@ -86,5 +86,28 @@ class TestSerializationRedacts(unittest.TestCase):
         self.assertNotIn("ABCDEFGHIJ", e.to_dict()["evidence"]["snippet"])
 
 
+class TestLightDictIsActuallyLight(unittest.TestCase):
+    """The 2-second poll carries the light dict; detail is fetched on click."""
+
+    def test_long_objective_is_capped_in_light_but_whole_in_detail(self):
+        long_text = "word " * 500
+        a = make_agent(objective=Extraction(long_text, "fallback"))
+        light = a.to_light_dict()["objective"]
+        self.assertLessEqual(len(light), 201)
+        self.assertTrue(light.endswith("…"))
+        self.assertEqual(a.to_detail_dict()["objective"], long_text)
+
+    def test_short_objective_is_untouched_and_ungarnished(self):
+        a = make_agent(objective=Extraction("Fix the parser.", "imperative line"))
+        self.assertEqual(a.to_light_dict()["objective"], "Fix the parser.")
+
+    def test_a_secret_cannot_survive_the_cut_half_redacted(self):
+        # Cap runs after scrub, so the credential is already a marker by the
+        # time it could be split.
+        token = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        a = make_agent(objective=Extraction("x" * 190 + " " + token, "fallback"))
+        self.assertNotIn("ABCDEFGHIJ", a.to_light_dict()["objective"])
+
+
 if __name__ == "__main__":
     unittest.main()

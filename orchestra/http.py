@@ -1,12 +1,15 @@
 """The local server. Loopback only, token-gated, no egress."""
 
+import hmac
 import json
 import os
+import sys
 import threading
 import time
+import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Dict, Optional, Tuple
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from orchestra import constants as C
 from orchestra.service import NotFound, OrchestraService
@@ -17,14 +20,27 @@ _CONTENT_TYPES = {".html": "text/html; charset=utf-8",
                   ".js": "text/javascript; charset=utf-8",
                   ".css": "text/css; charset=utf-8"}
 
-_LOOPBACK = ("127.0.0.1", "localhost", "[::1]", "::1")
+_LOOPBACK = ("127.0.0.1", "localhost", "::1")
+
+
+def _hostname_of(value: str, is_url: bool) -> Optional[str]:
+    """The real hostname, per URL rules — lowercased, unbracketed, no userinfo.
+
+    Hand-rolled colon splitting gets this wrong in both directions: it reads
+    "127.0.0.1:8080@evil.com" as loopback (the userinfo hides the real host),
+    and it rejects "[::1]:1234" because IPv6 has more than one colon.
+    A Host header is not a URL, so it is prefixed to make one.
+    """
+    try:
+        return urlsplit(value if is_url else "//" + value).hostname
+    except ValueError:
+        return None
 
 
 def _host_is_loopback(header: Optional[str]) -> bool:
     if not header:
         return False
-    host = header.rsplit(":", 1)[0] if header.count(":") == 1 else header
-    return host.strip("[]") in [h.strip("[]") for h in _LOOPBACK]
+    return _hostname_of(header, is_url=False) in _LOOPBACK
 
 
 def _origin_is_allowed(header: Optional[str]) -> bool:
@@ -36,7 +52,7 @@ def _origin_is_allowed(header: Optional[str]) -> bool:
     """
     if not header or header == "null":
         return True
-    return _host_is_loopback(urlparse(header).netloc)
+    return _hostname_of(header, is_url=True) in _LOOPBACK
 
 
 def make_handler(service: OrchestraService, state: Dict[str, float]):
@@ -67,7 +83,11 @@ def make_handler(service: OrchestraService, state: Dict[str, float]):
         def _authorized(self, query: Dict[str, list]) -> bool:
             supplied = (query.get("k", [""])[0]
                         or self.headers.get("X-Orchestra-Token", ""))
-            return bool(service.token) and supplied == service.token
+            if not service.token:
+                return False
+            # compare_digest, not ==: this is the only gate on the user's
+            # prompts and results.
+            return hmac.compare_digest(supplied, service.token)
 
         # -- routing ----------------------------------------------------
         def do_GET(self) -> None:  # noqa: N802 (stdlib naming)
@@ -78,13 +98,24 @@ def make_handler(service: OrchestraService, state: Dict[str, float]):
             if not _origin_is_allowed(self.headers.get("Origin")):
                 self._error(403, "cross-site origin")
                 return
-            parsed = urlparse(self.path)
+            parsed = urlsplit(self.path)
             path = unquote(parsed.path)
             query = parse_qs(parsed.query)
-            if path.startswith("/api/"):
-                self._api(path, query)
-            else:
-                self._static(path)
+            # A handler that raises sends NOTHING — no status line, no headers —
+            # and the client just sees a dropped connection, which under
+            # keep-alive can hang it. A corrupt transcript must not do that.
+            try:
+                if path.startswith("/api/"):
+                    self._api(path, query)
+                else:
+                    self._static(path)
+            except Exception:  # noqa: BLE001 - deliberate catch-all
+                # stderr only: the body must never echo transcript content.
+                traceback.print_exc(file=sys.stderr)
+                try:
+                    self._error(500, "internal error")
+                except Exception:  # noqa: BLE001 - client already gone
+                    pass
 
         def _api(self, path: str, query: Dict[str, list]) -> None:
             if path == "/api/health":
@@ -109,8 +140,11 @@ def make_handler(service: OrchestraService, state: Dict[str, float]):
 
         def _static(self, path: str) -> None:
             name = "index.html" if path in ("/", "") else path.lstrip("/")
-            target = os.path.normpath(os.path.join(STATIC_DIR, name))
-            if not target.startswith(STATIC_DIR + os.sep) or not os.path.isfile(target):
+            # realpath, not normpath: a symlink planted inside static/ would
+            # satisfy a purely textual prefix check and be served.
+            target = os.path.realpath(os.path.join(STATIC_DIR, name))
+            root = os.path.realpath(STATIC_DIR)
+            if not target.startswith(root + os.sep) or not os.path.isfile(target):
                 self._error(404, "not found")
                 return
             extension = os.path.splitext(target)[1]

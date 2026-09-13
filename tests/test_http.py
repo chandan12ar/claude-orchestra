@@ -4,7 +4,7 @@ import unittest
 import urllib.error
 import urllib.request
 
-from orchestra.http import serve
+from orchestra.http import _host_is_loopback, _origin_is_allowed, serve
 from orchestra.parent import parse_timestamp
 from orchestra.service import OrchestraService
 from tests.fixtures import build_session, ts
@@ -16,9 +16,10 @@ class HttpTestCase(unittest.TestCase):
     def setUp(self):
         self.root = tempfile.mkdtemp()
         build_session(self.root, "s1")
-        service = OrchestraService(root=self.root, token=TOKEN, default_session="s1",
-                                   now_fn=lambda: parse_timestamp(ts(150)))
-        self.server, self.thread = serve(service, port=0)
+        self.service = OrchestraService(root=self.root, token=TOKEN,
+                                        default_session="s1",
+                                        now_fn=lambda: parse_timestamp(ts(150)))
+        self.server, self.thread = serve(self.service, port=0)
         self.base = "http://127.0.0.1:{}".format(self.server.server_port)
         self.addCleanup(self.server.shutdown)
 
@@ -131,6 +132,78 @@ class TestBuilderReuse(unittest.TestCase):
         first = service._builders["s1"]
         service.run_summary("s1")
         self.assertIs(service._builders["s1"], first)
+
+
+class TestHostnameParsing(unittest.TestCase):
+    """Hand-rolled colon splitting got this wrong in both directions."""
+
+    def test_userinfo_cannot_disguise_a_foreign_host(self):
+        # The real host here is evil.com; the loopback part is userinfo.
+        self.assertFalse(_host_is_loopback("127.0.0.1:8080@evil.com"))
+        self.assertFalse(_origin_is_allowed("http://127.0.0.1:1234@evil.com"))
+
+    def test_ipv6_loopback_with_a_port_is_accepted(self):
+        self.assertTrue(_host_is_loopback("[::1]:1234"))
+        self.assertTrue(_host_is_loopback("[::1]"))
+
+    def test_ipv4_loopback_with_and_without_port(self):
+        self.assertTrue(_host_is_loopback("127.0.0.1"))
+        self.assertTrue(_host_is_loopback("127.0.0.1:7717"))
+        self.assertTrue(_host_is_loopback("localhost:7717"))
+
+    def test_lookalike_domains_are_rejected(self):
+        self.assertFalse(_host_is_loopback("localhost.evil.com"))
+        self.assertFalse(_host_is_loopback("127.0.0.1.evil.com"))
+        self.assertFalse(_host_is_loopback("evil.com"))
+        self.assertFalse(_host_is_loopback(""))
+        self.assertFalse(_host_is_loopback(None))
+
+    def test_malformed_host_is_not_loopback(self):
+        self.assertFalse(_host_is_loopback("[::1"))
+        self.assertFalse(_host_is_loopback("http://[oops"))
+
+    def test_absent_or_null_origin_is_allowed(self):
+        self.assertTrue(_origin_is_allowed(None))
+        self.assertTrue(_origin_is_allowed(""))
+        self.assertTrue(_origin_is_allowed("null"))
+        self.assertTrue(_origin_is_allowed("http://127.0.0.1:7717"))
+
+
+class TestHostOriginOverHttp(HttpTestCase):
+    def test_userinfo_host_is_refused_by_the_server(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.get("/api/run", host="127.0.0.1:8080@evil.com")
+        self.assertEqual(ctx.exception.code, 403)
+
+
+class TestUnexpectedErrorsStillAnswer(HttpTestCase):
+    def test_an_unexpected_exception_returns_500_not_an_empty_response(self):
+        def boom(*args, **kwargs):
+            raise RuntimeError("simulated corrupt transcript")
+
+        self.service.run_summary = boom
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.get("/api/run")
+        self.assertEqual(ctx.exception.code, 500)
+        body = json.loads(ctx.exception.read().decode("utf-8"))
+        self.assertIn("error", body)
+        # The body must never echo the exception text: it can carry
+        # transcript content.
+        self.assertNotIn("corrupt transcript", json.dumps(body))
+
+    def test_the_server_still_serves_after_an_error(self):
+        def boom(*args, **kwargs):
+            raise RuntimeError("boom")
+
+        original = self.service.run_summary
+        self.service.run_summary = boom
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.get("/api/run")
+        ctx.exception.close()
+        self.service.run_summary = original
+        response = self.get("/api/health", token=None)
+        self.assertEqual(response.status, 200)
+        response.close()
 
 
 if __name__ == "__main__":
