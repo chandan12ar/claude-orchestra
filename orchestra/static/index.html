@@ -1,3 +1,42 @@
 <!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Orchestra</title>
-<p>Loading...</p>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <div class="bar">
+    <h1>Orchestra</h1>
+    <select id="session-picker" aria-label="Session"></select>
+    <button id="live-toggle" type="button" aria-pressed="true">Live</button>
+    <span id="conn" class="conn"></span>
+  </div>
+  <div id="totals" class="totals"></div>
+</header>
+
+<div id="health" class="health" hidden></div>
+
+<nav class="tabs" role="tablist">
+  <button type="button" class="tab active" data-view="timeline" role="tab">Timeline</button>
+  <button type="button" class="tab" data-view="graph" role="tab">Graph</button>
+</nav>
+
+<main>
+  <section id="view-timeline" class="view">
+    <svg id="timeline" role="img" aria-label="Agent timeline"></svg>
+  </section>
+  <section id="view-graph" class="view" hidden>
+    <svg id="graph" role="img" aria-label="Agent dependency graph"></svg>
+    <div id="edge-evidence" class="evidence" hidden></div>
+  </section>
+</main>
+
+<aside id="drawer" class="drawer" hidden aria-label="Agent detail"></aside>
+<footer id="diagnostics" class="diagnostics"></footer>
+
+<script src="app.js"></script>
+</body>
+</html>
