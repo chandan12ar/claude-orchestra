@@ -1,0 +1,227 @@
+"""The /orchestra command line."""
+
+import argparse
+import json
+import os
+import secrets
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+import webbrowser
+from typing import Any, Dict, List, Optional
+
+from orchestra import constants as C
+
+MIN_PYTHON = (3, 9)
+
+
+def _state_dir() -> str:
+    directory = os.environ.get("ORCHESTRA_STATE_DIR") or \
+        os.path.join(tempfile.gettempdir(), "orchestra")
+    os.makedirs(directory, exist_ok=True)
+    return directory
+
+
+def portfile_path(session_id: str) -> str:
+    safe = "".join(ch for ch in session_id if ch.isalnum() or ch in "-_")
+    return os.path.join(_state_dir(), "{}.json".format(safe or "default"))
+
+
+def logfile_path(session_id: str) -> str:
+    return portfile_path(session_id)[: -len(".json")] + ".log"
+
+
+def write_portfile(session_id: str, port: int, token: str, pid: int) -> None:
+    with open(portfile_path(session_id), "w", encoding="utf-8") as fh:
+        json.dump({"port": port, "token": token, "pid": pid,
+                   "session": session_id}, fh)
+
+
+def read_portfile(session_id: str) -> Optional[Dict[str, Any]]:
+    try:
+        with open(portfile_path(session_id), encoding="utf-8") as fh:
+            info = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    return info if isinstance(info, dict) and "port" in info else None
+
+
+def remove_portfile(session_id: str) -> None:
+    try:
+        os.remove(portfile_path(session_id))
+    except OSError:
+        pass
+
+
+def url_for(info: Dict[str, Any]) -> str:
+    return "http://127.0.0.1:{}/?k={}&session={}".format(
+        info["port"], info.get("token", ""), info.get("session", ""))
+
+
+def server_is_alive(info: Dict[str, Any]) -> bool:
+    import urllib.error
+    import urllib.request
+    try:
+        with urllib.request.urlopen(
+                "http://127.0.0.1:{}/api/health".format(info["port"]), timeout=1):
+            return True
+    except (urllib.error.URLError, OSError):
+        return False
+
+
+def _kill(pid: int) -> None:
+    try:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/PID", str(pid), "/F"],
+                           capture_output=True, check=False)
+        else:
+            os.kill(pid, signal.SIGTERM)
+    except (OSError, ValueError):
+        pass
+
+
+# -- commands -------------------------------------------------------------
+
+def _resolve_session(args) -> str:
+    return args.session or os.environ.get("CLAUDE_CODE_SESSION_ID", "")
+
+
+def cmd_serve(args) -> int:
+    """Foreground server. This is what the detached child process runs."""
+    from orchestra.http import make_server, start_idle_watchdog
+    from orchestra.service import OrchestraService
+
+    session_id = _resolve_session(args)
+    token = args.token or secrets.token_urlsafe(24)
+    service = OrchestraService(token=token, default_session=session_id)
+
+    port = args.port
+    server = None
+    for attempt in range(20):
+        try:
+            server = make_server(service, port if port else 0)
+            break
+        except OSError:
+            port = (port or C.DEFAULT_PORT) + 1
+    if server is None:
+        print("could not bind a port", file=sys.stderr)
+        return 1
+
+    write_portfile(session_id, server.server_port, token, os.getpid())
+    start_idle_watchdog(server)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        remove_portfile(session_id)
+    return 0
+
+
+def cmd_start(args) -> int:
+    session_id = _resolve_session(args)
+    if not session_id:
+        print("no session id: pass --session or run inside Claude Code")
+        return 2
+
+    info = read_portfile(session_id)
+    if info and server_is_alive(info):
+        print(url_for(info))
+        if not args.no_open:
+            webbrowser.open(url_for(info))
+        return 0
+    if info:
+        remove_portfile(session_id)
+
+    command = [sys.executable, "-m", "orchestra", "--serve",
+               "--session", session_id]
+    if args.port:
+        command += ["--port", str(args.port)]
+
+    log = open(logfile_path(session_id), "wb")
+    kwargs: Dict[str, Any] = {"stdout": log, "stderr": log, "stdin": subprocess.DEVNULL}
+    if os.name == "nt":
+        kwargs["creationflags"] = (getattr(subprocess, "DETACHED_PROCESS", 0x00000008) |
+                                   getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200))
+    else:
+        kwargs["start_new_session"] = True
+    subprocess.Popen(command, **kwargs)
+
+    deadline = time.time() + 5.0
+    while time.time() < deadline:
+        info = read_portfile(session_id)
+        if info and server_is_alive(info):
+            print(url_for(info))
+            if not args.no_open:
+                webbrowser.open(url_for(info))
+            return 0
+        time.sleep(0.15)
+
+    # A silent non-start is the worst failure for a visibility tool: say why.
+    print("orchestra failed to start within 5s")
+    try:
+        with open(logfile_path(session_id), encoding="utf-8", errors="replace") as fh:
+            tail = fh.read()[-2000:]
+        if tail.strip():
+            print(tail)
+    except OSError:
+        pass
+    return 1
+
+
+def cmd_stop(args) -> int:
+    session_id = _resolve_session(args)
+    info = read_portfile(session_id)
+    if not info:
+        print("orchestra is not running for this session")
+        return 0
+    _kill(int(info.get("pid", 0)))
+    remove_portfile(session_id)
+    print("orchestra stopped")
+    return 0
+
+
+def cmd_report(args) -> int:
+    from orchestra.build import RunBuilder
+    from orchestra.locate import find_session
+    from orchestra.report import write_report
+
+    session_id = _resolve_session(args)
+    paths = find_session(session_id)
+    if paths is None:
+        print("no transcript found for session: {}".format(session_id or "(none)"))
+        return 2
+    written = write_report(RunBuilder(paths), args.report)
+    print(written)
+    return 0
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    if sys.version_info < MIN_PYTHON:
+        print("orchestra needs Python {}.{} or newer; this is {}.{}".format(
+            MIN_PYTHON[0], MIN_PYTHON[1], sys.version_info[0], sys.version_info[1]))
+        return 2
+
+    parser = argparse.ArgumentParser(prog="orchestra", add_help=True)
+    parser.add_argument("--session", default="")
+    parser.add_argument("--port", type=int, default=0)
+    parser.add_argument("--token", default="")
+    parser.add_argument("--no-open", action="store_true")
+    parser.add_argument("--serve", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--stop", action="store_true")
+    parser.add_argument("--report", nargs="?", const="", default=None)
+    args = parser.parse_args(argv)
+
+    if args.serve:
+        return cmd_serve(args)
+    if args.stop:
+        return cmd_stop(args)
+    if args.report is not None:
+        return cmd_report(args)
+    return cmd_start(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
