@@ -255,3 +255,221 @@ function init() {
 }
 
 document.addEventListener("DOMContentLoaded", init);
+
+// ----------------------------------------------------------------- graph
+
+const NODE_W = 170;
+const NODE_H = 40;
+const COL_GAP = 90;
+const ROW_GAP = 18;
+const EXACT_KINDS = ["spawn", "artifact", "message"];
+
+function layoutGraph(run) {
+  const nodes = [{ id: "main", label: "orchestrator", status: "completed",
+                   sub: "this session", isMain: true }];
+  for (const agent of run.agents) {
+    nodes.push({
+      id: agent.agent_id,
+      label: agent.description || agent.agent_id,
+      sub: agent.agent_type + " · " + (agent.model || "?"),
+      status: agent.status,
+      startedAt: agent.started_at,
+    });
+  }
+  const byId = {};
+  nodes.forEach((n) => { byId[n.id] = n; });
+  const edges = (run.edges || []).filter((e) => byId[e.src] && byId[e.dst]);
+
+  // Rank: longest path over exact edges. An inferred edge never sets a rank,
+  // so a bad guess cannot rearrange the whole picture.
+  const rank = {};
+  nodes.forEach((n) => { rank[n.id] = 0; });
+  const structural = edges.filter((e) => EXACT_KINDS.includes(e.kind));
+  for (let pass = 0; pass < nodes.length; pass++) {
+    let moved = false;
+    for (const edge of structural) {
+      const want = rank[edge.src] + 1;
+      if (rank[edge.dst] < want) { rank[edge.dst] = want; moved = true; }
+    }
+    if (!moved) break;  // also the cycle guard: bounded by node count
+  }
+
+  const columns = {};
+  for (const node of nodes) {
+    node.rank = rank[node.id];
+    (columns[node.rank] = columns[node.rank] || []).push(node);
+  }
+  for (const key in columns) {
+    columns[key].sort((a, b) => (a.startedAt || 0) - (b.startedAt || 0));
+  }
+
+  // Two barycenter sweeps: cheap, and enough for the fan-out shapes real
+  // orchestrations produce.
+  const ranks = Object.keys(columns).map(Number).sort((a, b) => a - b);
+  for (let sweep = 0; sweep < 2; sweep++) {
+    for (const r of ranks) {
+      const index = {};
+      (columns[r - 1] || []).forEach((n, i) => { index[n.id] = i; });
+      for (const node of columns[r]) {
+        const parents = structural
+          .filter((e) => e.dst === node.id && index[e.src] !== undefined)
+          .map((e) => index[e.src]);
+        node.bary = parents.length
+          ? parents.reduce((a, b) => a + b, 0) / parents.length
+          : Number.MAX_SAFE_INTEGER;
+      }
+      columns[r].sort((a, b) => (a.bary - b.bary) || 0);
+    }
+  }
+
+  for (const r of ranks) {
+    columns[r].forEach((node, i) => {
+      node.x = 20 + r * (NODE_W + COL_GAP);
+      node.y = 20 + i * (NODE_H + ROW_GAP);
+    });
+  }
+  const width = 40 + (ranks.length) * (NODE_W + COL_GAP);
+  const height = 40 + Math.max(...ranks.map((r) => columns[r].length)) *
+    (NODE_H + ROW_GAP);
+  return { nodes, edges, byId, width, height };
+}
+
+function renderGraph(run) {
+  const svg = $("graph");
+  svg.innerHTML = "";
+  $("edge-evidence").hidden = true;
+  const layout = layoutGraph(run);
+  const width = Math.max(svg.clientWidth || 900, layout.width);
+  svg.setAttribute("height", Math.max(layout.height, 200));
+  svg.setAttribute("viewBox", "0 0 " + width + " " + Math.max(layout.height, 200));
+
+  for (const edge of layout.edges) {
+    const a = layout.byId[edge.src];
+    const b = layout.byId[edge.dst];
+    const x1 = a.x + NODE_W;
+    const y1 = a.y + NODE_H / 2;
+    const x2 = b.x;
+    const y2 = b.y + NODE_H / 2;
+    const mid = (x1 + x2) / 2;
+    const path = svgEl("path", {
+      d: "M" + x1 + "," + y1 + " C" + mid + "," + y1 + " " + mid + "," + y2 +
+         " " + x2 + "," + y2,
+      class: "edge" + (edge.confidence === "inferred" ? " edge-inferred" : ""),
+    });
+    path.appendChild(svgEl("title", {}, edge.kind + " (" + edge.confidence + ")"));
+    path.onclick = () => showEvidence(edge);
+    svg.appendChild(path);
+  }
+
+  for (const node of layout.nodes) {
+    const group = svgEl("g", { class: "node" });
+    group.appendChild(svgEl("rect", {
+      x: node.x, y: node.y, width: NODE_W, height: NODE_H, rx: 6,
+    }));
+    group.appendChild(svgEl("circle", {
+      cx: node.x + 12, cy: node.y + 14, r: 5,
+      class: "dot s-" + node.status,
+    }));
+    const label = node.label.length > 22 ? node.label.slice(0, 21) + "…" : node.label;
+    group.appendChild(svgEl("text", { x: node.x + 24, y: node.y + 18 }, label));
+    group.appendChild(svgEl("text", {
+      x: node.x + 24, y: node.y + 31, class: "edge-label",
+    }, node.status + " · " + node.sub));
+    if (!node.isMain) group.onclick = () => openDrawer(node.id);
+    svg.appendChild(group);
+  }
+
+  svg.appendChild(svgEl("text", { x: 20, y: Math.max(layout.height, 200) - 8,
+    class: "legend" }, "solid = exact  ·  dashed = inferred (click an edge for evidence)"));
+
+  // Hub files are context, not dependencies, so they are listed rather than
+  // drawn. They go to the footer, not #edge-evidence, which showEvidence()
+  // overwrites wholesale.
+  const hubs = (run.hub_files || []).map(
+    (hub) => "shared context: " + hub.path + " (read by " +
+             hub.reader_ids.length + " agents)");
+  if (hubs.length) {
+    // Appended, not assigned: renderDiagnostics ran first and may have put a
+    // parse warning there that must not be thrown away.
+    const footer = $("diagnostics");
+    footer.textContent = [footer.textContent, hubs.join(" · ")]
+      .filter(Boolean).join("  |  ");
+  }
+}
+
+function showEvidence(edge) {
+  const box = $("edge-evidence");
+  box.hidden = false;
+  const bits = ["<strong>" + edge.kind + "</strong> — " + edge.confidence,
+                edge.src + " → " + edge.dst];
+  const e = edge.evidence || {};
+  if (e.path) bits.push("file: <code>" + e.path + "</code>");
+  if (e.score !== undefined) {
+    bits.push("overlap score: " + e.score + " · longest match: " +
+              e.run_words + " words");
+  }
+  if (e.snippet) bits.push("<pre>" + e.snippet.replace(/[<>&]/g, "") + "</pre>");
+  if (e.handoff) {
+    bits.push("<em>result text also reused:</em> " + e.handoff.run_words +
+              " word match");
+  }
+  box.innerHTML = bits.join("<br>");
+}
+
+// ---------------------------------------------------------------- drawer
+
+function esc(text) {
+  const div = document.createElement("div");
+  div.textContent = text === null || text === undefined ? "" : String(text);
+  return div.innerHTML;
+}
+
+async function openDrawer(agentId) {
+  const drawer = $("drawer");
+  drawer.hidden = false;
+  drawer.innerHTML = "<p>Loading…</p>";
+  let agent;
+  try {
+    agent = await api("/api/agent/" + encodeURIComponent(agentId));
+  } catch (err) {
+    drawer.innerHTML = "<p>Could not load this agent.</p>";
+    return;
+  }
+  state.selected = agentId;
+
+  const rows = [
+    ["status", agent.status],
+    ["type", agent.agent_type],
+    ["model", agent.model],
+    ["launch", agent.launch_mode],
+    ["duration", fmtDuration(agent.duration_s)],
+    ["tokens", fmtTokens(agent.tokens)],
+    ["rounds", agent.rounds.length],
+    ["tool calls", agent.tool_calls.length],
+  ];
+
+  const tools = agent.tool_calls.slice(-40)
+    .map((t) => esc(t.name) + "  " + esc(t.target)).join("\n");
+
+  drawer.innerHTML =
+    '<button class="close" type="button" id="drawer-close">Close</button>' +
+    "<h2>" + esc(agent.description || agent.agent_id) + "</h2>" +
+    '<div class="source-note">' + esc(agent.agent_id) + "</div>" +
+    "<dl>" + rows.map(([k, v]) =>
+      "<dt>" + esc(k) + "</dt><dd>" + esc(v) + "</dd>").join("") + "</dl>" +
+    "<h3>Objective</h3><pre>" + esc(agent.objective || "—") + "</pre>" +
+    '<div class="source-note">' + esc(agent.objective_source) + "</div>" +
+    "<h3>Expected output</h3><pre>" + esc(agent.expected_output || "—") + "</pre>" +
+    '<div class="source-note">' + esc(agent.expected_output_source) + "</div>" +
+    "<h3>Returned result</h3><pre>" + esc(agent.result || "(still running)") + "</pre>" +
+    "<details><summary>Full brief</summary><pre>" + esc(agent.brief) + "</pre></details>" +
+    "<details><summary>Tool calls (last 40)</summary><pre>" + tools + "</pre></details>" +
+    "<h3>Files written</h3><pre>" + esc(agent.files_written.join("\n") || "—") + "</pre>" +
+    "<h3>Files read</h3><pre>" + esc(agent.files_read.join("\n") || "—") + "</pre>";
+
+  $("drawer-close").onclick = () => { drawer.hidden = true; state.selected = null; };
+}
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") $("drawer").hidden = true;
+});

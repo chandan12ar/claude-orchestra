@@ -99,3 +99,14 @@ main { padding: 12px 16px 24px; }
 @media (max-width: 700px) {
   .drawer { width: 100vw; }
 }
+
+.node rect { fill: var(--panel); stroke: var(--line); cursor: pointer; }
+.node:hover rect { stroke: var(--accent); }
+.node text { fill: var(--ink); font-size: 11px; pointer-events: none; }
+.node .dot { stroke: none; }
+.edge { fill: none; stroke: var(--muted); stroke-width: 1.4; cursor: pointer; }
+.edge:hover { stroke: var(--accent); stroke-width: 2.2; }
+.edge-inferred { stroke-dasharray: 5 4; opacity: 0.8; }
+.edge-label { fill: var(--muted); font-size: 9px; }
+.legend { fill: var(--muted); font-size: 10px; }
+.hub { fill: var(--bg); stroke: var(--line); stroke-dasharray: 3 3; }

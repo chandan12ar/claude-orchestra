@@ -56,5 +56,20 @@ class TestPageStructure(unittest.TestCase):
             self.assertIn(".s-{}".format(status), css)
 
 
+class TestGraphAndDrawerPresent(unittest.TestCase):
+    def test_functions_task_twelve_referenced_are_defined(self):
+        js = read("app.js")
+        for name in ("function renderGraph", "function openDrawer",
+                     "function layoutGraph"):
+            self.assertIn(name, js, "{} is missing".format(name))
+
+    def test_inferred_edges_are_styled_differently(self):
+        self.assertIn("edge-inferred", read("app.js"))
+        self.assertIn(".edge-inferred", read("style.css"))
+
+    def test_drawer_shows_the_extraction_source(self):
+        self.assertIn("expected_output_source", read("app.js"))
+
+
 if __name__ == "__main__":
     unittest.main()
