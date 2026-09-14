@@ -30,6 +30,15 @@ const state = {
   // traveling-dot animation instead of appearing as a plain static line.
   seenEdgeKeys: new Set(),
   graphSeeded: false,
+  // Desktop notifications for "something happened while I wasn't watching."
+  // notifySeeded guards the same way graphSeeded does: the first poll only
+  // records what already exists (a pre-existing failure or an already-ended
+  // session is not a new event), so opening the dashboard never fires a
+  // burst of notifications for history.
+  notifyEnabled: false,
+  notifySeeded: false,
+  knownFailedIds: new Set(),
+  lastSessionLive: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -213,6 +222,66 @@ function renderFilterCount(run) {
   }
   const shown = run.agents.filter(agentMatchesFilter).length;
   el.textContent = shown + " of " + run.agents.length;
+}
+
+// ------------------------------------------------------------ notifications
+//
+// The Notification global doesn't exist in every context this file runs in
+// (this project's own headless-node report-render check among them) — every
+// access is guarded so a missing API degrades to "no notifications," never
+// a thrown error that blanks the page.
+
+function notificationsSupported() {
+  return typeof Notification !== "undefined";
+}
+
+function notify(title, body) {
+  if (!notificationsSupported() || Notification.permission !== "granted") return;
+  try {
+    const n = new Notification(title, { body: body });
+    n.onclick = () => { window.focus(); n.close(); };
+  } catch (err) { /* best-effort; never fatal to the dashboard */ }
+}
+
+function updateNotifyButton() {
+  const btn = $("notify-toggle");
+  if (!btn) return;
+  btn.setAttribute("aria-pressed", String(state.notifyEnabled));
+  btn.textContent = state.notifyEnabled ? "Notify: on" : "Notify";
+}
+
+function setStoredNotifyPref(enabled) {
+  try {
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem("orchestra-notify", enabled ? "1" : "0");
+    }
+  } catch (err) { /* private-browsing/blocked storage; not worth failing over */ }
+}
+
+// Fires for events that happen WHILE the dashboard is open — an agent that
+// fails, a session that ends — not for state that already existed when the
+// tab was opened (the Health box already shows that at a glance).
+function checkNotifications(run) {
+  const seeding = !state.notifySeeded;
+  const currentlyFailed = new Set(
+    run.agents.filter((a) => a.status === "failed").map((a) => a.agent_id));
+
+  if (!seeding && state.notifyEnabled) {
+    for (const agent of run.agents) {
+      if (agent.status === "failed" && !state.knownFailedIds.has(agent.agent_id)) {
+        notify("Agent failed", agent.description || agent.agent_id);
+      }
+    }
+    if (state.lastSessionLive === true && !run.session_live) {
+      const t = run.totals || {};
+      notify("Orchestra session ended",
+        (t.completed || 0) + " completed, " + ((t.failed || 0) + (t.orphaned || 0)) + " failed");
+    }
+  }
+
+  state.knownFailedIds = currentlyFailed;
+  state.lastSessionLive = run.session_live;
+  state.notifySeeded = true;
 }
 
 function renderConflicts(run) {
@@ -539,6 +608,7 @@ async function poll(generation) {
   state.run = run;
   state.backoff = POLL_MS;
   $("conn").textContent = run.session_live ? "" : "session ended";
+  checkNotifications(run);
   render();
   // Only actively poll agent detail while the tab showing it is open, so
   // watching Timeline/Graph never costs N extra per-agent fetches.
@@ -577,8 +647,35 @@ function init() {
     // events happening live — reseed instead of flashing every one of them.
     state.seenEdgeKeys = new Set();
     state.graphSeeded = false;
+    // Same reasoning for notifications: a different session's existing
+    // failures/end-state are history, not something to alert on.
+    state.notifySeeded = false;
+    state.knownFailedIds = new Set();
+    state.lastSessionLive = null;
     startPolling();
   };
+  if (notificationsSupported()) {
+    let stored = "0";
+    try {
+      if (typeof localStorage !== "undefined") {
+        stored = localStorage.getItem("orchestra-notify") || "0";
+      }
+    } catch (err) { /* fall back to off */ }
+    state.notifyEnabled = stored === "1" && Notification.permission === "granted";
+    updateNotifyButton();
+    $("notify-toggle").onclick = async () => {
+      if (Notification.permission === "granted") {
+        state.notifyEnabled = !state.notifyEnabled;
+      } else {
+        const permission = await Notification.requestPermission();
+        state.notifyEnabled = permission === "granted";
+      }
+      setStoredNotifyPref(state.notifyEnabled);
+      updateNotifyButton();
+    };
+  } else {
+    $("notify-toggle").hidden = true;
+  }
   for (const tab of document.querySelectorAll(".tab")) {
     tab.onclick = () => setView(tab.dataset.view);
   }

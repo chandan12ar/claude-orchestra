@@ -64,6 +64,7 @@ _SHELL = """<!doctype html>
 <footer id="diagnostics" class="diagnostics"></footer>
 <select id="session-picker" hidden></select>
 <button id="live-toggle" hidden></button>
+<button id="notify-toggle" hidden></button>
 <script>
 window.ORCHESTRA_RUN = {run_json};
 window.ORCHESTRA_DETAILS = {details_json};
