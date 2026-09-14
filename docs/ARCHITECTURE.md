@@ -13,7 +13,13 @@ document is for understanding — or extending — how it's built.
 > [`docs/superpowers/plans/2026-09-12-orchestra.md`](superpowers/plans/2026-09-12-orchestra.md).
 > That build's own transcript (session `73b33781`) is what most of the
 > screenshots and examples in this document — and in the dashboard's own
-> development — are drawn from. Orchestra watches its own construction.
+> development — are drawn from. Later features were validated the same way,
+> one level further in: pointing a live Orchestra server at *its own
+> currently-running development session* and dispatching real subagents to
+> watch. That's exactly how the notification-parsing fix and the fork
+> self-parent fix (both in §5) were found — not in a test, but by watching
+> the dashboard lie about its own live agents in real time. Orchestra
+> watches its own construction, live.
 
 ---
 
@@ -174,7 +180,15 @@ Every poll (or report generation) calls `RunBuilder.refresh()`
 3. Determines the full set of agent ids that have ever existed
    (`_agent_ids`), builds each one's `Round` history and `status`
    (`status.py`), extracts its objective/expected-output from its brief
-   (`extract.py`), and assembles an `Agent` dataclass.
+   (`extract.py`), and assembles an `Agent` dataclass. One guard worth
+   knowing about here: a **fork**-type agent's own transcript replays its
+   full inherited history — including the very entry that launched it,
+   tagged (like every entry in that agent's own transcript file) with
+   `isSidechain: true` and that agent's own id. Read naively, that looks
+   like the agent spawning itself. `_assemble` refuses to let an agent
+   become its own `parent_agent_id`, since that can never legitimately
+   happen — without the guard, a forked agent shows a self-loop spawn edge
+   in the Graph instead of `main → agent`.
 4. Infers `Edge`s and file relationships across the *whole* agent set
    (`edges.py`) — this has to happen after every agent is assembled because
    an edge is a relationship *between* two agents.
@@ -219,6 +233,18 @@ the server. Also home to `parse_timestamp`, which turns Claude Code's
 ISO-8601 (`...Z`) timestamps into POSIX floats — every duration and every
 x-axis position in the UI ultimately traces back to this one function.
 
+That "most likely to change" warning turned out to be exactly right: running
+Orchestra against a genuinely live session surfaced a build that delivers a
+background agent's `<task-notification>` wrapped in a top-level
+`queue-operation` entry (`operation: "enqueue"`) or an `attachment` entry,
+neither of which has a `message` field at all. `_notification_text` now
+checks both shapes (skipping a queue `"remove"`, which is the same
+notification being dequeued, not a second one) before falling back to the
+original message-based lookup. Without this, every background agent in such
+a session eventually reads as `stalled` no matter how long ago it actually
+finished — the completion text was sitting in the file the whole time,
+just not where the parser was looking.
+
 ### `agentlog.py` — digesting a subagent's own transcript
 `AgentDigest` accumulates, per agent: token usage split by type (`input`,
 `output`, `cache_read`, `cache_create` — this split is what powers the
@@ -229,6 +255,15 @@ paths read/written. It also tracks `ended_mid_tool`: whether the transcript's
 last entry was a tool call with no matching result, which the status state
 machine (below) uses to tell "process died while doing something" apart from
 "process just went away."
+
+It also records `model` — the real, versioned model the agent's own
+transcript reports (`"claude-sonnet-5"`), which is the ground truth over the
+short alias requested at spawn time (`"sonnet"`, carried in `meta.json`);
+`build.py` prefers this field whenever it's present (see below). One
+wrinkle: Claude Code injects a synthetic wrap-up message on an interrupted
+or errored turn with `model` literally set to the string `"<synthetic>"` —
+`AgentDigest` ignores that value rather than letting it clobber the last
+genuine model the agent actually ran on.
 
 ### `status.py` — the agent lifecycle state machine
 Two functions, and this is the "formula" behind every colored dot in the UI:
@@ -385,6 +420,8 @@ state = {
   view,                 // "timeline" | "graph" | "activity"
   filterText, filterStatuses,   // the filter bar's current selection
   toolCache, ticker,    // the Activity tab's accumulated feed
+  seenEdgeKeys, graphSeeded,     // which graph edges have already been drawn
+  notifyEnabled, notifySeeded, knownFailedIds, lastSessionLive,  // desktop alerts
   generation,           // see below
   ...
 }
@@ -408,6 +445,14 @@ moment a label mixes wide and narrow glyphs. (It falls back to a rough
 per-character estimate if no canvas context is available at all — the
 project's own headless-Node render-check harness is one such environment —
 so a constrained context degrades gracefully instead of throwing.)
+
+**Motion.** The drawer is a real modal, not a page that happens to have a
+panel on it: opening it shows a dimmed, blurred backdrop (`.scrim`) behind a
+`transform: translateX` slide-in, and clicking the backdrop closes it exactly
+like Escape does. A running agent's status dot/node border pulses with a
+CSS `ping-ring` animation, and its open-ended bar breathes, so "in progress"
+reads as motion, not just a color you have to notice. Every one of these is
+guarded by `@media (prefers-reduced-motion: reduce)`.
 
 **The three views** (`renderTimeline`, `renderGraph`, `renderTicker`) are
 detailed feature-by-feature in the next section.
@@ -447,14 +492,18 @@ iterative build, but exactly the kind of overlap you'd want flagged if it
 weren't.
 
 ### Filter bar
-A free-text box (matches description, agent id, type, model, and the capped
-objective) plus status chips built dynamically from whatever statuses are
-actually present in the current run (no point showing an "orphaned" chip
-when nothing is orphaned). Filtering **dims** non-matches rather than
-removing them — in the Timeline, dimmed rows keep their slot so the layout
-never jumps; in the Graph, dimmed nodes stay in place so edges never have to
-be recomputed around a missing node. The same filter state is honored by the
-Activity ticker too, so "show me only what agent X did" works everywhere.
+A pill-shaped search box (inline icon, a focus glow instead of the default
+outline, a clear button) matching description, agent id, type, model, and
+the capped objective, plus status chips built dynamically from whatever
+statuses are actually present in the current run (no point showing an
+"orphaned" chip when nothing is orphaned). A live "N of M shown" counter
+appears next to the box the moment a filter actually narrows something, and
+disappears at rest rather than duplicating the header's own agent count.
+Filtering **dims** non-matches rather than removing them — in the Timeline,
+dimmed rows keep their slot so the layout never jumps; in the Graph, dimmed
+nodes stay in place so edges never have to be recomputed around a missing
+node. The same filter state is honored by the Activity ticker too, so "show
+me only what agent X did" works everywhere.
 
 ### Timeline
 One row per agent: a status-colored dot, its description and
@@ -466,7 +515,9 @@ block instead of N separate rows that happen to overlap. Rows alternate a
 faint background tint (zebra striping) purely so your eye doesn't lose the
 row on a wide screen, and hovering a row highlights its full-width band —
 important because a short-duration agent's bar can be only a few pixels
-wide, far too small a target to hover reliably on its own.
+wide, far too small a target to hover reliably on its own. A `running`
+agent's dot pulses with a ping ring and its still-open bar breathes — a
+plain blue dot doesn't read as "actively happening" the way motion does.
 
 ### Graph
 One node per agent (plus a synthetic "orchestrator" root), laid out
@@ -496,12 +547,30 @@ a 5-minute agent as equally "one step" — duration-weighting answers the
 actually useful question, "if I want this to finish faster, which agent do I
 need to speed up?"
 
+**Live packet flow.** Every edge key (`src>dst>kind`) already seen is
+tracked across polls; the *first* render of a session seeds this set
+silently (nothing on it "just happened" — it's all pre-existing history),
+but any edge key that appears on a **later** poll is a real event — a file
+handoff or message just detected between one 2-second poll and the next —
+and gets a one-time dot animated along its exact path (SVG `animateMotion`,
+about a second) before it settles into an ordinary static line. Switching
+sessions reseeds for the same reason a fresh page load does. A `running`
+node gets the same pulsing-ring treatment as a running Timeline row.
+**Why it matters:** watching a real multi-agent session live, you see a dot
+actually fly from one agent to the one that just picked up its output — the
+graph reads as something happening, not a static diagram that occasionally
+gets redrawn.
+
 ### Agent drawer
-Every field extracted for one agent: status, type, model, launch mode,
-duration, token totals + cache-hit breakdown, round/tool-call counts, the
-extracted objective and expected output (each with its `_source` caption),
-the returned result, the full brief and tool-call list behind
-`<details>`, and every file read/written.
+Every field extracted for one agent: status, type, a friendly model form
+(`sonnet-5`) with the exact reported string alongside it (`claude-sonnet-5`)
+when they differ, launch mode, duration, token totals + cache-hit breakdown,
+round/tool-call counts, the extracted objective and expected output (each
+with its `_source` caption), the returned result, the full brief and
+tool-call list behind `<details>`, and every file read/written. Opening the
+drawer shows a dimmed, blurred backdrop behind a slide-in panel — click the
+backdrop or press Escape to close, both reversing the same animation
+(disabled under `prefers-reduced-motion`).
 
 **Tool mix.** A small stacked bar classifying that agent's tool calls into
 four fixed buckets — **Read** (`Read`, `Grep`, `Glob`, `NotebookRead`,
@@ -533,6 +602,28 @@ with that hash already set opens straight to that agent. A failed-agent
 health-box entry, a write-conflict list item, and a ticker row are all now
 pasteable links — into a PR description, a Slack message, wherever the
 conversation about that specific agent is happening.
+
+### Notifications
+A "Notify" toggle next to Live requests `Notification` permission on first
+click and remembers the choice in `localStorage`. Once enabled, the
+dashboard alerts on two things happening **while the tab is open**: an
+agent transitioning to `failed`, and the session ending. Both are seeded
+the same way the graph's packet flow is — the first poll only records what
+already exists, so opening the dashboard on a session that already has a
+failure or has already ended never fires a burst of notifications for
+history the Health box already shows at a glance. The static report hides
+this toggle entirely: nothing new ever happens in a frozen snapshot.
+
+### Copy summary
+Builds a plain-markdown summary of the current run — the totals line, a
+"Needs attention" section listing stalled/failed/orphaned agents, and a
+"Write conflicts" section, each omitted when empty rather than printed as a
+header with nothing under it — and copies it via the Clipboard API, with a
+brief "Copied!"/"Copy failed" confirmation on the button itself. Visible in
+*both* the live dashboard and the static report — unlike Live/Notify, a
+frozen snapshot is exactly what you'd want to summarize for a PR
+description or a status update, not something the feature is meaningless
+for.
 
 ### Session picker + Live/Paused toggle
 `/api/sessions` lists every session found in the current project directory
@@ -585,7 +676,7 @@ tab correctly shows its empty state rather than pretending to be live.)
 python -m unittest discover -s tests -t . -v
 ```
 
-Standard library only (`unittest`), 225 tests, no external dependencies.
+Standard library only (`unittest`), 231 tests, no external dependencies.
 Coverage spans: every backend module's pure logic (fixture-built fake
 sessions, no real transcripts needed), the HTTP server's routing and auth
 checks, the static-asset invariants (no network egress, every `$("id")`
