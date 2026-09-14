@@ -111,6 +111,65 @@ class TestParentIndex(unittest.TestCase):
         self.assertEqual(notes[0].tool_use_id, "toolu_1")
         self.assertIn("DONE", notes[0].result)
 
+    def test_notification_delivered_as_a_queue_operation_is_parsed(self):
+        # Some Claude Code builds deliver a background agent's completion as a
+        # top-level queue-operation entry rather than a plain message — no
+        # "message" field at all, so _content_text alone would find nothing.
+        entry = {
+            "type": "queue-operation", "operation": "enqueue", "timestamp": TS3,
+            "sessionId": "s1",
+            "content": "<task-notification>\n<task-id>ad434e54374f9fc8b</task-id>\n"
+                       "<tool-use-id>toolu_1</tool-use-id>\n<status>completed</status>\n"
+                       "<summary>Agent finished</summary>\n<result>DONE</result>\n"
+                       "</task-notification>",
+        }
+        idx = ParentIndex()
+        idx.ingest([LAUNCH, BACKGROUND_RESULT, entry])
+        notes = idx.notifications["ad434e54374f9fc8b"]
+        self.assertEqual(len(notes), 1)
+        self.assertEqual(notes[0].status, "completed")
+
+    def test_queue_operation_remove_is_not_a_second_notification(self):
+        # "remove" is the same enqueued event being dequeued/consumed, not a
+        # new completion — treating it as one would double the round count.
+        enqueue = {
+            "type": "queue-operation", "operation": "enqueue", "timestamp": TS3,
+            "content": "<task-notification>\n<task-id>ad434e54374f9fc8b</task-id>\n"
+                       "<tool-use-id>toolu_1</tool-use-id>\n<status>completed</status>\n"
+                       "</task-notification>",
+        }
+        remove = dict(enqueue, operation="remove", timestamp="2026-09-09T05:00:00.000Z")
+        idx = ParentIndex()
+        idx.ingest([enqueue, remove])
+        notes = idx.notifications["ad434e54374f9fc8b"]
+        self.assertEqual(len(notes), 1)
+
+    def test_notification_delivered_as_an_attachment_is_parsed(self):
+        entry = {
+            "type": "attachment", "timestamp": TS3, "isSidechain": False,
+            "attachment": {
+                "type": "queued_command", "commandMode": "task-notification",
+                "timestamp": TS3,
+                "prompt": "<task-notification>\n<task-id>ad434e54374f9fc8b</task-id>\n"
+                          "<tool-use-id>toolu_1</tool-use-id>\n<status>completed</status>\n"
+                          "<summary>Agent finished</summary>\n<result>DONE</result>\n"
+                          "</task-notification>",
+            },
+        }
+        idx = ParentIndex()
+        idx.ingest([LAUNCH, BACKGROUND_RESULT, entry])
+        notes = idx.notifications["ad434e54374f9fc8b"]
+        self.assertEqual(len(notes), 1)
+        self.assertEqual(notes[0].status, "completed")
+
+    def test_an_unrelated_attachment_is_not_mistaken_for_a_notification(self):
+        entry = {"type": "attachment", "timestamp": TS3,
+                 "attachment": {"type": "queued_command", "commandMode": "bash-input",
+                                "prompt": "ls -la", "timestamp": TS3}}
+        idx = ParentIndex()
+        idx.ingest([entry])
+        self.assertEqual(idx.notifications, {})
+
     def test_repeated_notifications_accumulate_in_order(self):
         second = dict(NOTIFICATION)
         second["uuid"] = "n-2"

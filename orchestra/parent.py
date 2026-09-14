@@ -68,6 +68,33 @@ def _content_text(entry: Dict[str, Any]) -> str:
     return "\n".join(parts)
 
 
+def _notification_text(entry: Dict[str, Any]) -> str:
+    """Where a <task-notification> block actually lives.
+
+    It is not always a plain message: some Claude Code builds deliver a
+    background agent's completion as a top-level `queue-operation` entry
+    (operation "enqueue"; a matching "remove" is the same event being
+    dequeued, not a second one — skipped) or as an `attachment` entry whose
+    `attachment.prompt` carries it. Neither shape has a `message` field, so
+    `_content_text` finds nothing there and a real completion goes unseen —
+    every background agent then reads as stalled forever, no matter how long
+    ago it actually finished. Checking all three shapes is what makes
+    notification-based status detection work across those builds.
+    """
+    if entry.get("type") == "queue-operation":
+        if entry.get("operation") != "enqueue":
+            return ""
+        content = entry.get("content")
+        return content if isinstance(content, str) else ""
+    if entry.get("type") == "attachment":
+        attachment = entry.get("attachment")
+        if isinstance(attachment, dict) and attachment.get("commandMode") == "task-notification":
+            prompt = attachment.get("prompt")
+            return prompt if isinstance(prompt, str) else ""
+        return ""
+    return _content_text(entry)
+
+
 def _result_text(block: Dict[str, Any]) -> str:
     content = block.get("content")
     if isinstance(content, str):
@@ -168,7 +195,7 @@ class ParentIndex:
                 )
 
     def _ingest_notifications(self, entry: Dict[str, Any], at: Optional[float]) -> None:
-        text = _content_text(entry)
+        text = _notification_text(entry)
         if "<task-notification>" not in text:
             return
         for body in _NOTIFICATION_RE.findall(text):
