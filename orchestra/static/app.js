@@ -14,6 +14,11 @@ const state = {
   // discards its result and stops rescheduling, so toggling Live or switching
   // sessions cannot leave two loops running on independent cadences.
   generation: 0,
+  // agent_id -> { count }: how many of that agent's tool_calls are already
+  // folded into `ticker`, so a re-fetched detail only contributes its tail.
+  toolCache: {},
+  // Merged tool-call feed across agents, newest first, capped below.
+  ticker: [],
 };
 
 const $ = (id) => document.getElementById(id);
@@ -36,11 +41,129 @@ function fmtDuration(seconds) {
   return m + "m " + (s < 10 ? "0" : "") + s + "s";
 }
 
+function fmtCount(n) {
+  if (n > 1000000) return (n / 1000000).toFixed(1) + "M";
+  if (n > 1000) return (n / 1000).toFixed(1) + "k";
+  return String(n);
+}
+
 function fmtTokens(tokens) {
-  const total = Object.values(tokens || {}).reduce((a, b) => a + b, 0);
-  if (total > 1000000) return (total / 1000000).toFixed(1) + "M";
-  if (total > 1000) return (total / 1000).toFixed(1) + "k";
-  return String(total);
+  return fmtCount(Object.values(tokens || {}).reduce((a, b) => a + b, 0));
+}
+
+// Only input-side tokens are cacheable; output is never served from cache,
+// so it stays out of the denominator or every ratio would be diluted by
+// however chatty the agent's replies happened to be.
+function cacheHitRatio(tokens) {
+  const t = tokens || {};
+  const input = t.input || 0;
+  const cacheRead = t.cache_read || 0;
+  const cacheCreate = t.cache_create || 0;
+  const denom = input + cacheRead + cacheCreate;
+  return denom ? cacheRead / denom : null;
+}
+
+function fmtPct(ratio) {
+  return ratio === null || ratio === undefined ? "—" : Math.round(ratio * 100) + "%";
+}
+
+function fmtTokenMix(tokens) {
+  const t = tokens || {};
+  return "input " + fmtCount(t.input || 0) +
+    " · cache read " + fmtCount(t.cache_read || 0) +
+    " · cache write " + fmtCount(t.cache_create || 0) +
+    " · output " + fmtCount(t.output || 0);
+}
+
+// Shared by the drawer's tool-mix bar and the activity ticker: a fixed,
+// small taxonomy rather than one swatch per literal tool name (which would
+// run to dozens of mcp__* names and make the fingerprint unreadable).
+const TOOL_BUCKETS = [
+  ["Read", "tool-read", ["Read", "Grep", "Glob", "NotebookRead", "WebFetch", "WebSearch"]],
+  ["Edit", "tool-edit", ["Edit", "Write", "NotebookEdit"]],
+  ["Bash", "tool-bash", ["Bash"]],
+  ["Task", "tool-task", ["Task", "Agent"]],
+];
+function toolBucket(name) {
+  for (const [label, cssVar, names] of TOOL_BUCKETS) {
+    if (names.includes(name)) return [label, cssVar];
+  }
+  return ["Other", "tool-other"];
+}
+
+function fmtClock(ts) {
+  if (!ts) return "—";
+  return new Date(ts * 1000).toLocaleTimeString([], { hour12: false });
+}
+
+function renderToolMix(toolCalls) {
+  if (!toolCalls || !toolCalls.length) return "";
+  const counts = { Read: 0, Edit: 0, Bash: 0, Task: 0, Other: 0 };
+  for (const call of toolCalls) counts[toolBucket(call.name)[0]] += 1;
+  const order = [["Read", "tool-read"], ["Edit", "tool-edit"], ["Bash", "tool-bash"],
+    ["Task", "tool-task"], ["Other", "tool-other"]].filter(([label]) => counts[label] > 0);
+  const total = toolCalls.length;
+  const bars = order.map(([label, cssVar]) =>
+    '<span style="width:' + (counts[label] / total * 100) + '%;background:var(--' + cssVar + ')" ' +
+    'title="' + esc(label) + " " + counts[label] + '"></span>').join("");
+  const legend = order.map(([label, cssVar]) =>
+    '<span><span class="swatch" style="background:var(--' + cssVar + ')"></span>' +
+    esc(label) + " " + counts[label] + "</span>").join("");
+  return '<div class="tool-mix"><div class="tool-mix-bar">' + bars + "</div>" +
+    '<div class="tool-mix-legend">' + legend + "</div></div>";
+}
+
+// Diffs `toolCalls` against what's already been folded into the ticker for
+// this agent, so re-fetching a running agent's growing detail only appends
+// its new tail instead of duplicating everything seen so far.
+function ingestToolCalls(agentId, label, toolCalls) {
+  const calls = toolCalls || [];
+  const cached = state.toolCache[agentId] || { count: 0 };
+  if (calls.length > cached.count) {
+    for (const call of calls.slice(cached.count)) {
+      state.ticker.push({ ts: call.timestamp, agentId, label, name: call.name, target: call.target });
+    }
+    state.ticker.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+    if (state.ticker.length > 300) state.ticker.length = 300;
+  }
+  state.toolCache[agentId] = { count: calls.length };
+}
+
+async function refreshTicker(run) {
+  const running = run.agents.filter((a) => a.status === "running");
+  for (const agent of running) {
+    let detail;
+    try {
+      detail = await api("/api/agent/" + encodeURIComponent(agent.agent_id));
+    } catch (err) {
+      continue;  // transient poll failure; the next cycle tries again
+    }
+    ingestToolCalls(agent.agent_id, agent.description || agent.agent_id, detail.tool_calls);
+  }
+  renderTicker();
+}
+
+function renderTicker() {
+  const box = $("ticker");
+  if (!box) return;
+  if (!state.ticker.length) {
+    box.innerHTML = '<div class="ticker-empty">No live tool-call activity yet — ' +
+      "this fills in while agents are running.</div>";
+    return;
+  }
+  box.innerHTML = state.ticker.map((e) => {
+    const [, cssVar] = toolBucket(e.name);
+    return '<div class="ticker-row" data-agent="' + esc(e.agentId) + '">' +
+      '<span class="ticker-time">' + esc(fmtClock(e.ts)) + "</span>" +
+      '<span class="ticker-dot" style="background:var(--' + cssVar + ')"></span>' +
+      '<span class="ticker-agent">' + esc(e.label) + "</span>" +
+      '<span class="ticker-tool">' + esc(e.name) + "</span>" +
+      '<span class="ticker-target">' + esc(e.target || "") + "</span>" +
+      "</div>";
+  }).join("");
+  for (const row of box.querySelectorAll(".ticker-row")) {
+    row.onclick = () => openDrawer(row.dataset.agent);
+  }
 }
 
 function svgEl(name, attrs, text) {
@@ -48,6 +171,33 @@ function svgEl(name, attrs, text) {
   for (const key in attrs) node.setAttribute(key, attrs[key]);
   if (text !== undefined) node.textContent = text;
   return node;
+}
+
+// ------------------------------------------------------------ text fitting
+//
+// SVG has no text-overflow: ellipsis, and character-count truncation lies as
+// soon as a label mixes wide and narrow glyphs. Measuring against a real
+// canvas context is the only way to guarantee a label never crosses the
+// boundary it's drawn against.
+
+let measureCtx = null;
+function bodyFont(px) {
+  return px + "px " + getComputedStyle(document.body).fontFamily;
+}
+function textWidth(text, font) {
+  if (!measureCtx) measureCtx = document.createElement("canvas").getContext("2d");
+  measureCtx.font = font;
+  return measureCtx.measureText(text).width;
+}
+function fitText(text, maxWidth, font) {
+  if (textWidth(text, font) <= maxWidth) return text;
+  let lo = 0, hi = text.length;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (textWidth(text.slice(0, mid) + "…", font) <= maxWidth) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo > 0 ? text.slice(0, lo) + "…" : "…";
 }
 
 // ---------------------------------------------------------------- header
@@ -61,6 +211,7 @@ function renderHeader(run) {
     ["done", t.completed],
     ["failed", t.failed + t.orphaned],
     ["tokens", fmtTokens(t.tokens)],
+    ["cached", fmtPct(cacheHitRatio(t.tokens))],
     ["wall", fmtDuration(t.wall_time_s)],
   ];
   for (const [label, value] of parts) {
@@ -100,9 +251,11 @@ function renderDiagnostics(run) {
 
 // -------------------------------------------------------------- timeline
 
-const ROW_H = 26;
-const LEFT = 190;
+const ROW_H = 32;
+const LEFT = 200;
 const PAD = 16;
+const DOT_R = 4;
+const LABEL_X = 14;
 
 function timeWindow(run) {
   let min = Infinity;
@@ -131,18 +284,33 @@ function renderTimeline(run) {
   const x = (t) => LEFT + ((t - t0) / (t1 - t0)) * plot;
   const rowOf = {};
   agents.forEach((agent, i) => { rowOf[agent.agent_id] = i; });
+  const labelFont = bodyFont(11);
+  const metaFont = bodyFont(10);
+  const labelMax = LEFT - LABEL_X - DOT_R * 2 - 14;
 
-  // Batch bands sit behind the bars: they are what shows a parallel wave.
-  for (const batch of run.batches || []) {
+  // Zebra striping first, fully behind everything, so long rows stay easy to
+  // track from the label to the bar without counting rows.
+  agents.forEach((agent, i) => {
+    if (i % 2 === 0) return;
+    svg.appendChild(svgEl("rect", {
+      x: 0, y: PAD + i * ROW_H, width, height: ROW_H, class: "row-alt",
+    }));
+  });
+
+  // Batch bands sit above the stripes: they are what shows a parallel wave.
+  (run.batches || []).forEach((batch, bi) => {
     const rows = batch.agent_ids.map((id) => rowOf[id]).filter((r) => r !== undefined);
-    if (rows.length < 2) continue;
+    if (rows.length < 2) return;
     const top = PAD + Math.min(...rows) * ROW_H;
     const tall = (Math.max(...rows) - Math.min(...rows) + 1) * ROW_H;
     svg.appendChild(svgEl("rect", {
       x: LEFT - 4, y: top, width: plot + 8, height: tall, class: "batch-band",
       rx: 4,
     }));
-  }
+    svg.appendChild(svgEl("text", {
+      x: LEFT + 2, y: top - 3, class: "batch-label",
+    }, "batch " + (bi + 1)));
+  });
 
   for (let i = 0; i <= 4; i++) {
     const t = t0 + ((t1 - t0) * i) / 4;
@@ -157,10 +325,25 @@ function renderTimeline(run) {
   agents.forEach((agent, i) => {
     const y = PAD + i * ROW_H;
     const label = agent.description || agent.agent_id;
-    svg.appendChild(svgEl("text", { x: 0, y: y + 12, class: "row-label" },
-      label.length > 28 ? label.slice(0, 27) + "…" : label));
-    svg.appendChild(svgEl("text", { x: 0, y: y + 22, class: "row-meta" },
-      agent.agent_type + " · " + (agent.model || "?")));
+    const row = svgEl("g", { class: "row" });
+
+    // A full-width hit target behind the row content: hover feedback should
+    // not depend on landing the cursor on a 3px-wide bar.
+    row.appendChild(svgEl("rect", {
+      x: 0, y, width, height: ROW_H, class: "row-bg",
+    }));
+
+    row.appendChild(svgEl("circle", {
+      cx: LABEL_X + DOT_R, cy: y + ROW_H / 2, r: DOT_R,
+      class: "row-dot s-" + agent.status,
+    }));
+    row.appendChild(svgEl("title", {}, agent.status));
+
+    const labelX = LABEL_X + DOT_R * 2 + 6;
+    row.appendChild(svgEl("text", { x: labelX, y: y + 14, class: "row-label" },
+      fitText(label, labelMax, labelFont)));
+    row.appendChild(svgEl("text", { x: labelX, y: y + 25, class: "row-meta" },
+      fitText(agent.agent_type + " · " + (agent.model || "?"), labelMax, metaFont)));
 
     const rounds = agent.rounds.length ? agent.rounds
       : [{ started_at: agent.started_at, ended_at: agent.ended_at }];
@@ -169,21 +352,17 @@ function renderTimeline(run) {
       const end = round.ended_at !== null ? round.ended_at
         : (agent.last_activity_at || t1);
       const bx = x(start);
-      const bw = Math.max(3, x(Math.max(end, start)) - bx);
+      const bw = Math.max(4, x(Math.max(end, start)) - bx);
       const bar = svgEl("rect", {
-        x: bx, y: y + 4, width: bw, height: ROW_H - 12, rx: 3,
+        x: bx, y: y + 8, width: bw, height: ROW_H - 16, rx: 3,
         class: "bar s-" + agent.status + (round.ended_at === null ? " bar-open" : ""),
       });
       bar.appendChild(svgEl("title", {},
         label + " — " + agent.status + " — " + fmtDuration(agent.duration_s)));
-      bar.onclick = () => openDrawer(agent.agent_id);
-      svg.appendChild(bar);
+      row.appendChild(bar);
     }
-    // The status word is drawn, not only coloured.
-    svg.appendChild(svgEl("text", {
-      x: x(agent.started_at !== null ? agent.started_at : t0) + 4,
-      y: y + 16, class: "row-meta",
-    }, agent.status));
+    row.onclick = () => openDrawer(agent.agent_id);
+    svg.appendChild(row);
   });
 }
 
@@ -193,12 +372,16 @@ function setView(view) {
   state.view = view;
   $("view-timeline").hidden = view !== "timeline";
   $("view-graph").hidden = view !== "graph";
+  $("view-activity").hidden = view !== "activity";
   for (const tab of document.querySelectorAll(".tab")) {
     const active = tab.dataset.view === view;
     tab.classList.toggle("active", active);
     tab.setAttribute("aria-selected", String(active));
   }
   render();
+  // Refresh immediately on switching in, rather than waiting up to POLL_MS
+  // for the next cycle to notice the tab is now visible.
+  if (view === "activity" && state.run) refreshTicker(state.run);
 }
 
 function render() {
@@ -207,7 +390,8 @@ function render() {
   renderHealth(state.run);
   renderDiagnostics(state.run);
   if (state.view === "timeline") renderTimeline(state.run);
-  else renderGraph(state.run);
+  else if (state.view === "graph") renderGraph(state.run);
+  else renderTicker();
 }
 
 function startPolling() {
@@ -233,6 +417,9 @@ async function poll(generation) {
   state.backoff = POLL_MS;
   $("conn").textContent = run.session_live ? "" : "session ended";
   render();
+  // Only actively poll agent detail while the tab showing it is open, so
+  // watching Timeline/Graph never costs N extra per-agent fetches.
+  if (state.view === "activity") refreshTicker(run);
   if (state.live) setTimeout(() => poll(generation), state.backoff);
 }
 
@@ -277,10 +464,12 @@ document.addEventListener("DOMContentLoaded", init);
 
 // ----------------------------------------------------------------- graph
 
-const NODE_W = 170;
-const NODE_H = 40;
-const COL_GAP = 90;
-const ROW_GAP = 18;
+const NODE_W = 200;
+const NODE_H = 50;
+const COL_GAP = 80;
+const ROW_GAP = 24;
+const ACCENT_W = 4;
+const NODE_TEXT_X = 16;
 const EXACT_KINDS = ["spawn", "artifact", "message"];
 
 function layoutGraph(run) {
@@ -293,6 +482,7 @@ function layoutGraph(run) {
       sub: agent.agent_type + " · " + (agent.model || "?"),
       status: agent.status,
       startedAt: agent.started_at,
+      duration: agent.duration_s || 0,
     });
   }
   const byId = {};
@@ -311,6 +501,41 @@ function layoutGraph(run) {
       if (rank[edge.dst] < want) { rank[edge.dst] = want; moved = true; }
     }
     if (!moved) break;  // also the cycle guard: bounded by node count
+  }
+
+  // Critical path: the duration-weighted longest chain, not the hop-count
+  // rank above. A 5-second agent and a 5-minute agent are equally "one hop,"
+  // but only one of them can be why the run took as long as it did. Same
+  // bounded-relaxation shape as the rank loop for the same cycle-safety.
+  const pathDuration = {};
+  const critPrev = {};
+  nodes.forEach((n) => { pathDuration[n.id] = n.duration || 0; critPrev[n.id] = null; });
+  for (let pass = 0; pass < nodes.length; pass++) {
+    let moved = false;
+    for (const edge of structural) {
+      const candidate = pathDuration[edge.src] + (byId[edge.dst].duration || 0);
+      if (candidate > pathDuration[edge.dst] + 1e-9) {
+        pathDuration[edge.dst] = candidate;
+        critPrev[edge.dst] = edge.src;
+        moved = true;
+      } else if (critPrev[edge.dst] === null && candidate >= pathDuration[edge.dst] - 1e-9) {
+        // A tie against the node's own-duration base case (its most common
+        // predecessor is "main", whose duration is always 0) must still
+        // record a predecessor, or the chain silently ends one hop short.
+        critPrev[edge.dst] = edge.src;
+      }
+    }
+    if (!moved) break;
+  }
+  let critEnd = nodes[0].id;
+  for (const n of nodes) {
+    if (pathDuration[n.id] > pathDuration[critEnd]) critEnd = n.id;
+  }
+  const criticalNodes = new Set();
+  const criticalEdges = new Set();
+  for (let cur = critEnd; cur; cur = critPrev[cur]) {
+    criticalNodes.add(cur);
+    if (critPrev[cur]) criticalEdges.add(critPrev[cur] + "→" + cur);
   }
 
   const columns = {};
@@ -356,7 +581,7 @@ function layoutGraph(run) {
   const width = 40 + (ranks.length) * (NODE_W + COL_GAP);
   const height = 40 + Math.max(...ranks.map((r) => columns[r].length)) *
     (NODE_H + ROW_GAP);
-  return { nodes, edges, byId, width, height };
+  return { nodes, edges, byId, width, height, criticalNodes, criticalEdges };
 }
 
 function renderGraph(run) {
@@ -365,9 +590,23 @@ function renderGraph(run) {
   $("edge-evidence").hidden = true;
   const layout = layoutGraph(run);
   const width = Math.max(svg.clientWidth || 900, layout.width);
-  svg.setAttribute("height", Math.max(layout.height, 200));
-  svg.setAttribute("viewBox", "0 0 " + width + " " + Math.max(layout.height, 200));
+  const height = Math.max(layout.height, 200);
+  svg.setAttribute("height", height);
+  svg.setAttribute("viewBox", "0 0 " + width + " " + height);
 
+  const defs = svgEl("defs");
+  defs.appendChild(svgEl("marker", {
+    id: "arrow", viewBox: "0 0 8 8", refX: 7, refY: 4,
+    markerWidth: 7, markerHeight: 7, orient: "auto-start-reverse",
+  }, "")).appendChild(svgEl("path", { d: "M0,0 L8,4 L0,8 z", class: "edge-arrow" }));
+  svg.appendChild(defs);
+
+  const labelFont = bodyFont(11);
+  const subFont = bodyFont(9);
+  const textMax = NODE_W - NODE_TEXT_X - ACCENT_W - 12;
+
+  const edgesByNode = {};
+  const edgeEls = [];
   for (const edge of layout.edges) {
     const a = layout.byId[edge.src];
     const b = layout.byId[edge.dst];
@@ -376,36 +615,57 @@ function renderGraph(run) {
     const x2 = b.x;
     const y2 = b.y + NODE_H / 2;
     const mid = (x1 + x2) / 2;
+    const isCritical = layout.criticalEdges.has(edge.src + "→" + edge.dst);
     const path = svgEl("path", {
       d: "M" + x1 + "," + y1 + " C" + mid + "," + y1 + " " + mid + "," + y2 +
-         " " + x2 + "," + y2,
-      class: "edge" + (edge.confidence === "inferred" ? " edge-inferred" : ""),
+         " " + (x2 - 6) + "," + y2,
+      class: "edge" + (edge.confidence === "inferred" ? " edge-inferred" : "") +
+        (isCritical ? " edge-critical" : ""),
+      "marker-end": "url(#arrow)",
     });
     path.appendChild(svgEl("title", {}, edge.kind + " (" + edge.confidence + ")"));
     path.onclick = () => showEvidence(edge);
     svg.appendChild(path);
+    edgeEls.push(path);
+    (edgesByNode[edge.src] = edgesByNode[edge.src] || []).push(path);
+    (edgesByNode[edge.dst] = edgesByNode[edge.dst] || []).push(path);
   }
 
   for (const node of layout.nodes) {
-    const group = svgEl("g", { class: "node" });
+    const isCritical = layout.criticalNodes.has(node.id);
+    const group = svgEl("g", { class: "node" + (node.isMain ? " main" : "") +
+      (isCritical ? " critical" : "") });
     group.appendChild(svgEl("rect", {
-      x: node.x, y: node.y, width: NODE_W, height: NODE_H, rx: 6,
+      x: node.x, y: node.y, width: NODE_W, height: NODE_H, rx: 8, class: "card",
     }));
-    group.appendChild(svgEl("circle", {
-      cx: node.x + 12, cy: node.y + 14, r: 5,
-      class: "dot s-" + node.status,
-    }));
-    const label = node.label.length > 22 ? node.label.slice(0, 21) + "…" : node.label;
-    group.appendChild(svgEl("text", { x: node.x + 24, y: node.y + 18 }, label));
-    group.appendChild(svgEl("text", {
-      x: node.x + 24, y: node.y + 31, class: "edge-label",
-    }, node.status + " · " + node.sub));
+    if (!node.isMain) {
+      group.appendChild(svgEl("rect", {
+        x: node.x, y: node.y, width: ACCENT_W, height: NODE_H,
+        rx: 2, class: "accent s-" + node.status,
+      }));
+    }
+    const tx = node.x + NODE_TEXT_X;
+    group.appendChild(svgEl("text", { x: tx, y: node.y + 21 },
+      fitText(node.label, textMax, labelFont)));
+    group.appendChild(svgEl("text", { x: tx, y: node.y + 35, class: "sub" },
+      fitText(node.status + " · " + node.sub, textMax, subFont)));
+    group.appendChild(svgEl("title", {}, node.label + " — " + node.status));
+    const connected = edgesByNode[node.id] || [];
+    group.onmouseenter = () => {
+      if (!connected.length) return;
+      const keep = new Set(connected);
+      for (const el of edgeEls) el.classList.toggle("edge-dim", !keep.has(el));
+    };
+    group.onmouseleave = () => {
+      for (const el of edgeEls) el.classList.remove("edge-dim");
+    };
     if (!node.isMain) group.onclick = () => openDrawer(node.id);
     svg.appendChild(group);
   }
 
-  svg.appendChild(svgEl("text", { x: 20, y: Math.max(layout.height, 200) - 8,
-    class: "legend" }, "solid = exact  ·  dashed = inferred (click an edge for evidence)"));
+  const legend = "solid = exact  ·  dashed = inferred (click an edge for evidence, hover a node to trace it)" +
+    (layout.criticalNodes.size > 1 ? "  ·  accent = critical path (longest dependency chain by duration)" : "");
+  svg.appendChild(svgEl("text", { x: 20, y: height - 8, class: "legend" }, legend));
 
   // Hub files are context, not dependencies, so they are listed rather than
   // drawn. They go to the footer, not #edge-evidence, which showEvidence()
@@ -465,6 +725,8 @@ async function openDrawer(agentId) {
     return;
   }
   state.selected = agentId;
+  ingestToolCalls(agentId, agent.description || agent.agent_id, agent.tool_calls);
+  if (state.view === "activity") renderTicker();
 
   const rows = [
     ["status", agent.status],
@@ -473,6 +735,8 @@ async function openDrawer(agentId) {
     ["launch", agent.launch_mode],
     ["duration", fmtDuration(agent.duration_s)],
     ["tokens", fmtTokens(agent.tokens)],
+    ["cache hit", fmtPct(cacheHitRatio(agent.tokens)) +
+      (cacheHitRatio(agent.tokens) !== null ? "  (" + fmtTokenMix(agent.tokens) + ")" : "")],
     ["rounds", agent.rounds.length],
     ["tool calls", agent.tool_calls.length],
   ];
@@ -486,6 +750,7 @@ async function openDrawer(agentId) {
     '<div class="source-note">' + esc(agent.agent_id) + "</div>" +
     "<dl>" + rows.map(([k, v]) =>
       "<dt>" + esc(k) + "</dt><dd>" + esc(v) + "</dd>").join("") + "</dl>" +
+    "<h3>Tool mix</h3>" + (renderToolMix(agent.tool_calls) || '<p class="source-note">no tool calls yet</p>') +
     "<h3>Objective</h3><pre>" + esc(agent.objective || "—") + "</pre>" +
     '<div class="source-note">' + esc(agent.objective_source) + "</div>" +
     "<h3>Expected output</h3><pre>" + esc(agent.expected_output || "—") + "</pre>" +

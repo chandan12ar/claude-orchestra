@@ -32,6 +32,7 @@ _SHELL = """<!doctype html>
 <nav class="tabs" role="tablist">
   <button type="button" class="tab active" data-view="timeline" role="tab">Timeline</button>
   <button type="button" class="tab" data-view="graph" role="tab">Graph</button>
+  <button type="button" class="tab" data-view="activity" role="tab">Activity</button>
 </nav>
 <main>
   <section id="view-timeline" class="view">
@@ -40,6 +41,9 @@ _SHELL = """<!doctype html>
   <section id="view-graph" class="view" hidden>
     <svg id="graph" role="img" aria-label="Agent dependency graph"></svg>
     <div id="edge-evidence" class="evidence" hidden></div>
+  </section>
+  <section id="view-activity" class="view" hidden>
+    <div id="ticker" class="ticker"></div>
   </section>
 </main>
 <aside id="drawer" class="drawer" hidden aria-label="Agent detail"></aside>
