@@ -41,7 +41,9 @@ class TestPageStructure(unittest.TestCase):
     def test_required_mount_points_exist(self):
         html = read("index.html")
         for element_id in ("totals", "health", "timeline", "graph", "drawer",
-                           "session-picker", "diagnostics"):
+                           "session-picker", "diagnostics", "ticker",
+                           "view-activity", "filter-text", "filter-status",
+                           "conflicts"):
             self.assertIn('id="{}"'.format(element_id), html)
 
     def test_theme_is_defined_for_light_and_dark(self):

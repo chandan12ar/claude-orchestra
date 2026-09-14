@@ -11,7 +11,7 @@ import re
 from typing import Dict, List, Optional, Set, Tuple
 
 from orchestra import constants as C
-from orchestra.model import Agent, Edge, HubFile
+from orchestra.model import Agent, Edge, HubFile, WriteConflict
 
 # Captures the project root so a worktree path collapses onto the main path:
 # E:\p\.claude\worktrees\wt\src\a.py  ->  E:\p\src\a.py
@@ -50,7 +50,9 @@ def _spawn_edges(agents: List[Agent]) -> List[Edge]:
             for a in agents]
 
 
-def _artifact_edges(agents: List[Agent]) -> Tuple[List[Edge], List[HubFile]]:
+def _artifact_edges(
+    agents: List[Agent],
+) -> Tuple[List[Edge], List[HubFile], List[WriteConflict]]:
     writes: Dict[str, List[Tuple[str, Optional[float]]]] = {}
     reads: Dict[str, List[Tuple[str, Optional[float]]]] = {}
     for agent in agents:
@@ -58,6 +60,12 @@ def _artifact_edges(agents: List[Agent]) -> Tuple[List[Edge], List[HubFile]]:
             writes.setdefault(path, []).append((agent.agent_id, at))
         for path, at in _paths(agent, READ_TOOL_NAMES):
             reads.setdefault(path, []).append((agent.agent_id, at))
+
+    conflicts: List[WriteConflict] = []
+    for path, writers in writes.items():
+        distinct = sorted({writer_id for writer_id, _ in writers})
+        if len(distinct) > 1:
+            conflicts.append(WriteConflict(path=path, writer_ids=distinct))
 
     edges: List[Edge] = []
     hubs: List[HubFile] = []
@@ -79,7 +87,7 @@ def _artifact_edges(agents: List[Agent]) -> Tuple[List[Edge], List[HubFile]]:
                                   confidence="exact",
                                   evidence={"path": path, "written_at": write_at,
                                             "read_at": read_at}))
-    return edges, hubs
+    return edges, hubs, conflicts
 
 
 def _message_edges(agents: List[Agent]) -> List[Edge]:
@@ -133,10 +141,12 @@ def _handoff_edges(agents: List[Agent]) -> List[Edge]:
     return edges
 
 
-def infer_edges(agents: List[Agent]) -> Tuple[List[Edge], List[HubFile]]:
+def infer_edges(
+    agents: List[Agent],
+) -> Tuple[List[Edge], List[HubFile], List[WriteConflict]]:
     """All four kinds, deduplicated. Handoff folds into an exact edge if one exists."""
     edges = _spawn_edges(agents)
-    artifact, hubs = _artifact_edges(agents)
+    artifact, hubs, conflicts = _artifact_edges(agents)
     edges.extend(artifact)
     edges.extend(_message_edges(agents))
 
@@ -164,4 +174,4 @@ def infer_edges(agents: List[Agent]) -> Tuple[List[Edge], List[HubFile]]:
         if key not in seen:
             seen[key] = edge
             deduped.append(edge)
-    return deduped, hubs
+    return deduped, hubs, conflicts

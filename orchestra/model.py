@@ -168,6 +168,17 @@ class HubFile:
 
 
 @dataclass
+class WriteConflict:
+    """A file written by more than one agent — a real correctness risk, not
+    just informational the way a shared-read hub file is."""
+    path: str = ""
+    writer_ids: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"path": scrub(self.path), "writer_ids": list(self.writer_ids)}
+
+
+@dataclass
 class Run:
     session_id: str
     project_path: str = ""
@@ -178,6 +189,7 @@ class Run:
     edges: List[Edge] = field(default_factory=list)
     batches: List[Batch] = field(default_factory=list)
     hub_files: List[HubFile] = field(default_factory=list)
+    write_conflicts: List[WriteConflict] = field(default_factory=list)
     diagnostics: Dict[str, int] = field(default_factory=dict)
 
     def agent(self, agent_id: str) -> Optional[Agent]:
@@ -213,5 +225,6 @@ class Run:
             "edges": [e.to_dict() for e in self.edges],
             "batches": [b.to_dict() for b in self.batches],
             "hub_files": [h.to_dict() for h in self.hub_files],
+            "write_conflicts": [c.to_dict() for c in self.write_conflicts],
             "diagnostics": dict(self.diagnostics),
         }

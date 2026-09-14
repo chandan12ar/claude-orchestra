@@ -29,6 +29,11 @@ _SHELL = """<!doctype html>
   <div id="totals" class="totals"></div>
 </header>
 <div id="health" class="health" hidden></div>
+<div id="conflicts" class="health" hidden></div>
+<div id="filter-bar" class="filter-bar">
+  <input id="filter-text" type="search" placeholder="Filter agents…" aria-label="Filter agents">
+  <div id="filter-status" class="filter-chips"></div>
+</div>
 <nav class="tabs" role="tablist">
   <button type="button" class="tab active" data-view="timeline" role="tab">Timeline</button>
   <button type="button" class="tab" data-view="graph" role="tab">Graph</button>

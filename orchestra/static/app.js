@@ -19,6 +19,10 @@ const state = {
   toolCache: {},
   // Merged tool-call feed across agents, newest first, capped below.
   ticker: [],
+  // Free-text filter (matches description/id/type/model/objective) and a
+  // status allow-set — empty means "no restriction," not "match nothing."
+  filterText: "",
+  filterStatuses: new Set(),
 };
 
 const $ = (id) => document.getElementById(id);
@@ -143,15 +147,80 @@ async function refreshTicker(run) {
   renderTicker();
 }
 
+function agentById(run) {
+  const map = {};
+  for (const a of run.agents) map[a.agent_id] = a;
+  return map;
+}
+
+// Empty text and an empty status set both mean "no restriction" — a filter
+// bar that starts out hiding everything would look like the dashboard broke.
+function agentMatchesFilter(agent) {
+  if (state.filterStatuses.size && !state.filterStatuses.has(agent.status)) return false;
+  const q = state.filterText.trim().toLowerCase();
+  if (!q) return true;
+  const haystack = [agent.description, agent.agent_id, agent.agent_type,
+    agent.model, agent.objective].filter(Boolean).join(" ").toLowerCase();
+  return haystack.includes(q);
+}
+
+function renderFilterChips() {
+  const box = $("filter-status");
+  if (!box || !state.run) return;
+  const order = ["running", "completed", "failed", "stalled", "orphaned", "unknown"];
+  const present = new Set(state.run.agents.map((a) => a.status));
+  const statuses = order.filter((s) => present.has(s));
+  box.innerHTML = statuses.map((s) =>
+    '<button type="button" class="chip' + (state.filterStatuses.has(s) ? " active" : "") +
+    '" data-status="' + s + '">' + esc(s) + "</button>").join("");
+  for (const chip of box.querySelectorAll(".chip")) {
+    chip.onclick = () => {
+      const s = chip.dataset.status;
+      if (state.filterStatuses.has(s)) state.filterStatuses.delete(s);
+      else state.filterStatuses.add(s);
+      renderFilterChips();
+      render();
+    };
+  }
+}
+
+function renderConflicts(run) {
+  const box = $("conflicts");
+  if (!box) return;
+  const conflicts = run.write_conflicts || [];
+  if (!conflicts.length) { box.hidden = true; return; }
+  box.hidden = false;
+  const byId = agentById(run);
+  box.innerHTML = "<strong>" + conflicts.length +
+    " file(s) written by more than one agent</strong>";
+  const list = document.createElement("ul");
+  for (const c of conflicts) {
+    const item = document.createElement("li");
+    const labels = c.writer_ids.map((id) => (byId[id] && byId[id].description) || id);
+    item.textContent = c.path + " — written by " + labels.join(", ");
+    item.style.cursor = "pointer";
+    item.onclick = () => openDrawer(c.writer_ids[0]);
+    list.appendChild(item);
+  }
+  box.appendChild(list);
+}
+
 function renderTicker() {
   const box = $("ticker");
   if (!box) return;
-  if (!state.ticker.length) {
-    box.innerHTML = '<div class="ticker-empty">No live tool-call activity yet — ' +
-      "this fills in while agents are running.</div>";
+  const byId = state.run ? agentById(state.run) : {};
+  const rows = state.ticker.filter((e) => {
+    const agent = byId[e.agentId];
+    return !agent || agentMatchesFilter(agent);
+  });
+  if (!rows.length) {
+    box.innerHTML = '<div class="ticker-empty">' + (state.ticker.length
+      ? "No activity matches the current filter."
+      : "No live tool-call activity yet — this fills in while agents are running.") +
+      "</div>";
     return;
   }
-  box.innerHTML = state.ticker.map((e) => {
+  box.innerHTML = rows.map((e) => {
     const [, cssVar] = toolBucket(e.name);
     return '<div class="ticker-row" data-agent="' + esc(e.agentId) + '">' +
       '<span class="ticker-time">' + esc(fmtClock(e.ts)) + "</span>" +
@@ -182,10 +251,25 @@ function svgEl(name, attrs, text) {
 
 let measureCtx = null;
 function bodyFont(px) {
-  return px + "px " + getComputedStyle(document.body).fontFamily;
+  // getComputedStyle is absent in some minimal JS execution contexts (this
+  // project's own headless-node report-render check among them) — fall back
+  // to a generic stack rather than throw and blank the whole report.
+  const family = typeof getComputedStyle === "function"
+    ? getComputedStyle(document.body).fontFamily
+    : "sans-serif";
+  return px + "px " + family;
 }
 function textWidth(text, font) {
-  if (!measureCtx) measureCtx = document.createElement("canvas").getContext("2d");
+  if (measureCtx === null) {
+    const canvas = document.createElement("canvas");
+    measureCtx = (canvas.getContext && canvas.getContext("2d")) || false;
+  }
+  if (!measureCtx) {
+    // No canvas 2D context (the project's own headless-node report-render
+    // check, e.g.) — a rough per-character estimate beats throwing.
+    const px = parseInt(font, 10) || 11;
+    return text.length * px * 0.55;
+  }
   measureCtx.font = font;
   return measureCtx.measureText(text).width;
 }
@@ -325,7 +409,7 @@ function renderTimeline(run) {
   agents.forEach((agent, i) => {
     const y = PAD + i * ROW_H;
     const label = agent.description || agent.agent_id;
-    const row = svgEl("g", { class: "row" });
+    const row = svgEl("g", { class: "row" + (agentMatchesFilter(agent) ? "" : " row-dim") });
 
     // A full-width hit target behind the row content: hover feedback should
     // not depend on landing the cursor on a 3px-wide bar.
@@ -388,6 +472,8 @@ function render() {
   if (!state.run) return;
   renderHeader(state.run);
   renderHealth(state.run);
+  renderConflicts(state.run);
+  renderFilterChips();
   renderDiagnostics(state.run);
   if (state.view === "timeline") renderTimeline(state.run);
   else if (state.view === "graph") renderGraph(state.run);
@@ -455,9 +541,20 @@ function init() {
   for (const tab of document.querySelectorAll(".tab")) {
     tab.onclick = () => setView(tab.dataset.view);
   }
+  $("filter-text").oninput = (event) => {
+    state.filterText = event.target.value;
+    render();
+  };
   window.addEventListener("resize", () => render());
   loadSessions();
   startPolling();
+  // A #agent=<id> link (pasted from a health-box item, a ticker row, or an
+  // earlier session) opens straight to that agent's drawer. openDrawer fetches
+  // independently of run state, so this doesn't need to wait for the first poll.
+  const hash = location.hash || "";
+  if (hash.indexOf("#agent=") === 0) {
+    openDrawer(decodeURIComponent(hash.slice("#agent=".length)));
+  }
 }
 
 document.addEventListener("DOMContentLoaded", init);
@@ -474,7 +571,7 @@ const EXACT_KINDS = ["spawn", "artifact", "message"];
 
 function layoutGraph(run) {
   const nodes = [{ id: "main", label: "orchestrator", status: "completed",
-                   sub: "this session", isMain: true }];
+                   sub: "this session", isMain: true, matches: true }];
   for (const agent of run.agents) {
     nodes.push({
       id: agent.agent_id,
@@ -483,6 +580,7 @@ function layoutGraph(run) {
       status: agent.status,
       startedAt: agent.started_at,
       duration: agent.duration_s || 0,
+      matches: agentMatchesFilter(agent),
     });
   }
   const byId = {};
@@ -634,7 +732,7 @@ function renderGraph(run) {
   for (const node of layout.nodes) {
     const isCritical = layout.criticalNodes.has(node.id);
     const group = svgEl("g", { class: "node" + (node.isMain ? " main" : "") +
-      (isCritical ? " critical" : "") });
+      (isCritical ? " critical" : "") + (node.matches ? "" : " dim") });
     group.appendChild(svgEl("rect", {
       x: node.x, y: node.y, width: NODE_W, height: NODE_H, rx: 8, class: "card",
     }));
@@ -713,6 +811,22 @@ function esc(text) {
   return div.innerHTML;
 }
 
+// Deep-linkable: #agent=<id> is set while the drawer is open (replaceState,
+// not location.hash=, so opening agents one after another doesn't spam back
+// history) so a health-box, ticker, or conflict-list link is pasteable.
+function setAgentHash(agentId) {
+  if (typeof history === "undefined" || !history.replaceState) return;
+  const hash = agentId ? "#agent=" + encodeURIComponent(agentId) : "";
+  history.replaceState(null, "", (location.pathname || "") + (location.search || "") + hash);
+}
+
+function closeDrawer() {
+  if (state.selected === null) return;
+  $("drawer").hidden = true;
+  state.selected = null;
+  setAgentHash(null);
+}
+
 async function openDrawer(agentId) {
   const drawer = $("drawer");
   drawer.hidden = false;
@@ -725,6 +839,7 @@ async function openDrawer(agentId) {
     return;
   }
   state.selected = agentId;
+  setAgentHash(agentId);
   ingestToolCalls(agentId, agent.description || agent.agent_id, agent.tool_calls);
   if (state.view === "activity") renderTicker();
 
@@ -761,9 +876,9 @@ async function openDrawer(agentId) {
     "<h3>Files written</h3><pre>" + esc(agent.files_written.join("\n") || "—") + "</pre>" +
     "<h3>Files read</h3><pre>" + esc(agent.files_read.join("\n") || "—") + "</pre>";
 
-  $("drawer-close").onclick = () => { drawer.hidden = true; state.selected = null; };
+  $("drawer-close").onclick = closeDrawer;
 }
 
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") $("drawer").hidden = true;
+  if (event.key === "Escape") closeDrawer();
 });

@@ -54,7 +54,7 @@ class RunBuilder:
         agents = [a for a in agents if a is not None]
         agents.sort(key=lambda a: (a.started_at is None, a.started_at or 0))
 
-        edges, hubs = infer_edges(agents)
+        edges, hubs, conflicts = infer_edges(agents)
         starts = [a.started_at for a in agents if a.started_at is not None]
         ends = [a.ended_at for a in agents if a.ended_at is not None]
 
@@ -68,6 +68,7 @@ class RunBuilder:
             edges=edges,
             batches=self._batches(agents),
             hub_files=hubs,
+            write_conflicts=conflicts,
             diagnostics=dict(self._reader.diagnostics),
         )
 
