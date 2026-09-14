@@ -157,7 +157,14 @@ class RunBuilder:
         return Agent(
             agent_id=agent_id,
             tool_use_id=tool_use_id,
-            parent_agent_id=launch.launcher_agent_id if launch else None,
+            # A fork's own transcript replays its full inherited history —
+            # including the very entry that launched it, tagged (like every
+            # entry in that file) with isSidechain=True and its own agentId.
+            # Read naively, that looks like the agent spawning itself. An
+            # agent can never legitimately be its own parent, so that specific
+            # shape is treated as the top-level launch it actually was.
+            parent_agent_id=(launch.launcher_agent_id
+                             if launch and launch.launcher_agent_id != agent_id else None),
             spawn_depth=int(meta.get("spawnDepth") or 1),
             agent_type=str(meta.get("agentType") or ""),
             description=description,

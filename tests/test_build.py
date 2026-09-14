@@ -195,6 +195,36 @@ class TestQuotedAgentIdsDoNotBecomeAgents(BuildTestCase):
         self.assertIsNotNone(run.agent("a3"))
 
 
+class TestAForkCannotBecomeItsOwnParent(BuildTestCase):
+    """Found by running Orchestra against its own session: a forked agent's
+    transcript replays its full inherited history, including the very entry
+    that launched it -- tagged, like every entry in that file, with
+    isSidechain=True and its own agentId. Read naively, that looks like the
+    agent spawning itself, producing a self-loop spawn edge.
+    """
+
+    def test_a_replayed_self_launch_does_not_self_parent(self):
+        import json
+        # a1's own transcript replays the entry that launched a1 in the first
+        # place -- exactly as a forked agent's transcript would -- reusing the
+        # same tool_use_id ("toolu_1") so it overwrites the real launch record.
+        replay = {
+            "isSidechain": True, "agentId": "a1", "uuid": "replay-1",
+            "timestamp": ts(5), "type": "assistant",
+            "message": {"role": "assistant", "content": [
+                {"type": "tool_use", "id": "toolu_1", "name": "Agent",
+                 "input": {"description": "Plan the work", "prompt": "..."}}]}}
+        path = os.path.join(self.paths.subagents_dir, "agent-a1.jsonl")
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(replay) + "\n")
+
+        run = self.build()
+        self.assertIsNone(run.agent("a1").parent_agent_id)
+        spawn = {(e.src, e.dst) for e in run.edges if e.kind == "spawn"}
+        self.assertIn(("main", "a1"), spawn)
+        self.assertNotIn(("a1", "a1"), spawn)
+
+
 if __name__ == "__main__":
     unittest.main()
 
