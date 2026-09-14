@@ -116,6 +116,27 @@ main { padding: 12px 16px 24px; }
 .s-orphaned  { fill: var(--orphaned); }
 .s-unknown   { fill: var(--unknown); }
 
+/* A running agent needs to read as "actively happening," not just
+   blue-colored — a ping ring on its dot/node border, and a breathing
+   fade on its still-open bar. All disabled under reduced-motion. */
+@keyframes ping-ring {
+  0%   { transform: scale(1);    opacity: 0.65; }
+  70%  { transform: scale(2.1);  opacity: 0; }
+  100% { transform: scale(2.1);  opacity: 0; }
+}
+@keyframes breathe {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.55; }
+}
+.row-dot-ping, .node-ping {
+  fill: none; stroke: var(--running); stroke-width: 1.6;
+  transform-box: fill-box; transform-origin: center;
+  animation: ping-ring 1.6s ease-out infinite; pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .row-dot-ping, .node-ping { animation: none; display: none; }
+}
+
 .row-label { fill: var(--ink); font-size: 11px; }
 .row-meta { fill: var(--muted); font-size: 10px; }
 .row-dot { stroke: none; }
@@ -133,7 +154,11 @@ main { padding: 12px 16px 24px; }
 @media (prefers-reduced-motion: reduce) {
   .row-bg, .bar { transition: none; }
 }
-.bar-open { stroke: var(--running); stroke-dasharray: 3 3; fill-opacity: 0.35; }
+.bar-open { stroke: var(--running); stroke-dasharray: 3 3; fill-opacity: 0.35;
+  animation: breathe 1.8s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .bar-open { animation: none; }
+}
 .row.row-dim { opacity: 0.25; }
 
 .scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45);
@@ -212,5 +237,6 @@ main { padding: 12px 16px 24px; }
 .edge-critical { stroke: var(--accent); stroke-width: 2.4; opacity: 1; }
 .edge-dim.edge-dim { opacity: 0.12; }
 .edge-arrow { fill: var(--muted); }
+.packet { fill: var(--accent); pointer-events: none; }
 .legend { fill: var(--muted); font-size: 10px; }
 .hub { fill: var(--bg); stroke: var(--line); stroke-dasharray: 3 3; }

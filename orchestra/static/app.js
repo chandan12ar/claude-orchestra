@@ -23,6 +23,13 @@ const state = {
   // status allow-set — empty means "no restriction," not "match nothing."
   filterText: "",
   filterStatuses: new Set(),
+  // Which graph edges ("src>dst>kind") have already been drawn at least
+  // once. The first render seeds this silently (nothing "just happened" on
+  // page load); every edge key added after that is a real event — a file
+  // handoff or message just detected between polls — and gets a one-time
+  // traveling-dot animation instead of appearing as a plain static line.
+  seenEdgeKeys: new Set(),
+  graphSeeded: false,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -445,6 +452,11 @@ function renderTimeline(run) {
       cx: LABEL_X + DOT_R, cy: y + ROW_H / 2, r: DOT_R,
       class: "row-dot s-" + agent.status,
     }));
+    if (agent.status === "running") {
+      row.appendChild(svgEl("circle", {
+        cx: LABEL_X + DOT_R, cy: y + ROW_H / 2, r: DOT_R, class: "row-dot-ping",
+      }));
+    }
     row.appendChild(svgEl("title", {}, agent.status));
 
     const labelX = LABEL_X + DOT_R * 2 + 6;
@@ -561,6 +573,10 @@ function init() {
   $("session-picker").onchange = (event) => {
     state.sessionId = event.target.value;
     state.run = null;
+    // A different session's edges are all pre-existing history to us, not
+    // events happening live — reseed instead of flashing every one of them.
+    state.seenEdgeKeys = new Set();
+    state.graphSeeded = false;
     startPolling();
   };
   for (const tab of document.querySelectorAll(".tab")) {
@@ -720,6 +736,13 @@ function renderGraph(run) {
   const svg = $("graph");
   svg.innerHTML = "";
   $("edge-evidence").hidden = true;
+  // The first render of a session just seeds what's already-existing history;
+  // nothing on it "just happened," so nothing should flash. Only edges that
+  // appear on a LATER render — after real polls have run — are live events.
+  const firstRender = !state.graphSeeded;
+  state.graphSeeded = true;
+  const reducedMotion = typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const layout = layoutGraph(run);
   const width = Math.max(svg.clientWidth || 900, layout.width);
   const height = Math.max(layout.height, 200);
@@ -748,9 +771,10 @@ function renderGraph(run) {
     const y2 = b.y + NODE_H / 2;
     const mid = (x1 + x2) / 2;
     const isCritical = layout.criticalEdges.has(edge.src + "→" + edge.dst);
+    const d = "M" + x1 + "," + y1 + " C" + mid + "," + y1 + " " + mid + "," + y2 +
+      " " + (x2 - 6) + "," + y2;
     const path = svgEl("path", {
-      d: "M" + x1 + "," + y1 + " C" + mid + "," + y1 + " " + mid + "," + y2 +
-         " " + (x2 - 6) + "," + y2,
+      d: d,
       class: "edge" + (edge.confidence === "inferred" ? " edge-inferred" : "") +
         (isCritical ? " edge-critical" : ""),
       "marker-end": "url(#arrow)",
@@ -761,6 +785,24 @@ function renderGraph(run) {
     edgeEls.push(path);
     (edgesByNode[edge.src] = edgesByNode[edge.src] || []).push(path);
     (edgesByNode[edge.dst] = edgesByNode[edge.dst] || []).push(path);
+
+    // A brand-new edge key is a real event: this handoff was JUST detected
+    // between polls. Flash a dot traveling the same path once, then let it
+    // settle into an ordinary static line for good.
+    const edgeKey = edge.src + ">" + edge.dst + ">" + edge.kind;
+    const isNewEdge = !firstRender && !state.seenEdgeKeys.has(edgeKey);
+    state.seenEdgeKeys.add(edgeKey);
+    if (isNewEdge && !reducedMotion) {
+      const packet = svgEl("circle", { r: 4, class: "packet" });
+      packet.appendChild(svgEl("animateMotion", {
+        dur: "1s", begin: "0s", fill: "freeze", path: d,
+      }));
+      packet.appendChild(svgEl("animate", {
+        attributeName: "opacity", from: "1", to: "0",
+        begin: "0.7s", dur: "0.3s", fill: "freeze",
+      }));
+      svg.appendChild(packet);
+    }
   }
 
   for (const node of layout.nodes) {
@@ -775,6 +817,12 @@ function renderGraph(run) {
         x: node.x, y: node.y, width: ACCENT_W, height: NODE_H,
         rx: 2, class: "accent s-" + node.status,
       }));
+      if (node.status === "running") {
+        group.appendChild(svgEl("rect", {
+          x: node.x, y: node.y, width: NODE_W, height: NODE_H, rx: 8,
+          class: "node-ping",
+        }));
+      }
     }
     const tx = node.x + NODE_TEXT_X;
     group.appendChild(svgEl("text", { x: tx, y: node.y + 21 },
