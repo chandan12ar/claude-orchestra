@@ -44,7 +44,7 @@ class TestPageStructure(unittest.TestCase):
                            "session-picker", "diagnostics", "ticker",
                            "view-activity", "filter-text", "filter-status",
                            "conflicts", "scrim", "filter-clear", "filter-count",
-                           "notify-toggle"):
+                           "notify-toggle", "copy-summary"):
             self.assertIn('id="{}"'.format(element_id), html)
 
     def test_theme_is_defined_for_light_and_dark(self):

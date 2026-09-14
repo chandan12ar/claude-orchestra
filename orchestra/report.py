@@ -22,6 +22,7 @@ _SHELL = """<!doctype html>
 <header>
   <div class="bar">
     <h1>Orchestra</h1>
+    <button id="copy-summary" type="button">Copy summary</button>
     <!-- id is load-bearing: app.js sets $("conn").textContent inside poll(),
          before render(). Without it the whole page throws and stays blank. -->
     <span id="conn" class="conn">static report · session {session}</span>

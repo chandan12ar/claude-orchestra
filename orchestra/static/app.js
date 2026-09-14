@@ -284,6 +284,59 @@ function checkNotifications(run) {
   state.notifySeeded = true;
 }
 
+// ------------------------------------------------------------- copy summary
+
+// Plain markdown, meant to be pasted straight into a PR description or a
+// Slack update — no HTML, no dashboard-specific jargon a reader wouldn't
+// already have from opening the linked session.
+function buildSummaryMarkdown(run) {
+  const t = run.totals || {};
+  const failedCount = (t.failed || 0) + (t.orphaned || 0);
+  const lines = [
+    "## Orchestra summary — " + (run.session_id || "session"),
+    (t.agents || 0) + " agents · " + (t.completed || 0) + " completed · " +
+      failedCount + " failed · " + (t.running || 0) + " running · " +
+      fmtTokens(t.tokens) + " tokens (" + fmtPct(cacheHitRatio(t.tokens)) + " cached) · " +
+      fmtDuration(t.wall_time_s) + " wall",
+  ];
+
+  const trouble = run.agents.filter((a) => ["stalled", "failed", "orphaned"].includes(a.status));
+  if (trouble.length) {
+    lines.push("", "### Needs attention");
+    for (const agent of trouble) {
+      lines.push("- " + agent.status.toUpperCase() + " — " + (agent.description || agent.agent_id));
+    }
+  }
+
+  const conflicts = run.write_conflicts || [];
+  if (conflicts.length) {
+    lines.push("", "### Write conflicts");
+    const byId = agentById(run);
+    for (const c of conflicts) {
+      const labels = c.writer_ids.map((id) => (byId[id] && byId[id].description) || id);
+      lines.push("- `" + c.path + "` — written by " + labels.join(", "));
+    }
+  }
+
+  return lines.join("\n");
+}
+
+async function copySummary() {
+  const btn = $("copy-summary");
+  if (!state.run || !btn) return;
+  const text = buildSummaryMarkdown(state.run);
+  let ok = false;
+  try {
+    if (typeof navigator !== "undefined" && navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+      ok = true;
+    }
+  } catch (err) { /* ok stays false; the button reports it below */ }
+  const original = btn.textContent;
+  btn.textContent = ok ? "Copied!" : "Copy failed";
+  setTimeout(() => { btn.textContent = original; }, 1500);
+}
+
 function renderConflicts(run) {
   const box = $("conflicts");
   if (!box) return;
@@ -676,6 +729,7 @@ function init() {
   } else {
     $("notify-toggle").hidden = true;
   }
+  $("copy-summary").onclick = copySummary;
   for (const tab of document.querySelectorAll(".tab")) {
     tab.onclick = () => setView(tab.dataset.view);
   }
