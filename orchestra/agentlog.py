@@ -63,8 +63,13 @@ class AgentDigest:
                 self.last_activity_at = at
             message = entry.get("message")
             if isinstance(message, dict):
-                if isinstance(message.get("model"), str):
-                    self.model = message["model"]
+                model = message.get("model")
+                # Claude Code injects a synthetic wrap-up message (model
+                # literally "<synthetic>") on an interrupted or errored turn.
+                # It's not a real model — recording it would overwrite the
+                # last genuine one this agent actually ran on.
+                if isinstance(model, str) and model and model != "<synthetic>":
+                    self.model = model
                 self._add_usage(message.get("usage"))
             self._add_blocks(entry, at)
         self.ended_mid_tool = bool(self._open_tool_ids)

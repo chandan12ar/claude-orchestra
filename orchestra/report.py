@@ -31,7 +31,15 @@ _SHELL = """<!doctype html>
 <div id="health" class="health" hidden></div>
 <div id="conflicts" class="health" hidden></div>
 <div id="filter-bar" class="filter-bar">
-  <input id="filter-text" type="search" placeholder="Filter agents…" aria-label="Filter agents">
+  <div class="search-wrap">
+    <svg class="search-icon" viewBox="0 0 20 20" aria-hidden="true">
+      <circle cx="9" cy="9" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/>
+      <path d="M13.4 13.4 L18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+    </svg>
+    <input id="filter-text" type="search" placeholder="Filter agents…" aria-label="Filter agents">
+    <button type="button" id="filter-clear" class="filter-clear" aria-label="Clear filter" hidden>&times;</button>
+  </div>
+  <span id="filter-count" class="filter-count"></span>
   <div id="filter-status" class="filter-chips"></div>
 </div>
 <nav class="tabs" role="tablist">
@@ -51,6 +59,7 @@ _SHELL = """<!doctype html>
     <div id="ticker" class="ticker"></div>
   </section>
 </main>
+<div id="scrim" class="scrim" hidden></div>
 <aside id="drawer" class="drawer" hidden aria-label="Agent detail"></aside>
 <footer id="diagnostics" class="diagnostics"></footer>
 <select id="session-picker" hidden></select>

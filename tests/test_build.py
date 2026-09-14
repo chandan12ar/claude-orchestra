@@ -39,7 +39,10 @@ class TestRunAssembly(BuildTestCase):
         self.assertEqual(a1.agent_type, "general-purpose")
         self.assertEqual(a1.description, "Plan the work")
         self.assertEqual(a1.launch_mode, "background")
-        self.assertEqual(a1.model, "haiku")
+        # The agent's own transcript reports the real, versioned model
+        # ("claude-haiku-4-5-20251001"); that's the ground truth over the
+        # short alias ("haiku") requested at spawn time in meta.json.
+        self.assertEqual(a1.model, "claude-haiku-4-5-20251001")
 
     def test_brief_and_extraction(self):
         a1 = self.build().agent("a1")

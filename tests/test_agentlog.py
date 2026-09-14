@@ -45,6 +45,15 @@ class TestModel(unittest.TestCase):
         d.ingest([assistant([], model="claude-opus-4-1-20260305")])
         self.assertEqual(d.model, "claude-opus-4-1-20260305")
 
+    def test_synthetic_wrapup_message_never_overwrites_the_real_model(self):
+        # Claude Code injects a synthetic wrap-up message (model literally
+        # "<synthetic>") on an interrupted or errored turn. It must not clobber
+        # the last genuine model this agent actually ran on.
+        d = AgentDigest()
+        d.ingest([assistant([], model="claude-sonnet-5"),
+                  assistant([], model="<synthetic>", timestamp=TS_LATER)])
+        self.assertEqual(d.model, "claude-sonnet-5")
+
 
 class TestToolCalls(unittest.TestCase):
     def test_read_and_write_targets_are_file_paths(self):

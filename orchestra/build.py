@@ -161,8 +161,13 @@ class RunBuilder:
             spawn_depth=int(meta.get("spawnDepth") or 1),
             agent_type=str(meta.get("agentType") or ""),
             description=description,
-            model=str(meta.get("model") or (launch.model if launch else "")
-                      or digest.model),
+            # digest.model is what the agent's own transcript actually reports
+            # (e.g. "claude-sonnet-5") — the ground truth. meta/launch only
+            # carry the short alias *requested* at spawn time ("sonnet"), which
+            # is a worse answer to "which model ran this" whenever the real
+            # one is known.
+            model=str(digest.model or meta.get("model")
+                      or (launch.model if launch else "")),
             launch_mode=launch_mode,
             brief=brief,
             objective=extract_objective(brief, description),

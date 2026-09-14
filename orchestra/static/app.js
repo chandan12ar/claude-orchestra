@@ -100,6 +100,16 @@ function fmtClock(ts) {
   return new Date(ts * 1000).toLocaleTimeString([], { hour12: false });
 }
 
+// The full model string ("claude-haiku-4-5-20251001") is the ground truth —
+// shown as-is wherever there's room (the drawer). Compact spaces (Timeline
+// rows, Graph nodes) get this shortened form instead: strip the "claude-"
+// prefix and a trailing release-date suffix, so "sonnet-5" stays a real
+// version identifier rather than collapsing back to the bare family name.
+function fmtModelShort(model) {
+  if (!model) return "?";
+  return model.replace(/^claude-/, "").replace(/-\d{8}$/, "");
+}
+
 function renderToolMix(toolCalls) {
   if (!toolCalls || !toolCalls.length) return "";
   const counts = { Read: 0, Edit: 0, Bash: 0, Task: 0, Other: 0 };
@@ -182,6 +192,20 @@ function renderFilterChips() {
       render();
     };
   }
+}
+
+// Only shown while a filter is actually narrowing the view — at rest it
+// would just duplicate the "N agents" the header already shows.
+function renderFilterCount(run) {
+  const el = $("filter-count");
+  if (!el) return;
+  const active = state.filterText.trim() || state.filterStatuses.size;
+  if (!active) {
+    el.textContent = "";
+    return;
+  }
+  const shown = run.agents.filter(agentMatchesFilter).length;
+  el.textContent = shown + " of " + run.agents.length;
 }
 
 function renderConflicts(run) {
@@ -427,7 +451,7 @@ function renderTimeline(run) {
     row.appendChild(svgEl("text", { x: labelX, y: y + 14, class: "row-label" },
       fitText(label, labelMax, labelFont)));
     row.appendChild(svgEl("text", { x: labelX, y: y + 25, class: "row-meta" },
-      fitText(agent.agent_type + " · " + (agent.model || "?"), labelMax, metaFont)));
+      fitText(agent.agent_type + " · " + fmtModelShort(agent.model), labelMax, metaFont)));
 
     const rounds = agent.rounds.length ? agent.rounds
       : [{ started_at: agent.started_at, ended_at: agent.ended_at }];
@@ -474,6 +498,7 @@ function render() {
   renderHealth(state.run);
   renderConflicts(state.run);
   renderFilterChips();
+  renderFilterCount(state.run);
   renderDiagnostics(state.run);
   if (state.view === "timeline") renderTimeline(state.run);
   else if (state.view === "graph") renderGraph(state.run);
@@ -543,6 +568,15 @@ function init() {
   }
   $("filter-text").oninput = (event) => {
     state.filterText = event.target.value;
+    $("filter-clear").hidden = !state.filterText;
+    render();
+  };
+  $("filter-clear").onclick = () => {
+    state.filterText = "";
+    const input = $("filter-text");
+    input.value = "";
+    input.focus();
+    $("filter-clear").hidden = true;
     render();
   };
   window.addEventListener("resize", () => render());
@@ -576,7 +610,7 @@ function layoutGraph(run) {
     nodes.push({
       id: agent.agent_id,
       label: agent.description || agent.agent_id,
-      sub: agent.agent_type + " · " + (agent.model || "?"),
+      sub: agent.agent_type + " · " + fmtModelShort(agent.model),
       status: agent.status,
       startedAt: agent.started_at,
       duration: agent.duration_s || 0,
@@ -820,16 +854,40 @@ function setAgentHash(agentId) {
   history.replaceState(null, "", (location.pathname || "") + (location.search || "") + hash);
 }
 
+const DRAWER_TRANSITION_MS = 220;
+
 function closeDrawer() {
   if (state.selected === null) return;
-  $("drawer").hidden = true;
+  const drawer = $("drawer");
+  const scrim = $("scrim");
+  drawer.classList.remove("show");
+  scrim.classList.remove("show");
   state.selected = null;
   setAgentHash(null);
+  // A reopen within this window (closing one agent, immediately picking
+  // another) must not have this timeout hide the drawer out from under it —
+  // only finish hiding if nothing else got selected in the meantime.
+  setTimeout(() => {
+    if (state.selected === null) {
+      drawer.hidden = true;
+      scrim.hidden = true;
+    }
+  }, DRAWER_TRANSITION_MS);
 }
 
 async function openDrawer(agentId) {
   const drawer = $("drawer");
+  const scrim = $("scrim");
   drawer.hidden = false;
+  scrim.hidden = false;
+  scrim.onclick = closeDrawer;
+  // Force a layout flush so the browser registers the off-screen starting
+  // position before .show is added on the next line — added in the same
+  // tick, the transform and its transition would both apply at once and
+  // nothing would visibly slide.
+  void drawer.offsetWidth;
+  drawer.classList.add("show");
+  scrim.classList.add("show");
   drawer.innerHTML = "<p>Loading…</p>";
   let agent;
   try {
@@ -846,7 +904,8 @@ async function openDrawer(agentId) {
   const rows = [
     ["status", agent.status],
     ["type", agent.agent_type],
-    ["model", agent.model],
+    ["model", fmtModelShort(agent.model) +
+      (agent.model && agent.model !== fmtModelShort(agent.model) ? "  (" + agent.model + ")" : "")],
     ["launch", agent.launch_mode],
     ["duration", fmtDuration(agent.duration_s)],
     ["tokens", fmtTokens(agent.tokens)],
