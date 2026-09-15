@@ -39,6 +39,27 @@ const state = {
   notifySeeded: false,
   knownFailedIds: new Set(),
   lastSessionLive: null,
+  // agent_id -> { toolCount, tokenTotal } as of the last render, so the Work
+  // Floor view can tell "this agent did something since the last poll" apart
+  // from "this is just what the run currently looks like." Seeded the same
+  // way graphSeeded/notifySeeded are: the first render records history
+  // silently, only later deltas earn the one-shot activity pulse.
+  floorActivity: {},
+  floorSeeded: false,
+  // agent_id -> its last-seen status and a celebrate-until timestamp (ms),
+  // so a live transition into "completed" gets a one-shot jump burst
+  // instead of every render re-triggering it.
+  agentPrevStatus: {},
+  agentCelebrateUntil: {},
+  // agent_id -> AgentSprite, the currently-mounted canvas animators. Always
+  // stopped before the floor is rebuilt or the tab is left, so a detached
+  // canvas never keeps a requestAnimationFrame loop running forever.
+  agentSprites: {},
+  // Set true by report.py's offline shim. A static report's "running" agent
+  // was only running at export time — ticking its clock against the
+  // viewer's real wall clock would make an old, safe-to-email snapshot claim
+  // an agent has been running for however long it's sat on someone's disk.
+  offline: false,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -388,6 +409,367 @@ function renderTicker() {
   }
 }
 
+// ------------------------------------------------------------ agent sprite
+//
+// Sprite slicing + animation is a JS port of the canvas pet engine from
+// ntd4996/agentpet (MIT License — https://github.com/ntd4996/agentpet),
+// including this file's own copy of that license:
+//
+//   MIT License
+//   Copyright (c) 2026 Nguyễn Thành Đạt
+//   Permission is hereby granted, free of charge, to any person obtaining a
+//   copy of this software and associated documentation files (the
+//   "Software"), to deal in the Software without restriction, including
+//   without limitation the rights to use, copy, modify, merge, publish,
+//   distribute, sublicense, and/or sell copies of the Software, and to
+//   permit persons to whom the Software is furnished to do so, subject to
+//   the following conditions: the above copyright notice and this
+//   permission notice shall be included in all copies or substantial
+//   portions of the Software. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT
+//   WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO
+//   THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+//   NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+//   LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+//   OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+//   WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+//
+// static/agent-sprite.png is that repo's own bundled sample character sheet
+// (landing/sample-pet.png), reused here under the same license — served
+// locally, never fetched from their CDN, so the dashboard's offline
+// guarantee holds. report.py embeds it as a data: URI for the same reason
+// a static report can't reference a sibling file it isn't shipped with.
+//
+// It's one character sheet, not a gallery — agentpet's full character
+// variety lives on their CDN, which a fully offline dashboard can't reach.
+// Every agent instead gets its own hue-rotated tint of the same sheet (see
+// agentHue/AGENT_TINT below), so agents still read as visually distinct
+// without needing more art.
+const AGENT_SPRITE_URL = (typeof window !== "undefined" && window.ORCHESTRA_AGENT_SPRITE) ||
+  "agent-sprite.png";
+const SPRITE_COLS = 8, SPRITE_ROWS = 9, SPRITE_ALPHA_THRESHOLD = 16;
+const SPRITE_REDUCED_MOTION = typeof window !== "undefined" && window.matchMedia &&
+  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+// Contiguous runs of `true` in an occupancy array → [start, end) pairs.
+function spriteSegments(occ) {
+  const out = [];
+  let start = -1;
+  for (let i = 0; i < occ.length; i++) {
+    if (occ[i] && start < 0) start = i;
+    else if (!occ[i] && start >= 0) { out.push([start, i]); start = -1; }
+  }
+  if (start >= 0) out.push([start, occ.length]);
+  return out;
+}
+
+// Alpha-gutter slice: rows by transparent bands, then frames within each
+// row, so a sheet with a different frame count per row (this one: 6, 8, 8,
+// 4, 5, 8, 6, 6, 6) still slices correctly instead of assuming a fixed grid.
+function sliceSpriteSheet(img) {
+  const w = img.naturalWidth, h = img.naturalHeight;
+  if (!w || !h) return [];
+  const cv = document.createElement("canvas");
+  cv.width = w; cv.height = h;
+  const ctx = cv.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return [];
+  ctx.drawImage(img, 0, 0);
+  let data;
+  try {
+    data = ctx.getImageData(0, 0, w, h).data;
+  } catch (err) {
+    return []; // caller falls back to a fixed SPRITE_COLS x SPRITE_ROWS grid
+  }
+  const rowHas = new Uint8Array(h);
+  for (let y = 0; y < h; y++) {
+    const off = y * w * 4;
+    for (let x = 0; x < w; x++) {
+      if (data[off + x * 4 + 3] > SPRITE_ALPHA_THRESHOLD) { rowHas[y] = 1; break; }
+    }
+  }
+  const clips = [];
+  for (const [y0, y1] of spriteSegments(rowHas)) {
+    const colHas = new Uint8Array(w);
+    for (let y = y0; y < y1; y++) {
+      const off = y * w * 4;
+      for (let x = 0; x < w; x++) {
+        if (data[off + x * 4 + 3] > SPRITE_ALPHA_THRESHOLD) colHas[x] = 1;
+      }
+    }
+    const clip = spriteSegments(colHas).map(([x0, x1]) => ({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 }));
+    if (clip.length) clips.push(clip);
+  }
+  return clips;
+}
+
+// One decode + slice, shared by every agent card instead of one per agent.
+class AgentSpriteSheet {
+  constructor(url) {
+    this.img = null;
+    this.clips = [];
+    this.clipMaxW = [];
+    this._onReady = [];
+    // No Image constructor (e.g. the report-renderer's headless DOM stub in
+    // tests, which deliberately exposes only what it wires up): stay blank
+    // forever rather than throw during module load, same as a real failed
+    // image load would leave `img` unset below.
+    if (typeof Image === "undefined") return;
+    const img = new Image();
+    img.onload = () => {
+      this.img = img;
+      try { this.clips = sliceSpriteSheet(img); } catch (err) { this.clips = []; }
+      this.clipMaxW = this.clips.map((clip) => Math.max(...clip.map((r) => r.w)));
+      for (const cb of this._onReady) cb();
+      this._onReady = [];
+    };
+    img.onerror = () => { this._onReady = []; }; // stays blank; draw() no-ops
+    img.src = url;
+  }
+  onReady(cb) {
+    if (this.img) cb(); else this._onReady.push(cb);
+  }
+  clipFor(row) {
+    return this.clips.length ? this.clips[Math.min(row, this.clips.length - 1)] : null;
+  }
+}
+
+const agentSpriteSheet = new AgentSpriteSheet(AGENT_SPRITE_URL);
+
+// Row + fps per Orchestra status, the same idea as agentpet's STATE_ROW /
+// STATE_FPS mapped onto the six statuses Orchestra actually has. Sheet rows,
+// top to bottom: 0 Idle, 1 RunRight, 2 RunLeft, 3 Waving, 4 Jumping,
+// 5 Failed, 6 Waiting, 7 Running, 8 Review.
+const AGENT_SPRITE_STATE = {
+  running: { row: 7, fps: 8 },
+  completed: { row: 3, fps: 3 },
+  failed: { row: 5, fps: 3 },
+  stalled: { row: 6, fps: 4 },
+  orphaned: { row: 0, fps: 2 },
+  unknown: { row: 0, fps: 2 },
+};
+// A brief jumping burst the moment an agent finishes — agentpet's "celebrate"
+// mood, fired once on the transition into "completed," not on every render.
+const AGENT_CELEBRATE_STATE = { row: 4, fps: 8 };
+const AGENT_CELEBRATE_MS = 3000;
+
+// A stable hue per agent, purely a function of its id so the same agent
+// keeps the same tint across every re-render instead of flickering colors.
+function agentHue(id) {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return h % 360;
+}
+
+class AgentSprite {
+  constructor(canvas, sheet) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext("2d");
+    this.ctx.imageSmoothingEnabled = false;
+    this.sheet = sheet;
+    this.row = 0;
+    this.fps = 3;
+    this.frame = 0;
+    this.lastTick = 0;
+    this.stopped = false;
+    sheet.onReady(() => { if (!this.stopped) this.draw(); });
+    this._raf = requestAnimationFrame((t) => this.loop(t));
+  }
+  setState(row, fps) {
+    if (row !== this.row) { this.row = row; this.frame = 0; }
+    this.fps = fps;
+    if (this.sheet.img) this.draw();
+  }
+  stop() {
+    this.stopped = true;
+    cancelAnimationFrame(this._raf);
+  }
+  loop(t) {
+    if (this.stopped) return;
+    // Reduced motion: hold the current frame (still the right pose for the
+    // status) instead of cycling — motion stops, the state stays legible.
+    if (!SPRITE_REDUCED_MOTION && this.sheet.img && t - this.lastTick > 1000 / this.fps) {
+      this.lastTick = t;
+      this.frame++;
+      this.draw();
+    }
+    this._raf = requestAnimationFrame((n) => this.loop(n));
+  }
+  draw() {
+    const ctx = this.ctx;
+    const W = this.canvas.width, H = this.canvas.height;
+    ctx.clearRect(0, 0, W, H);
+    const img = this.sheet.img;
+    if (!img) return;
+    const clip = this.sheet.clipFor(this.row);
+    let r, scaleW;
+    if (clip) {
+      r = clip[this.frame % clip.length];
+      scaleW = this.sheet.clipMaxW[Math.min(this.row, this.sheet.clips.length - 1)] || r.w;
+    } else {
+      const fw = img.naturalWidth / SPRITE_COLS, fh = img.naturalHeight / SPRITE_ROWS;
+      if (!fw || !fh) return;
+      r = { x: (this.frame % SPRITE_COLS) * fw, y: Math.min(this.row, SPRITE_ROWS - 1) * fh, w: fw, h: fh };
+      scaleW = fw;
+    }
+    // Integer scale keeps pixel art crisp; anchored bottom-center so every
+    // frame's feet stay put even as frame widths vary within a row.
+    const fit = Math.min(W / scaleW, H / r.h);
+    const s = fit >= 1 ? Math.floor(fit) : fit;
+    const dw = r.w * s, dh = r.h * s;
+    ctx.drawImage(img, r.x, r.y, r.w, r.h, (W - dw) / 2, H - dh, dw, dh);
+  }
+}
+
+function agentTokenTotal(tokens) {
+  return Object.values(tokens || {}).reduce((a, b) => a + b, 0);
+}
+
+function stopAgentSprites() {
+  for (const sprite of Object.values(state.agentSprites)) sprite.stop();
+  state.agentSprites = {};
+}
+
+// The agent's own subagent type ("general-purpose", "code-reviewer",
+// "Explore", "honeycomb:honeycomb-investigator", ...), turned into a section
+// label: last segment of a namespaced type, hyphens/underscores as spaces,
+// title case. Falls back to "Ungrouped" for an inline launch with no type.
+function humanizeAgentType(agentType) {
+  const raw = (agentType || "").trim();
+  if (!raw) return "Ungrouped";
+  const last = raw.includes(":") ? raw.slice(raw.lastIndexOf(":") + 1) : raw;
+  return last.replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function renderWorkfloor(run) {
+  const box = $("workfloor");
+  if (!box) return;
+  stopAgentSprites();
+  if (!run.agents.length) {
+    box.innerHTML = '<div class="ticker-empty">No agents in this session yet.</div>';
+    return;
+  }
+  const now = Date.now() / 1000;
+  const seeded = state.floorSeeded;
+  const nextActivity = {};
+  const spriteStates = {}; // agent_id -> {row, fps}, resolved here so the DOM pass below just wires canvases
+
+  // Group by role (agent_type), each group its own floor section, sorted by
+  // label — "Ungrouped" (inline launches with no declared type) always last,
+  // since it's a catch-all rather than a real role.
+  const groups = new Map(); // label -> agents[]
+  for (const agent of run.agents) {
+    const label = humanizeAgentType(agent.agent_type);
+    if (!groups.has(label)) groups.set(label, []);
+    groups.get(label).push(agent);
+  }
+  const groupLabels = Array.from(groups.keys()).sort((a, b) => {
+    if (a === "Ungrouped") return 1;
+    if (b === "Ungrouped") return -1;
+    return a.localeCompare(b);
+  });
+
+  function renderAgentCard(agent) {
+    const id = agent.agent_id;
+    const status = agent.status || "unknown";
+    const toolCount = agent.tool_call_count || 0;
+    const tokenTotal = agentTokenTotal(agent.tokens);
+    const prev = state.floorActivity[id];
+    // Only a real increase since a *previous* render counts as activity —
+    // an agent's first appearance (tab just opened, or it just spawned) is
+    // history/creation, not something that "just happened."
+    const pulse = seeded && prev &&
+      (toolCount > prev.toolCount || tokenTotal > prev.tokenTotal);
+    nextActivity[id] = { toolCount, tokenTotal };
+
+    // A live transition into "completed" (not just being completed already
+    // when the tab opens) earns a one-shot celebrate burst.
+    const prevStatus = state.agentPrevStatus[id];
+    if (seeded && prevStatus && prevStatus !== "completed" && status === "completed") {
+      state.agentCelebrateUntil[id] = Date.now() + AGENT_CELEBRATE_MS;
+    }
+    state.agentPrevStatus[id] = status;
+    const celebrating = (state.agentCelebrateUntil[id] || 0) > Date.now();
+    spriteStates[id] = celebrating ? AGENT_CELEBRATE_STATE : (AGENT_SPRITE_STATE[status] || AGENT_SPRITE_STATE.unknown);
+
+    // Same "open round" test Timeline uses for its dashed bar-open bars:
+    // stalled and orphaned agents have gone quiet, but their round never
+    // formally ended, so they still deserve a ticking clock, not a "—".
+    const live = agent.started_at !== null && agent.ended_at === null;
+    // A static report has no "now" — ticking against the viewer's wall
+    // clock would make an old snapshot claim a stale run is still live.
+    // last_activity_at is the report's own idea of "as of," already baked
+    // into the payload, same fallback Timeline uses for an open bar's end.
+    const asOf = state.offline ? (agent.last_activity_at || agent.started_at) : now;
+    const label = agent.description || agent.agent_id;
+    const clockText = live ? fmtDuration(asOf - agent.started_at) : fmtDuration(agent.duration_s);
+    const ariaLabel = label + ", " + status + ", " + fmtTokens(agent.tokens) + " tokens, " +
+      (live ? clockText + " so far" : clockText + " total");
+    const quiet = status === "orphaned" || status === "unknown";
+
+    return '<div class="agent-card' + (agentMatchesFilter(agent) ? "" : " agent-dim") +
+      (quiet ? " agent-quiet" : "") + '" data-agent="' + esc(id) + '"' +
+      (live && !state.offline ? ' data-live="1" data-started="' + agent.started_at + '"' : "") +
+      ' role="group" tabindex="0" aria-label="' + esc(ariaLabel) + '">' +
+      '<div class="agent-stage' + (pulse ? " pulse" : "") + '">' +
+        '<canvas class="agent-canvas bob" data-agent="' + esc(id) + '" width="60" height="68"></canvas>' +
+      '</div>' +
+      '<div class="agent-name" title="' + esc(label) + '">' + esc(label) + '</div>' +
+      '<div class="agent-meta">' + esc(agent.agent_type + " · " + fmtModelShort(agent.model)) + '</div>' +
+      '<div class="agent-status s-' + status + '">' + esc(status) + '</div>' +
+      '<div class="agent-clock">' + esc(clockText) + '</div>' +
+      '<div class="agent-tokens" title="' + esc(fmtTokenMix(agent.tokens)) + '">' +
+        esc(fmtTokens(agent.tokens)) + ' tok</div>' +
+    '</div>';
+  }
+
+  box.innerHTML = groupLabels.map((label) => {
+    const agents = groups.get(label);
+    const groupTokens = agents.reduce((sum, a) => sum + agentTokenTotal(a.tokens), 0);
+    return '<section class="floor-group">' +
+      '<div class="floor-group-header"><h3>' + esc(label) + '</h3>' +
+        '<span class="floor-group-meta">' + agents.length +
+        (agents.length === 1 ? " agent · " : " agents · ") +
+        esc(fmtCount(groupTokens)) + ' tok</span></div>' +
+      '<div class="floor-group-grid">' + agents.map(renderAgentCard).join("") + '</div>' +
+    '</section>';
+  }).join("");
+
+  state.floorActivity = nextActivity;
+  state.floorSeeded = true;
+
+  for (const canvas of box.querySelectorAll(".agent-canvas")) {
+    const id = canvas.dataset.agent;
+    const sprite = new AgentSprite(canvas, agentSpriteSheet);
+    sprite.setState(spriteStates[id].row, spriteStates[id].fps);
+    // Same character, a unique per-agent hue so a crowded floor still reads
+    // as individuals rather than one sprite copy-pasted everywhere.
+    canvas.style.filter = "hue-rotate(" + agentHue(id) + "deg)";
+    state.agentSprites[id] = sprite;
+  }
+  for (const card of box.querySelectorAll(".agent-card")) {
+    card.onclick = () => openDrawer(card.dataset.agent);
+    card.onkeydown = (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        openDrawer(card.dataset.agent);
+      }
+    };
+  }
+}
+
+// Elapsed time for a still-running agent should visibly tick like Claude
+// Code's own live timer, without waiting on the 2s data poll for it — a
+// cheap local interval that only touches DOM text, never re-renders.
+function tickAgentClocks() {
+  if (state.view !== "workfloor" || state.offline) return;
+  const now = Date.now() / 1000;
+  for (const card of document.querySelectorAll('.agent-card[data-live="1"]')) {
+    const started = parseFloat(card.dataset.started);
+    if (isNaN(started)) continue;
+    const clockEl = card.querySelector(".agent-clock");
+    if (clockEl) clockEl.textContent = fmtDuration(now - started);
+  }
+}
+
 function svgEl(name, attrs, text) {
   const node = document.createElementNS("http://www.w3.org/2000/svg", name);
   for (const key in attrs) node.setAttribute(key, attrs[key]);
@@ -611,10 +993,14 @@ function renderTimeline(run) {
 // ------------------------------------------------------------ view state
 
 function setView(view) {
+  // Leaving Work Floor: stop every mounted sprite's rAF loop rather than let
+  // it keep animating an off-screen, hidden canvas indefinitely.
+  if (state.view === "workfloor" && view !== "workfloor") stopAgentSprites();
   state.view = view;
   $("view-timeline").hidden = view !== "timeline";
   $("view-graph").hidden = view !== "graph";
   $("view-activity").hidden = view !== "activity";
+  $("view-workfloor").hidden = view !== "workfloor";
   for (const tab of document.querySelectorAll(".tab")) {
     const active = tab.dataset.view === view;
     tab.classList.toggle("active", active);
@@ -636,6 +1022,7 @@ function render() {
   renderDiagnostics(state.run);
   if (state.view === "timeline") renderTimeline(state.run);
   else if (state.view === "graph") renderGraph(state.run);
+  else if (state.view === "workfloor") renderWorkfloor(state.run);
   else renderTicker();
 }
 
@@ -705,6 +1092,12 @@ function init() {
     state.notifySeeded = false;
     state.knownFailedIds = new Set();
     state.lastSessionLive = null;
+    // A different session's agents are all pre-existing history — reseed so
+    // switching sessions doesn't read as a burst of simultaneous activity.
+    state.floorActivity = {};
+    state.floorSeeded = false;
+    state.agentPrevStatus = {};
+    state.agentCelebrateUntil = {};
     startPolling();
   };
   if (notificationsSupported()) {
@@ -747,6 +1140,11 @@ function init() {
     render();
   };
   window.addEventListener("resize", () => render());
+  // A static report has nothing to tick (see state.offline) and, more
+  // concretely, must not leave a live timer running: Node's event loop
+  // never exits with one pending, which is exactly what hung the
+  // report-rendering test suite until this was scoped to the live dashboard.
+  if (!state.offline) setInterval(tickAgentClocks, 500);
   loadSessions();
   startPolling();
   // A #agent=<id> link (pasted from a health-box item, a ticker row, or an

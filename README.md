@@ -37,6 +37,10 @@ Requires Python 3.9 or newer. Nothing else — no pip install, no npm, no build.
   traveling the edge the moment it happens.
 - **Activity** — a merged, live, newest-first feed of tool calls across every
   running agent, click-through to the agent it came from.
+- **Work Floor** — every agent as a small pixel-art sprite, animated by its
+  status (idle, running, waving on completion, a one-shot jump burst the
+  moment it finishes), tinted a stable per-agent hue so a busy floor still
+  reads as distinct agents at a glance.
 - **Drawer** — each agent's brief, its extracted objective and expected
   output, its returned result, its exact model version, a cache-hit
   breakdown, a tool-mix fingerprint (Read/Edit/Bash/Task at a glance), every

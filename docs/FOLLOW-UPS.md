@@ -59,25 +59,29 @@ is visible rather than forgotten. Ranked roughly by value.
    specifies. The shipped shape is better, since it derives the project from the
    session. Again: amend the spec.
 
-9. **`AgentDigest`'s docstring is false.** It claims "safe to ingest
-   repeatedly"; re-ingesting the same entries doubles tokens and duplicates tool
-   calls. `ParentIndex` was hardened against exactly this during Task 6-8 —
-   `transcript.py` deliberately resets its offset to 0 on truncation, which is
-   the path that motivated that fix. Same concept, two implementations, only one
-   hardened. Either make it true or change the docstring.
-
-10. **Dead code left by fix rounds.** `_assemble` is typed `Optional[Agent]` and
+9. **Dead code left by fix rounds.** `_assemble` is typed `Optional[Agent]` and
     never returns `None`, so `build.py`'s `if a is not None` filter is dead.
     `IncrementalReader.reset()` and `parent.content_text` have no production
     caller. `_OUTPUT_HEADINGS` lists `"report format"` twice.
     `SessionInfo.size_bytes` is served over `/api/sessions` and read by nothing —
     drop the field rather than test it.
 
-11. **Stall threshold is "configurable" only by editing `constants.py`** — no
+10. **Stall threshold is "configurable" only by editing `constants.py`** — no
     flag, no environment variable (spec section 8).
 
-12. **`cmd_start` opens the log file handle and never closes it** in the parent
+11. **`cmd_start` opens the log file handle and never closes it** in the parent
     process.
+
+## Resolved
+
+- **`AgentDigest`'s docstring claim.** Was false: "safe to ingest repeatedly"
+  didn't hold, because `transcript.py` resetting its offset to 0 on a
+  truncated/replaced file left `build.py`'s accumulated per-agent digest in
+  place, double-counting tokens and tool calls on re-read. Fixed by adding
+  `IncrementalReader.consume_reset()`, which `RunBuilder._scan_subagents` now
+  checks to drop the stale digest before re-ingesting — the same fix
+  `ParentIndex` already had. See §4 and §5 (`transcript.py`) in
+  `ARCHITECTURE.md`.
 
 ## Deliberately not doing
 

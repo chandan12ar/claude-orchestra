@@ -138,7 +138,7 @@ flowchart LR
 
     subgraph frontend["orchestra/static/ (vanilla JS, no build step)"]
         O["app.js<br/>2s poll loop"]
-        P["Timeline / Graph / Activity views"]
+        P["Timeline / Graph / Activity / Work Floor views"]
     end
 
     A --> D --> E
@@ -173,7 +173,12 @@ Every poll (or report generation) calls `RunBuilder.refresh()`
 ([`build.py`](../orchestra/build.py)), which:
 
 1. Reads only the **newly appended bytes** of every relevant `.jsonl` since
-   last time (`IncrementalReader` — see §5's `transcript.py` entry below).
+   last time (`IncrementalReader` — see §5's `transcript.py` entry below). If
+   a subagent's log file has shrunk since the last read (truncated or
+   replaced), the reader restarts at byte 0 *and* `_scan_subagents` drops
+   that agent's existing `AgentDigest` first (`IncrementalReader
+   .consume_reset()`) — otherwise the re-read entries would sum their
+   tokens and tool calls in on top of what was already tallied.
 2. Folds new parent-transcript entries into `ParentIndex` (launches, results,
    notifications) and new per-agent entries into that agent's `AgentDigest`
    (tokens, tool calls, files touched).
@@ -222,7 +227,12 @@ a partially-written final line is the normal case, not an error: the reader
 finds the last `\n` in the chunk it read and only advances its offset past
 that point, leaving a torn tail for the next poll to pick up whole. A file
 that shrinks (truncated or replaced) resets the offset to 0 rather than
-seeking into garbage.
+seeking into garbage, and records that fact so the caller can find out:
+`consume_reset(path)` returns `True` exactly once for that reset, which
+`build.py` uses to drop the affected agent's accumulated `AgentDigest`
+before re-ingesting the file from scratch (see §4, step 1) — without that,
+a truncated-and-replaced transcript would get its tokens and tool calls
+counted twice.
 
 ### `parent.py` — the parent transcript's shapes
 Deliberately isolated from `build.py` because this is the part most likely to
@@ -401,6 +411,10 @@ turns polling off. Every literal opening-angle-bracket in the JSON payload is
 escaped to its six-character Unicode form (backslash, `u`, `0`, `0`, `3`,
 `c`) before embedding, so a brief or result containing a literal closing
 script tag can't break out of the inline `<script>` tag it's embedded in.
+The Work Floor's sprite sheet travels the same way: a static report has no
+server to fetch `agent-sprite.png` from, so `_agent_sprite_data_uri()`
+base64-encodes it into `window.ORCHESTRA_AGENT_SPRITE` as a `data:` URI
+instead.
 
 ### `__main__.py` — the CLI
 `start` / `stop` / `report` / the hidden `--serve` (what the detached child
@@ -417,11 +431,14 @@ around one `state` object and one `render()` dispatcher:
 ```js
 state = {
   run,                 // the last /api/run payload
-  view,                 // "timeline" | "graph" | "activity"
+  view,                 // "timeline" | "graph" | "activity" | "workfloor"
   filterText, filterStatuses,   // the filter bar's current selection
   toolCache, ticker,    // the Activity tab's accumulated feed
   seenEdgeKeys, graphSeeded,     // which graph edges have already been drawn
   notifyEnabled, notifySeeded, knownFailedIds, lastSessionLive,  // desktop alerts
+  floorActivity, floorSeeded,    // Work Floor: per-agent activity deltas since last render
+  agentPrevStatus, agentCelebrateUntil,  // Work Floor: one-shot "just completed" jump burst
+  agentSprites,         // Work Floor: agent_id -> mounted AgentSprite canvas animator
   generation,           // see below
   ...
 }
@@ -429,7 +446,7 @@ state = {
 
 **The polling loop** (`poll()`) fetches `/api/run` every `POLL_MS`
 (2000ms) and calls `render()`, which re-renders the header, health box,
-conflicts box, filter chips, and whichever of the three views is active.
+conflicts box, filter chips, and whichever of the four views is active.
 Every loop iteration is tagged with a **generation number**
 (`state.generation`); toggling "Live" off/on or switching sessions bumps it,
 and any in-flight response whose generation has gone stale is discarded
@@ -454,8 +471,8 @@ CSS `ping-ring` animation, and its open-ended bar breathes, so "in progress"
 reads as motion, not just a color you have to notice. Every one of these is
 guarded by `@media (prefers-reduced-motion: reduce)`.
 
-**The three views** (`renderTimeline`, `renderGraph`, `renderTicker`) are
-detailed feature-by-feature in the next section.
+**The four views** (`renderTimeline`, `renderGraph`, `renderTicker`,
+`renderWorkfloor`) are detailed feature-by-feature in the next section.
 
 ---
 
@@ -595,6 +612,43 @@ organically builds up a fuller picture even without leaving the tab open.
 Activity tab is for *watching it happen* — the difference between a
 photograph and a live camera.
 
+### Work Floor
+Every agent as a small animated pixel-art sprite, grouped into sections by
+`agent_type` (sorted alphabetically, "Ungrouped" always last since it's a
+catch-all rather than a real role) with a group header showing agent count
+and total tokens. Clicking a card opens the same drawer every other view
+uses.
+
+The sprite engine (`sliceSpriteSheet`, `AgentSprite`, the frame-rate table)
+is a JS port of [ntd4996/agentpet](https://github.com/ntd4996/agentpet)
+(MIT-licensed; the license text travels with the code in `app.js`), and
+`static/agent-sprite.png` is that project's own bundled sample character
+sheet, served locally — never fetched from their CDN — to keep the
+no-egress guarantee. One character sheet stands in for a whole floor of
+agents: each canvas is hue-rotated by a hash of its agent id
+(`agentHue`), so a crowded floor still reads as individuals without
+needing more art. Row + frame-rate is picked from status (`running`,
+`completed`, `failed`, `stalled`, `orphaned`/`unknown` each map to a
+sheet row), and a live transition *into* `completed` (not just already
+being completed when the tab opens — same seeding rule as the graph's
+packet flow and desktop notifications) fires a one-shot 3-second "jump"
+burst before settling into the normal completed pose.
+
+A card also **pulses** the moment its tool-call count or token total
+increases since the last render (again, only after the first render has
+seeded a baseline), and its clock ticks locally every second
+(`tickAgentClocks`) rather than waiting on the next 2-second poll — the
+same reasoning as the Timeline's breathing bar: a number that visibly
+moves reads as "alive" in a way a value that jumps only every two seconds
+doesn't. All of this is inert in the static report: `state.offline` freezes
+the clock at the run's own `last_activity_at`, and the sprite animation
+loop itself respects `prefers-reduced-motion` (holding the current frame,
+which is still the right pose for the status, instead of cycling).
+**Why it matters:** the other three views are analytical; Work Floor is
+the "glance at a monitor across the room and know the run is healthy" view
+— status, activity, and completion are all legible from motion alone,
+without reading a single row.
+
 ### Deep links
 Opening a drawer updates the URL to `#agent=<id>` (via `history.replaceState`,
 so browsing from agent to agent doesn't spam back-history); loading a page
@@ -676,7 +730,7 @@ tab correctly shows its empty state rather than pretending to be live.)
 python -m unittest discover -s tests -t . -v
 ```
 
-Standard library only (`unittest`), 231 tests, no external dependencies.
+Standard library only (`unittest`), 234 tests, no external dependencies.
 Coverage spans: every backend module's pure logic (fixture-built fake
 sessions, no real transcripts needed), the HTTP server's routing and auth
 checks, the static-asset invariants (no network egress, every `$("id")`
@@ -714,6 +768,8 @@ orchestra/
     index.html      page shell (live server)
     app.js          the entire frontend: polling, rendering, interaction
     style.css       theming (light/dark), layout, all visual language
+    agent-sprite.png  Work Floor's character sheet (MIT-licensed, from
+                      ntd4996/agentpet — see §7's "Work Floor" entry)
 commands/
   orchestra.md      the /orchestra slash command definition
 .claude-plugin/

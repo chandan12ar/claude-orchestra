@@ -1,5 +1,6 @@
 """A single-file HTML snapshot: no server, no network, safe to email."""
 
+import base64
 import json
 import os
 from typing import Any, Dict
@@ -47,6 +48,7 @@ _SHELL = """<!doctype html>
   <button type="button" class="tab active" data-view="timeline" role="tab">Timeline</button>
   <button type="button" class="tab" data-view="graph" role="tab">Graph</button>
   <button type="button" class="tab" data-view="activity" role="tab">Activity</button>
+  <button type="button" class="tab" data-view="workfloor" role="tab">Work Floor</button>
 </nav>
 <main>
   <section id="view-timeline" class="view">
@@ -59,6 +61,9 @@ _SHELL = """<!doctype html>
   <section id="view-activity" class="view" hidden>
     <div id="ticker" class="ticker"></div>
   </section>
+  <section id="view-workfloor" class="view" hidden>
+    <div id="workfloor" class="workfloor"></div>
+  </section>
 </main>
 <div id="scrim" class="scrim" hidden></div>
 <aside id="drawer" class="drawer" hidden aria-label="Agent detail"></aside>
@@ -69,6 +74,7 @@ _SHELL = """<!doctype html>
 <script>
 window.ORCHESTRA_RUN = {run_json};
 window.ORCHESTRA_DETAILS = {details_json};
+window.ORCHESTRA_AGENT_SPRITE = {agent_sprite_json};
 </script>
 <script>
 {js}
@@ -94,6 +100,15 @@ def _read_static(name: str) -> str:
         return fh.read()
 
 
+def _agent_sprite_data_uri() -> str:
+    """The character sheet as a data: URI — a report is one file with no
+    server to fetch a sibling image from, so the sprite has to travel inside
+    it."""
+    with open(os.path.join(STATIC_DIR, "agent-sprite.png"), "rb") as fh:
+        encoded = base64.b64encode(fh.read()).decode("ascii")
+    return "data:image/png;base64," + encoded
+
+
 def _offline_shim(js: str) -> str:
     """Serve the baked-in payload instead of polling, and never schedule a poll."""
     shim = """
@@ -107,6 +122,7 @@ api = function (path) {
   return Promise.reject(new Error("offline"));
 };
 state.live = false;
+state.offline = true;
 """
     # `api` and `state` are declared with const/let in app.js; rebind via window
     # after the definitions rather than before them.
@@ -124,6 +140,7 @@ def render_report(run: Run, details: Dict[str, Dict[str, Any]]) -> str:
         js=_offline_shim(_read_static("app.js")),
         run_json=_script_safe(run.to_summary_dict()),
         details_json=_script_safe(details),
+        agent_sprite_json=_script_safe(_agent_sprite_data_uri()),
     )
 
 
