@@ -15,6 +15,7 @@ class IncrementalReader:
 
     def __init__(self) -> None:
         self._offsets: Dict[str, int] = {}
+        self._reset_paths: set = set()
         self.diagnostics: Dict[str, int] = {"unparsable_lines": 0, "torn_reads": 0}
 
     def reset(self, path: Optional[str] = None) -> None:
@@ -22,6 +23,18 @@ class IncrementalReader:
             self._offsets.clear()
         else:
             self._offsets.pop(os.path.normcase(path), None)
+
+    def consume_reset(self, path: str) -> bool:
+        """True once if the last read_new() for path restarted from byte 0
+        because the file had shrunk (truncated or replaced). A caller that
+        accumulates state across calls (e.g. a token-count digest) must
+        discard that state too, or the pre-truncation entries get summed
+        in twice when the file is re-read from the start."""
+        key = os.path.normcase(path)
+        if key in self._reset_paths:
+            self._reset_paths.discard(key)
+            return True
+        return False
 
     def read_new(self, path: str) -> List[Dict[str, Any]]:
         """Return the entries appended since the last call. Never raises."""
@@ -35,6 +48,7 @@ class IncrementalReader:
         if size < offset:
             # File was truncated or replaced — start over rather than read garbage.
             offset = 0
+            self._reset_paths.add(key)
         if size == offset:
             return []
 

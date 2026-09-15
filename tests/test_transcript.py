@@ -88,6 +88,24 @@ class TestIncrementalRead(TranscriptTestCase):
         entries = self.reader.read_new(self.path)
         self.assertEqual([e["a"] for e in entries], [9])
 
+    def test_consume_reset_is_false_on_ordinary_reads(self):
+        self.write(self.line(a=1))
+        self.reader.read_new(self.path)
+        self.assertFalse(self.reader.consume_reset(self.path))
+        self.write(self.line(a=2))
+        self.reader.read_new(self.path)
+        self.assertFalse(self.reader.consume_reset(self.path))
+
+    def test_consume_reset_is_true_once_after_truncation(self):
+        self.write(self.line(a=1) + self.line(a=2))
+        self.reader.read_new(self.path)
+        self.write(self.line(a=9), mode="wb")
+        self.reader.read_new(self.path)
+        self.assertTrue(self.reader.consume_reset(self.path))
+        # Consuming it clears the flag — a caller that already reacted to
+        # the reset must not react to it again on the next poll.
+        self.assertFalse(self.reader.consume_reset(self.path))
+
     def test_missing_file_returns_empty(self):
         self.assertEqual(self.reader.read_new(os.path.join(self.dir, "nope.jsonl")), [])
 

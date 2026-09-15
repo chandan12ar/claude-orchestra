@@ -93,6 +93,11 @@ class RunBuilder:
         for log_path in glob.glob(os.path.join(directory, "agent-*.jsonl")):
             agent_id = os.path.basename(log_path)[len("agent-"):-len(".jsonl")]
             entries = self._reader.read_new(log_path)
+            if self._reader.consume_reset(log_path):
+                # The file was re-read from byte 0 — drop whatever this
+                # agent's digest already tallied, or the truncated entries
+                # (tokens, tool calls, files) get counted twice.
+                self._digests.pop(agent_id, None)
             if not entries:
                 continue
             digest = self._digests.setdefault(agent_id, AgentDigest())
