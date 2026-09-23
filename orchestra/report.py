@@ -14,7 +14,7 @@ _SHELL = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Orchestra report — {session}</title>
+<title>Workflow report — {session}</title>
 <style>
 {css}
 </style>
@@ -22,7 +22,7 @@ _SHELL = """<!doctype html>
 <body>
 <header>
   <div class="bar">
-    <h1>Orchestra</h1>
+    <h1>Workflow</h1>
     <button id="copy-summary" type="button">Copy summary</button>
     <!-- id is load-bearing: app.js sets $("conn").textContent inside poll(),
          before render(). Without it the whole page throws and stays blank. -->

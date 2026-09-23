@@ -1,8 +1,8 @@
-# Orchestra
+# Workflow
 
 See what your Claude Code subagents are actually doing.
 
-Orchestra reads the transcripts Claude Code already writes and reconstructs the
+Workflow reads the transcripts Claude Code already writes and reconstructs the
 whole orchestration: how many agents ran, what each was asked to do, what each
 was expected to produce, which are still going, which are stuck, and which
 agent's output became which other agent's input.
@@ -11,7 +11,7 @@ agent's output became which other agent's input.
 
 ```bash
 /plugin marketplace add <this repo>
-/plugin install orchestra
+/plugin install workflow
 ```
 
 Requires Python 3.9 or newer. Nothing else — no pip install, no npm, no build.
@@ -20,9 +20,9 @@ Requires Python 3.9 or newer. Nothing else — no pip install, no npm, no build.
 
 | Command | What it does |
 |---|---|
-| `/orchestra` | Start the dashboard and open it |
-| `/orchestra stop` | Shut the server down |
-| `/orchestra report` | Write a self-contained HTML snapshot you can share |
+| `/workflow:open` | Start the dashboard and open it |
+| `/workflow:open stop` | Shut the server down |
+| `/workflow:open report` | Write a self-contained HTML snapshot you can share |
 
 ## What you get
 
@@ -60,7 +60,7 @@ Requires Python 3.9 or newer. Nothing else — no pip install, no npm, no build.
 
 ## Privacy
 
-Orchestra is local and read-only.
+Workflow is local and read-only.
 
 - The server binds `127.0.0.1` only, and every API call requires a token minted
   at launch.

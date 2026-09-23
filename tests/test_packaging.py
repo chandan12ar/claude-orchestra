@@ -14,25 +14,25 @@ def read(*parts):
 class TestPluginManifest(unittest.TestCase):
     def test_plugin_json_is_valid_and_named(self):
         data = json.loads(read(".claude-plugin", "plugin.json"))
-        self.assertEqual(data["name"], "orchestra")
+        self.assertEqual(data["name"], "workflow")
         self.assertIn("description", data)
         self.assertRegex(data["version"], r"^\d+\.\d+\.\d+$")
 
     def test_marketplace_lists_the_plugin(self):
         data = json.loads(read(".claude-plugin", "marketplace.json"))
         names = [p["name"] for p in data["plugins"]]
-        self.assertIn("orchestra", names)
+        self.assertIn("workflow", names)
 
 
 class TestSlashCommand(unittest.TestCase):
     def test_frontmatter_limits_tools_to_bash(self):
-        text = read("commands", "orchestra.md")
+        text = read("commands", "open.md")
         front = re.match(r"^---\n(.*?)\n---\n", text, re.DOTALL)
         self.assertIsNotNone(front, "command file needs YAML frontmatter")
         self.assertIn("allowed-tools: Bash", front.group(1))
 
     def test_documents_all_three_invocations(self):
-        text = read("commands", "orchestra.md")
+        text = read("commands", "open.md")
         for fragment in ("--stop", "--report", "CLAUDE_CODE_SESSION_ID"):
             self.assertIn(fragment, text)
 

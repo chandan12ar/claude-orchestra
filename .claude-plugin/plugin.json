@@ -1,5 +1,5 @@
 {
-  "name": "orchestra",
+  "name": "workflow",
   "version": "0.1.0",
   "description": "Local read-only dashboard for Claude Code subagent orchestration: fleet timeline, evidence-backed handoff graph, per-agent drill-down, token and health analytics.",
   "author": {"name": "Chandan"},

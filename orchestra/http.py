@@ -59,7 +59,7 @@ def _origin_is_allowed(header: Optional[str]) -> bool:
 def make_handler(service: OrchestraService, state: Dict[str, float]):
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
-        server_version = "Orchestra"
+        server_version = "Workflow"
 
         def log_message(self, fmt, *args):  # silence the default stderr spam
             pass

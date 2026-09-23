@@ -1,10 +1,10 @@
 {
-  "name": "orchestra-marketplace",
+  "name": "workflow-marketplace",
   "description": "Observability tooling for Claude Code subagent orchestration.",
   "owner": {"name": "Chandan"},
   "plugins": [
     {
-      "name": "orchestra",
+      "name": "workflow",
       "source": "./",
       "description": "See what your subagents are actually doing."
     }
