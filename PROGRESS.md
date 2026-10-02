@@ -13,7 +13,7 @@ feature; on failure record it here and stop. See `CLAUDE.md`.
 | 0.3 | `report` writes to project, not plugin dir; wire/remove `--cwd` | done (`--cwd` wired; also finds newest session when no id) |
 | 0.4 | Configurable thresholds | done (ORCHESTRA_* env vars, validated; documented in README; plugin userConfig deliberately not used — not documented to reach slash commands) |
 | 0.5 | Dead code + log-handle cleanup | done |
-| 0.6 | CI workflow, CHANGELOG, SECURITY.md | todo |
+| 0.6 | CI workflow, CHANGELOG, SECURITY.md | done (CI result verified after push — see Notes) |
 | 1.1 | Agent-neutral event schema + spool (`events.py`) | todo |
 | 1.2 | Hook entrypoint + `hooks/hooks.json` | todo |
 | 1.3 | Ground-truth session states from events | todo |

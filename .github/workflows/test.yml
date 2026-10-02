@@ -1,0 +1,44 @@
+name: tests
+
+on:
+  push:
+    branches: [main, master, "feature/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: py${{ matrix.python }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.9", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      # tests/test_report_renders.py runs the generated report under Node.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Run the suite (standard library only, no pip install)
+        run: python -m unittest discover -s tests -t . -v
+
+  plugin-manifest:
+    # Informational: validates .claude-plugin/ with Claude Code's own checker.
+    # Not required to pass until it has been observed passing in CI.
+    name: claude plugin validate
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm install -g @anthropic-ai/claude-code
+      - run: claude plugin validate .
