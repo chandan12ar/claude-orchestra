@@ -739,7 +739,7 @@ tab correctly shows its empty state rather than pretending to be live.)
 python -m unittest discover -s tests -t . -v
 ```
 
-Standard library only (`unittest`), 234 tests, no external dependencies.
+Standard library only (`unittest`), 650+ tests, no external dependencies.
 Coverage spans: every backend module's pure logic (fixture-built fake
 sessions, no real transcripts needed), the HTTP server's routing and auth
 checks, the static-asset invariants (no network egress, every `$("id")`
@@ -754,7 +754,78 @@ about the page still passes.
 
 ---
 
-## 10. Directory map
+## 10. Live layer (added after the original build)
+
+The original design reads transcripts only. Everything below adds a second,
+*live* source and builds on it. Hooks are an enhancement: with them off
+(`ORCHESTRA_EVENTS=off`) or absent, the dashboard is exactly the transcript-only
+product above.
+
+### Live events (`events.py`, `hook.py`, `hooks/hooks.json`, `statedir.py`)
+A plugin can ship hooks, so Workflow registers small **async** command hooks for
+seven events (session start/end, subagent start/stop, notification, API failure,
+turn end) — deliberately *not* per-tool events, which are already in the
+transcripts and would cost a process spawn per call. `hook.py` normalizes the
+payload to an agent-neutral `Event` (only whitelisted fields, redacted *before*
+the length cap, never tool inputs or prompts) and appends one line to
+`<state dir>/events/<session>.jsonl`. It always exits 0 and is silent. The spool
+tolerates torn lines, rotates by inode (size alone misses a same-size
+replacement), and prunes after 7 days. `statedir.py` makes the state dir
+per-user, `0700`, and refuses a symlink or a dir owned by someone else.
+
+### Ground-truth state (`livestate.py`)
+A transcript can't say an agent is *waiting for you*. A hook can, but only that a
+prompt *appeared* — nothing says it was answered. The transcript does: an
+attention item is pending iff no transcript activity followed it (read from
+entry timestamps, not mtime, which moves on bookkeeping lines). `SessionEnd`
+makes a session non-live at once (was a 10-minute mtime guess); `SubagentStop`
+closes an open round at the exact time; an agent blocked on a prompt is the new
+`waiting` status instead of `stalled`.
+
+### Live push (`/api/stream`)
+Server-Sent Events carry only a change fingerprint (stat of the transcripts and
+spool); the browser then fetches `/api/run` as before, so redaction stays in one
+place. Capped at 8 streams, 1-hour lifetime, keep-alives. Polling remains as a
+15 s safety net and as the fallback.
+
+### Fleet, pill, sounds
+`/api/fleet` lists sessions active in a window across *all* projects, most urgent
+first, building at most `max_builders - 1` runs per request. The pill is a
+Document Picture-in-Picture window (Chromium only) plus a tab-title count and a
+canvas favicon; sounds are Web Audio tones (no audio files). Their decisions are
+pure functions in `app.js`, tested under node.
+
+### Money, loops, token accuracy (`pricing.py`, `runaway.py`, `agentlog.py`)
+- **Usage is counted once per API message.** Claude Code writes one entry per
+  content block, each repeating the message's usage (a real transcript: 271
+  entries, 103 messages), so summing per entry inflated every token count
+  2.6-3.1x. `apply_usage` keys on `message.id`; tokens are also kept per model.
+- **Cost** needs a user-supplied price file (none built in — prices change). It
+  covers the orchestrator's own transcript (`TokenTally`) and each agent priced
+  per model; unpriced models mark the total *partial*; `ORCHESTRA_BUDGET` warns
+  at 80 % and alerts when exceeded.
+- **Possible loops**: an *open* agent whose last N calls are identical, or strictly
+  alternate between two. Reported as *possible*, with evidence.
+
+### Replay, export, history
+- **Replay** (`deriveRunAt`) rebuilds a run at time *t* from round start/end
+  times — works in a static report. It does not invent what it cannot know: an
+  open round replays as `running`, and token/cost data are shown as unavailable.
+- **Export** (`export.py`): CSV (one row per agent, stable columns, formula
+  cells neutralised) and JSON, from the same scrubbed summary.
+- **History** (`history.py`): opt-in sqlite, **metrics only**, `0600`, pruned by
+  age and count; off creates nothing.
+
+### Security notes for the live layer
+Hook text and spool contents are untrusted: `Event.from_dict` validates strictly,
+event text reaches the page via `textContent`, and `esc()` escapes quotes so a
+value cannot end an HTML attribute. The stream/export/history routes sit behind
+the same Host/Origin/token checks as every other route. Dashboard approve/deny is
+deliberately **not** built (see `docs/ROADMAP.md`).
+
+---
+
+## 11. Directory map
 
 ```
 orchestra/
@@ -772,7 +843,15 @@ orchestra/
   service.py        the API's business logic (no sockets)
   http.py           the loopback HTTP server
   report.py         self-contained static HTML snapshot
-  constants.py      every tunable threshold, in one place
+  constants.py      every tunable threshold (ORCHESTRA_* env vars), in one place
+  statedir.py       the per-user, 0700 runtime directory
+  events.py         agent-neutral Event schema + the on-disk spool
+  hook.py           the async Claude Code hook entrypoint
+  livestate.py      ground-truth session/agent state from events + transcripts
+  pricing.py        user-supplied price table -> cost
+  runaway.py        possible-loop detection
+  export.py         CSV / JSON export
+  history.py        opt-in run-metrics history (sqlite)
   static/
     index.html      page shell (live server)
     app.js          the entire frontend: polling, rendering, interaction
@@ -781,6 +860,8 @@ orchestra/
                       ntd4996/agentpet — see §7's "Work Floor" entry)
 commands/
   open.md           the /workflow:open slash command definition
+hooks/
+  hooks.json        the async live-event hooks the plugin ships
 .claude-plugin/
   plugin.json       plugin manifest
   marketplace.json  marketplace manifest

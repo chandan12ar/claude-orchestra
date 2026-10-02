@@ -1,6 +1,7 @@
 # Workflow — Roadmap to an enterprise-grade product
 
-Status: **proposal, not committed work.** Written after reading this repo end to
+Status: **built** on branch `feature/live-events` (see `PROGRESS.md` for what shipped, what is
+verified, and what is still open). Originally written as a proposal: Written after reading this repo end to
 end, reading [Louis-CFM/coucou](https://github.com/Louis-CFM/coucou), and
 checking every claim below against current docs. Where something could *not* be
 verified from documentation, it is listed under [Spikes](#6-spikes-to-run-before-committing)

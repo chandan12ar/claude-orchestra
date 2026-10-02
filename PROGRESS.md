@@ -9,11 +9,11 @@ feature; on failure record it here and stop. See `CLAUDE.md`.
 |---|---|---|
 | 0.0 | CLAUDE.md + PROGRESS.md | done |
 | 0.1 | Cache handoff-edge inference (perf) | done (96 agents: 5.2s -> 0.22s cold, 0.024s warm; results proven identical to old algorithm) |
-| 0.2 | Evict idle session builders | done (LRU, MAX_BUILDERS=8, default session pinned) |
+| 0.2 | Evict idle session builders | done (LRU, MAX_BUILDERS now 24, default session pinned) |
 | 0.3 | `report` writes to project, not plugin dir; wire/remove `--cwd` | done (`--cwd` wired; also finds newest session when no id) |
 | 0.4 | Configurable thresholds | done (ORCHESTRA_* env vars, validated; documented in README; plugin userConfig deliberately not used — not documented to reach slash commands) |
 | 0.5 | Dead code + log-handle cleanup | done |
-| 0.6 | CI workflow, CHANGELOG, SECURITY.md | done (CI result verified after push — see Notes) |
+| 0.6 | CI workflow, CHANGELOG, SECURITY.md | done (CI verified on GitHub; plugin validation added later — see Notes) |
 | 1.1 | Agent-neutral event schema + spool (`events.py`, `statedir.py`) | done (state dir now per-user + ownership-checked) |
 | 1.2 | Hook entrypoint + `hooks/hooks.json` | done |
 | 1.3a | Ground-truth states: backend (`livestate.py`, build + service wiring) | done |
@@ -29,15 +29,60 @@ feature; on failure record it here and stop. See `CLAUDE.md`.
 | 4.1 | Run history (sqlite3, opt-in, metrics only) | done (verified in Chromium: table, compare, hostile names inert, off-by-default creates no file) |
 | 4.2 | Replay scrubber | done (live + static report verified in Chromium) |
 | 4.3 | Export JSON/CSV | done (verified: real browser downloads, CLI, scrubbing, CSV-injection guard) |
+| 5.0 | FIX (security): esc() now escapes quotes (attribute breakout) | done |
+| 5.1 | CI validates plugin manifest + hooks.json + commands (blocking) | pushed; result to confirm on GitHub |
+| 5.2 | Docs: ARCHITECTURE section 10, CLAUDE.md lessons, this file | done |
 
 Deferred by owner decision: dashboard approve/deny; Gemini/Cursor adapters;
 plugin rename.
 
+## Open items (nothing is blocked; ordered by importance)
+
+1. **Verify hook payload field names against a LIVE Claude Code session.** This is
+   the single biggest unverified assumption: ground-truth states (waiting on
+   permission, API error type, session end reason) read `notification_type`,
+   `message`, `error_type`, `error_message`, `reason`, `last_assistant_message`
+   from the docs summary, not from a captured payload. The code degrades to empty
+   fields rather than failing, but the headline feature would then show nothing.
+   `hooks/hooks.json` itself IS verified valid by Claude Code 2.1.287's validator.
+   How: install the plugin in a real session, trigger a permission prompt, read
+   `<state dir>/events/<session>.jsonl`. Needs a human at a real Claude Code.
+2. **Confirm plugin hooks reach already-running sessions** or only after reload
+   (affects onboarding wording).
+3. **Merge to the default branch / release.** Not done: `feature/live-events`
+   is unmerged, and `.claude-plugin/plugin.json` is still `0.1.0` (the `version`
+   pins installed users). Suggest 0.2.0 at merge; CHANGELOG `[Unreleased]` is ready.
+4. **Naming.** Plugin `workflow` / package `orchestra` / repo `claude-orchestra`,
+   and Claude Code now has its own "workflows" feature. `claude-` cannot start a
+   plugin name. Decide before the user base grows (owner deferred it).
+5. **Pill browser support**: Document Picture-in-Picture is Chromium-only (a search
+   result said Firefox 151; not verified). The tab-title/favicon badge works everywhere.
+6. **Small gaps**: sounds have no per-event mute or quiet hours; `fmtDuration` has no
+   hours ("33818m 42s"); the main-transcript reader in `ParentIndex` has no
+   truncation reset (only the new token tally does); history is recorded only for
+   sessions that are viewed or scanned by the fleet, not every session; no
+   favicon.ico route (the browser 404s once; the page sets its own icon).
+7. **Still deferred by decision**: dashboard approve/deny (needs the
+   `PermissionRequest` spike first: does it run before/alongside the terminal
+   dialog, on timeout, for subagents, in auto mode); Gemini/Cursor adapters.
+
+## Commit-message inaccuracies (history is pushed; not rewriting it)
+
+- `27815da`: shows `/bin/bash.189` / `/bin/bash.19` for `$0.189` / `$0.19` (shell expansion).
+- `317d4bf`: says "603 tests pass"; the measured count was 584.
+- `2ef5e09`: says "440 tests pass"; the measured count was 436.
+Counts are now taken from the actual run output.
+
 ## Notes / failures
 
 - CI (run 1, commit 8f427a9): all 9 test jobs (Linux/macOS/Windows x py3.9/3.12/3.13)
-  green. The `claude plugin validate` job went green but finished in <1s, so treat
-  it as *unconfirmed* until its log is read.
+  green. The `claude plugin validate` job went green but finished in <1s. Its log
+  showed it only validated the MARKETPLACE manifest. Checked locally with Claude
+  Code 2.1.287: `validate .claude-plugin/plugin.json` also validates
+  hooks/hooks.json (mutation-tested: a missing "hooks" wrapper, an unknown handler
+  type and malformed JSON are all caught) and our real file passes with no
+  warnings. CI now runs it explicitly and blocking (the earlier note that it was
+  unconfirmed is therefore resolved; see the CI commit).
 - Spike 2 (hook cost): one hook invocation ~46 ms of Python startup on Linux,
   async so it is off Claude's critical path. `python3 || python || true` verified
   in bash; with no Python at all it exits 0 but prints "command not found" to
@@ -77,4 +122,6 @@ is wrong. Dollar signs are now avoided/escaped in commit messages.
 
 ## Next step
 
-Start at the first `todo` row above.
+Everything planned is built and pushed. Do, in order: (1) read CI on the latest
+commit, (2) Open item 1 with a real Claude Code session, (3) open a PR from
+`feature/live-events` and merge, bumping `plugin.json` to 0.2.0.

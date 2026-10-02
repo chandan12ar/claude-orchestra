@@ -21,7 +21,9 @@ work** = the record (transcripts) + the live truth (hooks), across all sessions.
   Approvals, if ever built, are a *separate opt-in plugin* with an audit log.
 - Phases (details in `docs/ROADMAP.md`, live status in `PROGRESS.md`):
   0 Foundations/bug fixes -> 1 Event layer (hooks) -> 2 Attention (pill, sounds,
-  cost) -> 4 History/replay/export.
+  cost) -> 4 History/replay/export. **All five phases are built on this branch.**
+  What is left is in `PROGRESS.md` under "Open items" (first: verify hook payload
+  field names against a live Claude Code session).
 
 ## Working rules the owner set (follow exactly)
 
@@ -46,6 +48,21 @@ work** = the record (transcripts) + the live truth (hooks), across all sessions.
 - Observer hooks must **never block or fail Claude Code**: async, always exit 0.
 - Tests: `python -m unittest discover -s tests -t . -v` (stdlib only; Node is
   used by `tests/test_report_renders.py` if available).
+
+## Lessons from this build (so they are not repeated)
+
+- **Read CI after every push, before the next feature.** It was red on Windows
+  for three commits because only Linux was run locally.
+- Windows pitfalls that bit: `subprocess` `text=True` decodes with cp1252 while
+  Node writes UTF-8 (always pass `encoding="utf-8"`; `tests/test_encoding_hygiene.py`
+  enforces it); file mtimes are coarse (set them explicitly in tests).
+- Fixtures hid a real bug for months: they had no `message.id`, so per-entry
+  token summing looked fine. When a number matters, check it against a REAL
+  transcript (`~/.claude/projects/...`), not only the synthetic fixtures.
+- Verify UI in a real browser (Playwright + `/opt/pw-browsers/chromium-1194`), not
+  only under the node DOM stub: it caught an empty-bar CSS bug, a collapsed
+  replay axis, and the attribute-escaping hole.
+- In shell commit messages avoid `$`: `$0.19` in double quotes became `/bin/bash.19`.
 
 ## Commands
 
