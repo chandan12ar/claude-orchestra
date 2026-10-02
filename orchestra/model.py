@@ -65,6 +65,7 @@ class Agent:
     tokens: Dict[str, int] = field(default_factory=dict)
     tokens_by_model: Dict[str, Dict[str, int]] = field(default_factory=dict)
     cost: Optional[float] = None     # None = no price table (or nothing priced)
+    loop: Optional[Dict[str, Any]] = None   # a POSSIBLE loop (orchestra.runaway)
     tool_calls: List[ToolCall] = field(default_factory=list)
     files_written: List[str] = field(default_factory=list)
     files_read: List[str] = field(default_factory=list)
@@ -88,6 +89,14 @@ class Agent:
             return None
         return self.ended_at - self.started_at
 
+    def _loop_dict(self) -> Optional[Dict[str, Any]]:
+        if not self.loop:
+            return None
+        return {"kind": self.loop["kind"], "count": self.loop["count"],
+                "tool": self.loop["tool"], "target": scrub(self.loop["target"]),
+                "calls": [{"tool": c["tool"], "target": scrub(c["target"])}
+                          for c in self.loop["calls"]]}
+
     def to_light_dict(self) -> Dict[str, Any]:
         """Everything the timeline and graph need; nothing large."""
         return {
@@ -105,6 +114,7 @@ class Agent:
             "last_activity_at": self.last_activity_at,
             "tokens": dict(self.tokens),
             "cost": self.cost,
+            "loop": self._loop_dict(),
             "rounds": [{"started_at": r.started_at, "ended_at": r.ended_at,
                         "status": r.status} for r in self.rounds],
             "objective": _cap(scrub(self.objective.text)),

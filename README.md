@@ -51,6 +51,9 @@ Requires Python 3.9 or newer. Nothing else — no pip install, no npm, no build.
 - **Health & write-conflict boxes** — stalled, failed, and orphaned agents
   surfaced instead of buried, plus a flag for any file two agents wrote
   independently — a real correctness risk, not just informational.
+- **Possible loops** — a still-running agent that has repeated the same tool
+  call several times (or strictly alternated between two) is listed with the
+  evidence. Reported as *possible*: legitimate polling looks the same.
 - **Deep links** — every agent has a `#agent=<id>` URL, pasteable into a PR
   or a Slack thread, that opens straight to its drawer.
 - **Notifications** — an optional desktop alert when an agent fails, the
@@ -140,6 +143,8 @@ ignored in favour of the default.
 | `ORCHESTRA_PRICES` | `~/.config/workflow/prices.json` | Price table that enables cost (see above) |
 | `ORCHESTRA_BUDGET` | 0 (off) | Per-session spend limit, in the price file's currency |
 | `ORCHESTRA_BUDGET_WARN_RATIO` | 0.8 | Fraction of the budget at which warnings start |
+| `ORCHESTRA_LOOP_REPEATS` | 6 | An open agent whose last N tool calls are identical is flagged as a possible loop |
+| `ORCHESTRA_LOOP_CYCLE_CALLS` | 16 | ...or whose last N calls strictly alternate between two distinct calls |
 | `ORCHESTRA_STATE_DIR` | per-user dir in the OS temp dir | Where port files, logs and the event spool live |
 | `ORCHESTRA_EVENTS` | on | `off` stops the hooks recording anything |
 

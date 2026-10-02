@@ -63,6 +63,12 @@ BUDGET = _tunable("BUDGET", "ORCHESTRA_BUDGET", 0.0, 0.0, 1e9, float)
 BUDGET_WARN_RATIO = _tunable("BUDGET_WARN_RATIO", "ORCHESTRA_BUDGET_WARN_RATIO",
                              0.8, 0.01, 1.0, float)
 
+# An open agent whose last N tool calls are identical is flagged as a possible loop.
+LOOP_REPEATS = _tunable("LOOP_REPEATS", "ORCHESTRA_LOOP_REPEATS", 6, 2, 1000, int)
+# ... or whose last N calls strictly alternate between just two distinct calls.
+LOOP_CYCLE_CALLS = _tunable("LOOP_CYCLE_CALLS", "ORCHESTRA_LOOP_CYCLE_CALLS",
+                            16, 4, 1000, int)
+
 RUNNING = "running"
 COMPLETED = "completed"
 FAILED = "failed"

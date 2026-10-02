@@ -25,7 +25,7 @@ feature; on failure record it here and stop. See `CLAUDE.md`.
 | 2.2 | Synthesized sounds | done (verified in Chromium: off=0 oscillators, chime=3, alert=2). Not built yet: per-event mute, quiet hours (client-only follow-up) |
 | 2.3.0 | FIX: token double-counting (per-entry vs per-message) | done (real transcript: old overcounted 2.6-3.1x) |
 | 2.3a | Cost + budget alert (incl. orchestrator tokens, per model) | done (verified in Chromium; hand-computed orchestrator cost matched) |
-| 2.3b | Runaway/loop detection | todo |
+| 2.3b | Runaway/loop detection | done (verified in Chromium: health box + drawer) |
 | 4.1 | Run history (sqlite3) | todo |
 | 4.2 | Replay scrubber | todo |
 | 4.3 | Export JSON/CSV | todo |

@@ -11,6 +11,9 @@ versions follow [SemVer](https://semver.org/) (the `version` in
   events) feed ground-truth state: what the session is waiting on (permission /
   input / idle / API error type), exact session end, exact subagent stop, and a
   new `waiting` agent status. `ORCHESTRA_EVENTS=off` disables recording.
+- Possible-loop detection: an agent that is still running and has repeated the
+  same tool call (or strictly alternated between two) is listed as a *possible*
+  loop with the evidence; thresholds configurable. Never a verdict.
 - Cost and budget: with a user-supplied price file, the header shows what the run
   cost - the orchestrator's own usage included, priced per model - with a partial
   flag for unpriced models and a budget (`ORCHESTRA_BUDGET`) that warns at 80 %

@@ -59,6 +59,7 @@ const state = {
   knownAttention: "",   // kind@since of the last attention already announced
   knownBudget: "",      // last budget state announced (ok / warn / exceeded)
   knownFailedIds: new Set(),
+  knownLoopIds: new Set(),
   lastSessionLive: null,
   // agent_id -> { toolCount, tokenTotal } as of the last render, so the Work
   // Floor view can tell "this agent did something since the last poll" apart
@@ -101,6 +102,18 @@ function fmtDuration(seconds) {
   const m = Math.floor(seconds / 60);
   const s = Math.round(seconds % 60);
   return m + "m " + (s < 10 ? "0" : "") + s + "s";
+}
+
+// A possible loop, in words, with its evidence. Never a verdict: the same
+// pattern is also what legitimate polling looks like.
+function loopText(loop) {
+  if (!loop) return "";
+  const call = (c) => c.tool + (c.target ? " " + c.target : "");
+  if (loop.kind === "cycle") {
+    return "alternating " + loop.calls.map(call).join(" \u21C4 ") + " over its last " +
+      loop.count + " calls";
+  }
+  return call(loop.calls[0] || loop) + " \u00D7" + loop.count;
 }
 
 // Money in the price file's currency. Tiny amounts say "<", not "$0.00", which
@@ -340,6 +353,18 @@ function checkNotifications(run) {
   }
   state.knownAttention = attKey;
 
+  // A newly suspected loop is worth a nudge while the tab is open: it is
+  // burning tokens right now. Seeded like failures, so history stays quiet.
+  const loopingNow = new Set(run.agents.filter((a) => a.loop).map((a) => a.agent_id));
+  if (!seeding && state.notifyEnabled) {
+    for (const agent of run.agents) {
+      if (agent.loop && !state.knownLoopIds.has(agent.agent_id)) {
+        notify("Possible loop", (agent.description || agent.agent_id) + ": " + loopText(agent.loop));
+      }
+    }
+  }
+  state.knownLoopIds = loopingNow;
+
   // Budget: announce crossing INTO warn/exceeded while the tab is open.
   const budget = run.cost && run.cost.budget ? run.cost.budget.state : "";
   if (!seeding && state.notifyEnabled && budget !== state.knownBudget &&
@@ -377,12 +402,17 @@ function buildSummaryMarkdown(run) {
   const trouble = run.agents.filter((a) =>
     ["waiting", "stalled", "failed", "orphaned"].includes(a.status));
   const att = run.live && run.live.attention;
-  if (trouble.length || att) {
+  const loops = run.agents.filter((a) => a.loop);
+  if (trouble.length || att || loops.length) {
     lines.push("", "### Needs attention");
     if (att) lines.push("- " + attentionTitle(att).toUpperCase() +
       (att.message ? " — " + att.message : ""));
     for (const agent of trouble) {
       lines.push("- " + agent.status.toUpperCase() + " — " + (agent.description || agent.agent_id));
+    }
+    for (const agent of loops) {
+      lines.push("- POSSIBLE LOOP — " + (agent.description || agent.agent_id) + ": " +
+        loopText(agent.loop));
     }
   }
 
@@ -939,19 +969,28 @@ function renderCostPart(run) {
 }
 
 function renderHealth(run) {
-  const trouble = run.agents.filter((a) =>
-    ["waiting", "stalled", "failed", "orphaned"].includes(a.status));
+  const items = [];
+  for (const agent of run.agents) {
+    const label = agent.description || agent.agent_id;
+    if (["waiting", "stalled", "failed", "orphaned"].includes(agent.status)) {
+      items.push({ id: agent.agent_id, text: agent.status.toUpperCase() + " — " + label });
+    }
+    if (agent.loop) {
+      items.push({ id: agent.agent_id,
+        text: "POSSIBLE LOOP — " + label + ": " + loopText(agent.loop) });
+    }
+  }
   const box = $("health");
-  if (!trouble.length) { box.hidden = true; return; }
+  if (!items.length) { box.hidden = true; return; }
   box.hidden = false;
-  box.innerHTML = "<strong>" + trouble.length + " agent(s) need attention</strong>";
+  const distinct = new Set(items.map((i) => i.id)).size;
+  box.innerHTML = "<strong>" + distinct + " agent(s) need attention</strong>";
   const list = document.createElement("ul");
-  for (const agent of trouble) {
+  for (const entry of items) {
     const item = document.createElement("li");
-    item.textContent = agent.status.toUpperCase() + " — " +
-      (agent.description || agent.agent_id);
+    item.textContent = entry.text;
     item.style.cursor = "pointer";
-    item.onclick = () => openDrawer(agent.agent_id);
+    item.onclick = () => openDrawer(entry.id);
     list.appendChild(item);
   }
   box.appendChild(list);
@@ -1626,6 +1665,7 @@ function switchSession(sessionId) {
   // failures/end-state are history, not something to alert on.
   state.notifySeeded = false;
   state.knownFailedIds = new Set();
+  state.knownLoopIds = new Set();
   state.knownAttention = "";
   state.knownBudget = "";
   state.soundMemo = null;           // reseed: another session's history is silent
@@ -2147,6 +2187,7 @@ async function openDrawer(agentId) {
     ["launch", agent.launch_mode],
     ["duration", fmtDuration(agent.duration_s)],
     ["tokens", fmtTokens(agent.tokens)],
+    ...(agent.loop ? [["possible loop", loopText(agent.loop)]] : []),
     ...(agent.cost !== null && agent.cost !== undefined && state.run && state.run.cost
       ? [["cost", fmtMoney(agent.cost, state.run.cost.currency)]] : []),
     ["cache hit", fmtPct(cacheHitRatio(agent.tokens)) +

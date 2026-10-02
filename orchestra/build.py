@@ -20,6 +20,7 @@ from orchestra.locate import SessionPaths
 from orchestra.model import Agent, Batch, Round, Run
 from orchestra.parent import ParentIndex, parse_timestamp
 from orchestra.pricing import PriceSource, PriceTable
+from orchestra.runaway import detect_loop
 from orchestra.status import build_rounds, compute_status
 from orchestra.transcript import IncrementalReader
 
@@ -207,6 +208,11 @@ class RunBuilder:
         status = compute_status(rounds, digest, now, session_live)
         if status in (C.RUNNING, C.STALLED) and agent_id in live.agent_waiting:
             status = C.WAITING
+        # Only an agent that is still going can be "in a loop right now".
+        loop = None
+        if status in (C.RUNNING, C.STALLED, C.WAITING):
+            found = detect_loop(digest.tool_calls, C.LOOP_REPEATS, C.LOOP_CYCLE_CALLS)
+            loop = found.to_dict() if found else None
 
         brief = launch.prompt if launch else ""
         description = str(meta.get("description") or (launch.description if launch else ""))
@@ -253,6 +259,7 @@ class RunBuilder:
             rounds=rounds,
             last_activity_at=digest.last_activity_at,
             result=final_result,
+            loop=loop,
             tokens=dict(digest.tokens),
             tokens_by_model={m: dict(t) for m, t in digest.tokens_by_model.items()},
             cost=(self._table.cost(digest.tokens_by_model)[0]
