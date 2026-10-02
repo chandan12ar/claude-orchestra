@@ -140,6 +140,8 @@ def make_handler(service: OrchestraService, state: Dict[str, Any]):
                     self._json(200, service.agent_detail(agent_id, session))
                 elif path == "/api/sessions":
                     self._json(200, service.session_list(session))
+                elif path == "/api/fleet":
+                    self._json(200, service.fleet())
                 elif path == "/api/stream":
                     self._stream(session)
                 else:

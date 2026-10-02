@@ -66,6 +66,35 @@ def find_project_dir(cwd: str, root: Optional[str] = None) -> Optional[str]:
     return candidate if os.path.isdir(candidate) else None
 
 
+@dataclass
+class RecentSession:
+    session_id: str
+    project_dir: str
+    modified_at: float
+
+
+def list_recent_sessions(root: Optional[str] = None, max_age_s: float = 6 * 3600,
+                         now: Optional[float] = None,
+                         limit: int = 50) -> List[RecentSession]:
+    """Sessions touched within max_age_s, across EVERY project, newest first."""
+    import time
+    now = time.time() if now is None else now
+    base = os.path.join(root or claude_root(), "projects")
+    out: List[RecentSession] = []
+    for path in glob.glob(os.path.join(base, "*", "*.jsonl")):
+        try:
+            modified = os.path.getmtime(path)
+        except OSError:
+            continue
+        if now - modified > max_age_s:
+            continue
+        out.append(RecentSession(session_id=os.path.basename(path)[:-len(".jsonl")],
+                                 project_dir=os.path.dirname(path),
+                                 modified_at=modified))
+    out.sort(key=lambda s: s.modified_at, reverse=True)
+    return out[:max(0, limit)]
+
+
 def list_sessions(project_dir: str) -> List[SessionInfo]:
     """Every session in a project, newest first."""
     if not os.path.isdir(project_dir):

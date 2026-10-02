@@ -9,7 +9,8 @@ from typing import Any, Callable, Dict, List, Optional
 from orchestra import constants as C
 from orchestra.build import RunBuilder
 from orchestra.events import EventSpool
-from orchestra.locate import find_session, list_sessions
+from orchestra.locate import find_session, list_recent_sessions, list_sessions
+from orchestra.redact import scrub
 
 
 class NotFound(Exception):
@@ -99,6 +100,65 @@ class OrchestraService:
             if spool is not None:
                 note(spool.path_for(session_id))
         return "|".join(parts)
+
+    def fleet(self) -> Dict[str, Any]:
+        """Every recently active session, across all projects, most urgent first.
+
+        This is the "which of my sessions needs me?" answer. Sessions beyond the
+        builder budget are listed from file metadata alone, so one request can
+        never build an unbounded number of runs.
+        """
+        now = self.now_fn()
+        recent = list_recent_sessions(self.root, C.FLEET_WINDOW_S, now,
+                                      C.FLEET_MAX_SESSIONS)
+        # Leave one slot so scanning the fleet cannot evict the session the
+        # user is actually looking at.
+        budget = max(1, self.max_builders - 1)
+        sessions: List[Dict[str, Any]] = []
+        for index, info in enumerate(recent):
+            entry = self._fleet_entry(info, now, build=index < budget)
+            sessions.append(entry)
+        sessions.sort(key=lambda e: (-e["urgency"], not e["session_live"],
+                                     -e["modified_at"]))
+        return {"sessions": sessions, "generated_at": now,
+                "attention_count": sum(1 for e in sessions if e["urgency"] > 0),
+                "window_s": C.FLEET_WINDOW_S}
+
+    _URGENCY = {"permission": 4, "error": 3, "input": 2, "idle": 0}
+
+    def _fleet_entry(self, info, now: float, build: bool) -> Dict[str, Any]:
+        entry: Dict[str, Any] = {
+            "session_id": info.session_id, "modified_at": info.modified_at,
+            "session_live": (now - info.modified_at) <= C.SESSION_LIVE_THRESHOLD_S,
+            "project_path": "", "project_name": "", "attention": None,
+            "ended": None, "has_events": False, "urgency": 0, "totals": None}
+        if not build:
+            return entry
+        try:
+            summary = self._builder(info.session_id).refresh().to_summary_dict()
+        except (NotFound, OSError):
+            return entry
+        path = scrub(summary.get("project_path") or "")
+        live = summary.get("live") or {}
+        attention = live.get("attention")
+        totals = summary.get("totals") or {}
+        entry.update({
+            "project_path": path,
+            "project_name": path.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1],
+            "session_live": summary["session_live"],
+            "attention": attention, "ended": live.get("ended"),
+            "has_events": bool(live.get("has_events")),
+            "urgency": self._URGENCY.get(attention["kind"], 0) if attention else 0,
+            "totals": {"agents": totals.get("agents", 0),
+                       "running": totals.get("running", 0),
+                       "waiting": totals.get("waiting", 0),
+                       "completed": totals.get("completed", 0),
+                       "failed": totals.get("failed", 0) + totals.get("orphaned", 0)},
+        })
+        # An ended session cannot be waiting on anyone.
+        if not entry["session_live"]:
+            entry["urgency"] = 0
+        return entry
 
     def run_summary(self, session_id: str = "") -> Dict[str, Any]:
         return self._builder(session_id).refresh().to_summary_dict()

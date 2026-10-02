@@ -108,7 +108,9 @@ ignored in favour of the default.
 | `ORCHESTRA_SHINGLE_SIZE` | 8 | Words per shingle in handoff scoring |
 | `ORCHESTRA_IDLE_SHUTDOWN_SECONDS` | 1800 | The server exits after this long with no request |
 | `ORCHESTRA_PORT` | 7717 | First port tried (it walks upward if taken) |
-| `ORCHESTRA_MAX_BUILDERS` | 8 | Sessions kept in memory at once |
+| `ORCHESTRA_MAX_BUILDERS` | 24 | Sessions kept in memory at once |
+| `ORCHESTRA_FLEET_SECONDS` | 21600 | The Fleet view lists sessions active within this window |
+| `ORCHESTRA_FLEET_MAX_SESSIONS` | 50 | Most sessions the Fleet view lists |
 | `ORCHESTRA_STATE_DIR` | per-user dir in the OS temp dir | Where port files, logs and the event spool live |
 | `ORCHESTRA_EVENTS` | on | `off` stops the hooks recording anything |
 

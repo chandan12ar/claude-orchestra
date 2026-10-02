@@ -23,7 +23,7 @@ class TestTunables(unittest.TestCase):
                           c.HUB_FILE_THRESHOLD, c.HANDOFF_CONTAINMENT,
                           c.HANDOFF_RUN_WORDS, c.SHINGLE_SIZE,
                           c.IDLE_SHUTDOWN_S, c.DEFAULT_PORT, c.MAX_BUILDERS),
-                         (300, 600, 3, 0.15, 40, 8, 1800, 7717, 8))
+                         (300, 600, 3, 0.15, 40, 8, 1800, 7717, 24))
 
     def test_environment_overrides_a_threshold(self):
         c = self._load(ORCHESTRA_STALL_SECONDS="45",

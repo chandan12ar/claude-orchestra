@@ -50,7 +50,12 @@ SHINGLE_SIZE = _tunable("SHINGLE_SIZE", "ORCHESTRA_SHINGLE_SIZE", 8, 2, 64, int)
 IDLE_SHUTDOWN_S = _tunable("IDLE_SHUTDOWN_S", "ORCHESTRA_IDLE_SHUTDOWN_SECONDS",
                            1800, 60, _BIG, int)
 DEFAULT_PORT = _tunable("DEFAULT_PORT", "ORCHESTRA_PORT", 7717, 1024, 65535, int)
-MAX_BUILDERS = _tunable("MAX_BUILDERS", "ORCHESTRA_MAX_BUILDERS", 8, 1, 1000, int)
+MAX_BUILDERS = _tunable("MAX_BUILDERS", "ORCHESTRA_MAX_BUILDERS", 24, 1, 1000, int)
+# The fleet view lists sessions touched within this window, across all projects.
+FLEET_WINDOW_S = _tunable("FLEET_WINDOW_S", "ORCHESTRA_FLEET_SECONDS",
+                          6 * 3600, 60, _BIG, int)
+FLEET_MAX_SESSIONS = _tunable("FLEET_MAX_SESSIONS", "ORCHESTRA_FLEET_MAX_SESSIONS",
+                              50, 1, 500, int)
 
 RUNNING = "running"
 COMPLETED = "completed"
