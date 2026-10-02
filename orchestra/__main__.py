@@ -7,21 +7,18 @@ import secrets
 import signal
 import subprocess
 import sys
-import tempfile
 import time
 import webbrowser
 from typing import Any, Dict, List, Optional
 
 from orchestra import constants as C
+from orchestra.statedir import state_dir
 
 MIN_PYTHON = (3, 9)
 
 
 def _state_dir() -> str:
-    directory = os.environ.get("ORCHESTRA_STATE_DIR") or \
-        os.path.join(tempfile.gettempdir(), "orchestra")
-    os.makedirs(directory, exist_ok=True)
-    return directory
+    return state_dir()
 
 
 def portfile_path(session_id: str) -> str:
