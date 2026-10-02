@@ -18,12 +18,6 @@ class IncrementalReader:
         self._reset_paths: set = set()
         self.diagnostics: Dict[str, int] = {"unparsable_lines": 0, "torn_reads": 0}
 
-    def reset(self, path: Optional[str] = None) -> None:
-        if path is None:
-            self._offsets.clear()
-        else:
-            self._offsets.pop(os.path.normcase(path), None)
-
     def consume_reset(self, path: str) -> bool:
         """True once if the last read_new() for path restarted from byte 0
         because the file had shrunk (truncated or replaced). A caller that

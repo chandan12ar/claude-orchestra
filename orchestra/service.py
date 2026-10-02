@@ -73,8 +73,7 @@ class OrchestraService:
         for info in list_sessions(builder.paths.project_dir):
             sessions.append({"session_id": info.session_id,
                              "modified_at": info.modified_at,
-                             "agent_count": info.agent_count,
-                             "size_bytes": info.size_bytes})
+                             "agent_count": info.agent_count})
         return {"project_dir": os.path.basename(builder.paths.project_dir),
                 "current": builder.paths.session_id,
                 "sessions": sessions}

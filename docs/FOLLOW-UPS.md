@@ -74,6 +74,11 @@ is visible rather than forgotten. Ranked roughly by value.
 
 ## Resolved
 
+- **Dead code and leaked log handle (#9, #11).** Removed `IncrementalReader.reset`,
+  the `parent.content_text` alias, the never-true `a is not None` filter and
+  `SessionInfo.size_bytes`; `cmd_start` now closes its log handle. (The
+  duplicated `"report format"` heading was already gone.)
+
 - **Thresholds only configurable by editing code (#10).** Every threshold in
   `constants.py` now reads an `ORCHESTRA_*` env var (validated, falls back to
   the default); table in README.

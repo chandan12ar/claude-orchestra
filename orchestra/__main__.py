@@ -167,7 +167,12 @@ def cmd_start(args) -> int:
                                    getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200))
     else:
         kwargs["start_new_session"] = True
-    subprocess.Popen(command, **kwargs)
+    try:
+        subprocess.Popen(command, **kwargs)
+    finally:
+        # The child inherited its own copy of the descriptor; this one only
+        # leaked in the parent for the life of the command.
+        log.close()
 
     deadline = time.time() + 5.0
     while time.time() < deadline:

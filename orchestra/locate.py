@@ -20,7 +20,6 @@ class SessionInfo:
     session_id: str
     modified_at: float
     agent_count: int
-    size_bytes: int
 
 
 def claude_root() -> str:
@@ -83,6 +82,6 @@ def list_sessions(project_dir: str) -> List[SessionInfo]:
         except OSError:
             continue
         out.append(SessionInfo(session_id=session_id, modified_at=stat.st_mtime,
-                               agent_count=agent_count, size_bytes=stat.st_size))
+                               agent_count=agent_count))
     out.sort(key=lambda s: s.modified_at, reverse=True)
     return out

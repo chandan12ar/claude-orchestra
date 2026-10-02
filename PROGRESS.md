@@ -12,7 +12,7 @@ feature; on failure record it here and stop. See `CLAUDE.md`.
 | 0.2 | Evict idle session builders | done (LRU, MAX_BUILDERS=8, default session pinned) |
 | 0.3 | `report` writes to project, not plugin dir; wire/remove `--cwd` | done (`--cwd` wired; also finds newest session when no id) |
 | 0.4 | Configurable thresholds | done (ORCHESTRA_* env vars, validated; documented in README; plugin userConfig deliberately not used — not documented to reach slash commands) |
-| 0.5 | Dead code + log-handle cleanup | todo |
+| 0.5 | Dead code + log-handle cleanup | done |
 | 0.6 | CI workflow, CHANGELOG, SECURITY.md | todo |
 | 1.1 | Agent-neutral event schema + spool (`events.py`) | todo |
 | 1.2 | Hook entrypoint + `hooks/hooks.json` | todo |

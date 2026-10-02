@@ -218,4 +218,3 @@ class ParentIndex:
 
 
 content_blocks = _content_blocks
-content_text = _content_text

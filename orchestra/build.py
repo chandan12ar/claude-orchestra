@@ -8,7 +8,7 @@ import glob
 import os
 import threading
 import time
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List
 
 from orchestra import constants as C
 from orchestra.agentlog import AgentDigest
@@ -52,7 +52,6 @@ class RunBuilder:
 
         agents = [self._assemble(agent_id, now, session_live)
                   for agent_id in sorted(self._agent_ids())]
-        agents = [a for a in agents if a is not None]
         agents.sort(key=lambda a: (a.started_at is None, a.started_at or 0))
 
         edges, hubs, conflicts = infer_edges(agents, self._handoffs)
@@ -133,7 +132,7 @@ class RunBuilder:
                 return notes.tool_use_id
         return ""
 
-    def _assemble(self, agent_id: str, now: float, session_live: bool) -> Optional[Agent]:
+    def _assemble(self, agent_id: str, now: float, session_live: bool) -> Agent:
         meta = self._metas.get(agent_id) or {}
         digest = self._digests.get(agent_id) or AgentDigest()
         tool_use_id = self._tool_use_id_for(agent_id)
