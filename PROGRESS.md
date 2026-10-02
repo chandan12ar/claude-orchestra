@@ -30,7 +30,7 @@ feature; on failure record it here and stop. See `CLAUDE.md`.
 | 4.2 | Replay scrubber | done (live + static report verified in Chromium) |
 | 4.3 | Export JSON/CSV | done (verified: real browser downloads, CLI, scrubbing, CSV-injection guard) |
 | 5.0 | FIX (security): esc() now escapes quotes (attribute breakout) | done |
-| 5.1 | CI validates plugin manifest + hooks.json + commands (blocking) | pushed; result to confirm on GitHub |
+| 5.1 | CI validates plugin manifest + hooks.json (blocking) | done; a third step I added (`validate commands`) FAILED in CI and was removed — see Notes |
 | 5.2 | Docs: ARCHITECTURE section 10, CLAUDE.md lessons, this file | done |
 
 Deferred by owner decision: dashboard approve/deny; Gemini/Cursor adapters;
@@ -96,6 +96,19 @@ Counts are now taken from the actual run output.
   inspect `<state dir>/events/<session>.jsonl`.
 - Plugin hooks only apply once the plugin is (re)loaded; not yet confirmed whether
   already-running sessions pick them up (roadmap spike 5).
+
+### CI incident 2: the plugin-validate job I made blocking failed (run 21, e4f4812)
+The new third step `claude plugin validate commands` failed in CI with "No manifest
+found in directory", although the SAME CLI version (2.1.287) passed it locally,
+including in a clean `env -i` shell, so it is not a dependable invocation. The
+other two steps passed. Removed the step. What the remaining blocking step does
+and does not cover (clean-env mutation tests): it DOES catch a hooks.json with a
+missing "hooks" wrapper, an unknown handler type, or malformed JSON, and warns on
+a command file with no frontmatter; it does NOT catch invalid YAML inside command
+frontmatter. My commit message for e4f4812 over-claimed that it validated
+`commands/`; this entry is the correction. Also: the validator warns that the
+project CLAUDE.md at the plugin root "is not loaded as context" - informational,
+and the reason the step is not `--strict`.
 
 ### CI incident: red from bc5121c (sounds) through b6351fc (loops)
 

@@ -32,9 +32,12 @@ jobs:
   plugin-manifest:
     # Claude Code's own validator. Pointing it at the repo root only checks the
     # MARKETPLACE manifest; the plugin manifest (and with it hooks/hooks.json and
-    # commands/) has to be named explicitly. Verified locally that this catches a
-    # missing "hooks" wrapper, an unknown handler type and malformed JSON, so a
-    # hooks.json Claude Code would silently refuse to load fails CI instead.
+    # the command files) has to be named explicitly. Verified, in a clean
+    # environment, that this catches a missing "hooks" wrapper, an unknown handler
+    # type and malformed JSON, so a hooks.json Claude Code would silently refuse to
+    # load fails CI instead. Do NOT add `claude plugin validate commands`: with the
+    # same CLI version it passed locally but failed here ("No manifest found in
+    # directory"), so it is not a dependable invocation.
     name: claude plugin validate
     runs-on: ubuntu-latest
     steps:
@@ -49,5 +52,3 @@ jobs:
         # Not --strict: CLAUDE.md at the plugin root (it carries this project's
         # working context) draws an informational "not loaded as context" warning.
         run: claude plugin validate .claude-plugin/plugin.json
-      - name: Slash commands
-        run: claude plugin validate commands
