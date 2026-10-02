@@ -1,9 +1,12 @@
 """What the API answers. No sockets here."""
 
 import os
+import threading
 import time
+from collections import OrderedDict
 from typing import Any, Callable, Dict, List, Optional
 
+from orchestra import constants as C
 from orchestra.build import RunBuilder
 from orchestra.locate import find_session, list_sessions
 
@@ -15,21 +18,44 @@ class NotFound(Exception):
 class OrchestraService:
     def __init__(self, root: Optional[str] = None, token: str = "",
                  default_session: str = "",
-                 now_fn: Callable[[], float] = time.time) -> None:
+                 now_fn: Callable[[], float] = time.time,
+                 max_builders: int = C.MAX_BUILDERS) -> None:
         self.root = root
         self.token = token
         self.default_session = default_session
         self.now_fn = now_fn
-        self._builders: Dict[str, RunBuilder] = {}
+        self.max_builders = max(1, max_builders)
+        # Least recently used first. Each builder holds every agent's digest, so
+        # an unbounded dict grows with every session the picker ever visits.
+        self._builders: "OrderedDict[str, RunBuilder]" = OrderedDict()
+        self._lock = threading.Lock()
 
     def _builder(self, session_id: str) -> RunBuilder:
         session_id = session_id or self.default_session
-        if session_id not in self._builders:
+        with self._lock:
+            builder = self._builders.get(session_id)
+            if builder is not None:
+                self._builders.move_to_end(session_id)
+                return builder
             paths = find_session(session_id, root=self.root)
             if paths is None:
                 raise NotFound("unknown session: {}".format(session_id))
-            self._builders[session_id] = RunBuilder(paths, now_fn=self.now_fn)
-        return self._builders[session_id]
+            builder = RunBuilder(paths, now_fn=self.now_fn)
+            self._builders[session_id] = builder
+            self._evict()
+            return builder
+
+    def _evict(self) -> None:
+        """Drop the least recently used builders, never the default session.
+
+        An evicted session is simply re-read from disk on its next visit; the
+        transcripts are the source of truth, so eviction costs time, not data.
+        """
+        for victim in list(self._builders):
+            if len(self._builders) <= self.max_builders:
+                return
+            if victim != self.default_session:
+                del self._builders[victim]
 
     def run_summary(self, session_id: str = "") -> Dict[str, Any]:
         return self._builder(session_id).refresh().to_summary_dict()
