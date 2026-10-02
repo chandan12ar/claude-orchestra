@@ -12,8 +12,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOOK = os.path.join(ROOT, "orchestra", "hook.py")
 
 
-def run_hook(stdin, state):
-    env = dict(os.environ, ORCHESTRA_STATE_DIR=state)
+def run_hook(stdin, state, **extra_env):
+    env = dict(os.environ, ORCHESTRA_STATE_DIR=state, **extra_env)
     return subprocess.run([sys.executable, HOOK], input=stdin, env=env,
                           capture_output=True, text=True, timeout=30)
 
@@ -47,6 +47,16 @@ class TestHookProcess(unittest.TestCase):
             self.assertEqual(done.returncode, 0, junk[:20])
             self.assertEqual((done.stdout, done.stderr), ("", ""), junk[:20])
         self.assertEqual(self.spool.sessions(), [])
+
+    def test_can_be_switched_off(self):
+        for value in ("off", "OFF", "0", "false", "no"):
+            done = run_hook(self.payload(), self.state, ORCHESTRA_EVENTS=value)
+            self.assertEqual(done.returncode, 0)
+        self.assertEqual(self.spool.sessions(), [])
+
+    def test_other_values_leave_it_on(self):
+        run_hook(self.payload(), self.state, ORCHESTRA_EVENTS="on")
+        self.assertEqual(len(self.spool.sessions()), 1)
 
     def test_ignores_events_it_does_not_record(self):
         run_hook(self.payload(hook_event_name="PreToolUse"), self.state)

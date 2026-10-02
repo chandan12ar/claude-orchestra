@@ -58,9 +58,27 @@ Requires Python 3.9 or newer. Nothing else — no pip install, no npm, no build.
 - **Copy summary** — one click produces a paste-ready markdown summary for a
   PR description or a status update.
 
+## Live events (hooks)
+
+Installing the plugin also registers small **async** Claude Code hooks for seven
+events: session start/end, subagent start/stop, notifications, API failures and
+turn end. They are what let Workflow say an agent is *waiting for your
+permission*, or that it died to a rate limit — facts a transcript cannot show.
+
+- Each hook records one line to `<state dir>/events/<session>.jsonl` and exits.
+  It never blocks or fails Claude Code (async, always exit 0, silent), and costs
+  roughly 50 ms of Python startup off Claude's critical path.
+- Only the event name, session/agent ids, working directory, and a short
+  redacted message are stored. **Tool inputs, prompts, and file contents are
+  never recorded.** Per-tool events (`PreToolUse`/`PostToolUse`) are not hooked.
+- The state directory is per-user, mode `0700`, never under `~/.claude`; spool
+  files are deleted after 7 days.
+- Turn recording off entirely with `ORCHESTRA_EVENTS=off` in the environment
+  Claude Code runs in. The dashboard then works from transcripts alone.
+
 ## Privacy
 
-Workflow is local and read-only.
+Workflow is local, and does not control Claude Code: it only observes.
 
 - The server binds `127.0.0.1` only, and every API call requires a token minted
   at launch.
@@ -86,7 +104,8 @@ ignored in favour of the default.
 | `ORCHESTRA_IDLE_SHUTDOWN_SECONDS` | 1800 | The server exits after this long with no request |
 | `ORCHESTRA_PORT` | 7717 | First port tried (it walks upward if taken) |
 | `ORCHESTRA_MAX_BUILDERS` | 8 | Sessions kept in memory at once |
-| `ORCHESTRA_STATE_DIR` | OS temp dir | Where port files and logs live |
+| `ORCHESTRA_STATE_DIR` | per-user dir in the OS temp dir | Where port files, logs and the event spool live |
+| `ORCHESTRA_EVENTS` | on | `off` stops the hooks recording anything |
 
 ## Development
 

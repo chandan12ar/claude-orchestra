@@ -35,7 +35,15 @@ def record(raw: str) -> bool:
     return True
 
 
+def events_disabled() -> bool:
+    """ORCHESTRA_EVENTS=off (or 0/false/no) turns recording off entirely."""
+    return os.environ.get("ORCHESTRA_EVENTS", "").strip().lower() in (
+        "off", "0", "false", "no")
+
+
 def main() -> int:
+    if events_disabled():
+        return 0
     try:
         from orchestra.events import MAX_STDIN_BYTES
         record(sys.stdin.read(MAX_STDIN_BYTES))
