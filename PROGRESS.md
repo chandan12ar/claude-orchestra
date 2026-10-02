@@ -15,7 +15,7 @@ feature; on failure record it here and stop. See `CLAUDE.md`.
 | 0.5 | Dead code + log-handle cleanup | done |
 | 0.6 | CI workflow, CHANGELOG, SECURITY.md | done (CI result verified after push — see Notes) |
 | 1.1 | Agent-neutral event schema + spool (`events.py`, `statedir.py`) | done (state dir now per-user + ownership-checked) |
-| 1.2 | Hook entrypoint + `hooks/hooks.json` | todo |
+| 1.2 | Hook entrypoint + `hooks/hooks.json` | done |
 | 1.3 | Ground-truth session states from events | todo |
 | 1.4 | Live push (SSE) | todo |
 | 1.5 | Fleet view / attention inbox | todo |
@@ -31,7 +31,22 @@ plugin rename.
 
 ## Notes / failures
 
-(none yet)
+- CI (run 1, commit 8f427a9): all 9 test jobs (Linux/macOS/Windows x py3.9/3.12/3.13)
+  green. The `claude plugin validate` job went green but finished in <1s, so treat
+  it as *unconfirmed* until its log is read.
+- Spike 2 (hook cost): one hook invocation ~46 ms of Python startup on Linux,
+  async so it is off Claude's critical path. `python3 || python || true` verified
+  in bash; with no Python at all it exits 0 but prints "command not found" to
+  stderr (async hook, harmless).
+- **UNVERIFIED against a live Claude Code session:** the exact hook payload field
+  names (`notification_type`, `message`, `error_type`, `error_message`, `reason`,
+  `last_assistant_message`). They come from the docs summary, not a captured
+  payload. `normalize_claude_hook` degrades to empty fields rather than failing,
+  but ground-truth states (1.3) depend on `notification_type`. First thing to do
+  with a real session: install the plugin, trigger a permission prompt, and
+  inspect `<state dir>/events/<session>.jsonl`.
+- Plugin hooks only apply once the plugin is (re)loaded; not yet confirmed whether
+  already-running sessions pick them up (roadmap spike 5).
 
 ## Next step
 
