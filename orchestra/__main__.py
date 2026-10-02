@@ -89,6 +89,19 @@ def _kill(pid: int) -> None:
 
 # -- commands -------------------------------------------------------------
 
+def _make_spool():
+    """A fresh event spool, or None when events are unavailable.
+
+    Hook events are an enhancement. A state directory we cannot safely use must
+    degrade the dashboard to transcript-only, not stop it starting.
+    """
+    from orchestra.events import EventSpool
+    try:
+        return EventSpool()
+    except OSError:
+        return None
+
+
 def _latest_session_in(cwd: str) -> str:
     """Newest session of the project that `cwd` belongs to, or ""."""
     from orchestra.locate import find_project_dir, list_sessions
@@ -112,7 +125,8 @@ def cmd_serve(args) -> int:
 
     session_id = _resolve_session(args)
     token = args.token or secrets.token_urlsafe(24)
-    service = OrchestraService(token=token, default_session=session_id)
+    service = OrchestraService(token=token, default_session=session_id,
+                               spool_factory=_make_spool)
 
     port = args.port
     server = None

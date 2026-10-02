@@ -57,6 +57,7 @@ COMPLETED = "completed"
 FAILED = "failed"
 STALLED = "stalled"
 ORPHANED = "orphaned"
+WAITING = "waiting"
 UNKNOWN = "unknown"
 
 ORCHESTRATOR_ID = "main"

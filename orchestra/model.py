@@ -191,6 +191,9 @@ class Run:
     hub_files: List[HubFile] = field(default_factory=list)
     write_conflicts: List[WriteConflict] = field(default_factory=list)
     diagnostics: Dict[str, int] = field(default_factory=dict)
+    # Hook-event ground truth (orchestra.livestate.LiveState.to_dict), or None
+    # when no hook has ever reported for this session.
+    live: Optional[Dict[str, Any]] = None
 
     def agent(self, agent_id: str) -> Optional[Agent]:
         for a in self.agents:
@@ -200,7 +203,7 @@ class Run:
 
     def totals(self) -> Dict[str, Any]:
         counts = {"agents": len(self.agents)}
-        for status in (C.RUNNING, C.COMPLETED, C.FAILED, C.STALLED,
+        for status in (C.RUNNING, C.WAITING, C.COMPLETED, C.FAILED, C.STALLED,
                        C.ORPHANED, C.UNKNOWN):
             counts[status] = sum(1 for a in self.agents if a.status == status)
         tokens = {}
@@ -227,4 +230,5 @@ class Run:
             "hub_files": [h.to_dict() for h in self.hub_files],
             "write_conflicts": [c.to_dict() for c in self.write_conflicts],
             "diagnostics": dict(self.diagnostics),
+            "live": self.live,
         }

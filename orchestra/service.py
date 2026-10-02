@@ -8,6 +8,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from orchestra import constants as C
 from orchestra.build import RunBuilder
+from orchestra.events import EventSpool
 from orchestra.locate import find_session, list_sessions
 
 
@@ -19,11 +20,17 @@ class OrchestraService:
     def __init__(self, root: Optional[str] = None, token: str = "",
                  default_session: str = "",
                  now_fn: Callable[[], float] = time.time,
-                 max_builders: int = C.MAX_BUILDERS) -> None:
+                 max_builders: int = C.MAX_BUILDERS,
+                 spool_factory: Optional[Callable[[], Optional[EventSpool]]] = None
+                 ) -> None:
         self.root = root
         self.token = token
         self.default_session = default_session
         self.now_fn = now_fn
+        # A factory, not one shared spool: a spool's read cursor belongs to the
+        # builder consuming it, so a rebuilt (evicted) builder starts from the
+        # beginning instead of inheriting a cursor that skips events.
+        self.spool_factory = spool_factory
         self.max_builders = max(1, max_builders)
         # Least recently used first. Each builder holds every agent's digest, so
         # an unbounded dict grows with every session the picker ever visits.
@@ -40,7 +47,8 @@ class OrchestraService:
             paths = find_session(session_id, root=self.root)
             if paths is None:
                 raise NotFound("unknown session: {}".format(session_id))
-            builder = RunBuilder(paths, now_fn=self.now_fn)
+            spool = self.spool_factory() if self.spool_factory else None
+            builder = RunBuilder(paths, now_fn=self.now_fn, spool=spool)
             self._builders[session_id] = builder
             self._evict()
             return builder
