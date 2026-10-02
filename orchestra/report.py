@@ -23,6 +23,7 @@ _SHELL = """<!doctype html>
 <header>
   <div class="bar">
     <h1>Workflow</h1>
+    <button id="pill-toggle" type="button" aria-pressed="false" hidden>Pill</button>
     <button id="copy-summary" type="button">Copy summary</button>
     <!-- id is load-bearing: app.js sets $("conn").textContent inside poll(),
          before render(). Without it the whole page throws and stays blank. -->

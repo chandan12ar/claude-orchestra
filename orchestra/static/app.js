@@ -46,6 +46,8 @@ const state = {
   fleetSeeded: false,    // first fleet poll only records, never notifies
   fleetAttention: {},    // session_id -> kind@since already announced
   fleetTimer: null,
+  faviconKey: "",
+  pill: null,            // the open Picture-in-Picture window, if any
   stream: null,          // the open EventSource, if any
   streamLive: false,     // true only while that stream is connected
   refreshTimer: null,    // pending debounced refresh after a push
@@ -1093,6 +1095,7 @@ function setView(view) {
 function render() {
   if (!state.run) return;
   renderHeader(state.run);
+  updateChrome();
   renderAttention(state.run);
   renderHealth(state.run);
   renderConflicts(state.run);
@@ -1136,6 +1139,179 @@ async function poll(generation) {
   // watching Timeline/Graph never costs N extra per-agent fetches.
   if (state.view === "activity") refreshTicker(run);
   if (state.live) setTimeout(() => poll(generation), state.backoff);
+}
+
+// ------------------------------------------------------- pill + tab chrome
+//
+// The same few facts drive three surfaces: the browser tab's title, its
+// favicon, and an optional always-on-top "pill" window. One pure model decides
+// what to say; the surfaces only draw it.
+
+const PILL_COLORS = { permission: "#7950f2", input: "#7950f2", error: "#e03131",
+  running: "#1c7ed6", idle: "#868e96" };
+
+function pillModel(run, fleet) {
+  const live = fleet ? fleet.sessions.filter((s) => s.session_live) : [];
+  let needing = live.filter((s) => s.urgency > 0 && s.attention);
+  // Before the first fleet poll, fall back to the session on screen.
+  if (!fleet && run && run.live && run.live.attention && run.session_live &&
+      run.live.attention.kind !== "idle") {
+    needing = [{ attention: run.live.attention, project_name: "", session_id: run.session_id }];
+  }
+  const totals = run ? run.totals : null;
+  const running = fleet
+    ? live.reduce((n, s) => n + ((s.totals && s.totals.running) || 0), 0)
+    : (totals ? totals.running : 0);
+  const top = needing[0] || null;
+  let kind = "idle";
+  if (top) kind = top.attention.kind;
+  else if (running > 0) kind = "running";
+  const where = top ? (top.project_name || (top.session_id || "").slice(0, 8)) : "";
+  const more = needing.length - 1;
+  return {
+    kind: kind,
+    count: needing.length,
+    headline: top ? attentionTitle(top.attention)
+      : (running > 0 ? running + " running" : "All quiet"),
+    detail: top
+      ? where + (more > 0 ? " · +" + more + " more" : "")
+      : (totals ? totals.agents + " agents · " + totals.completed + " done" : ""),
+    agents: run ? run.agents.slice(0, 16).map((a) => a.status) : [],
+  };
+}
+
+function tabTitle(model) {
+  if (model.count > 0) return "(" + model.count + ") Workflow";
+  if (model.kind === "running") return "\u25B6 Workflow";
+  return "Workflow";
+}
+
+function drawFavicon(model) {
+  if (typeof document.createElement !== "function") return null;
+  const canvas = document.createElement("canvas");
+  if (!canvas || typeof canvas.getContext !== "function") return null;
+  canvas.width = canvas.height = 64;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.beginPath();
+  ctx.arc(32, 32, 28, 0, Math.PI * 2);
+  ctx.fillStyle = PILL_COLORS[model.kind] || PILL_COLORS.idle;
+  ctx.fill();
+  if (model.count > 0) {
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 38px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(model.count > 9 ? "9+" : String(model.count), 32, 35);
+  }
+  try { return canvas.toDataURL("image/png"); } catch (err) { return null; }
+}
+
+function updateTabChrome(model) {
+  document.title = tabTitle(model);
+  // Redrawing a canvas on every poll is wasted work if nothing changed.
+  const key = model.kind + ":" + model.count;
+  if (key === state.faviconKey) return;
+  state.faviconKey = key;
+  const href = drawFavicon(model);
+  if (!href || typeof document.querySelectorAll !== "function") return;
+  let link = null;
+  for (const el of document.querySelectorAll("link")) {
+    if (el.rel === "icon") link = el;
+  }
+  if (!link) {
+    link = document.createElement("link");
+    link.rel = "icon";
+    document.head.appendChild(link);
+  }
+  link.href = href;
+}
+
+const PILL_CSS = `
+:root { color-scheme: light dark; --bg:#fbfbfa; --ink:#1a1a19; --muted:#6b6b66; --line:#e3e3df; }
+@media (prefers-color-scheme: dark) { :root { --bg:#17171a; --ink:#e8e8e6; --muted:#9a9a95; --line:#32323a; } }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--ink); font:13px system-ui,"Segoe UI",Roboto,sans-serif; }
+.pill { display:flex; align-items:center; gap:10px; padding:10px 12px; height:100vh;
+  border-left:5px solid var(--c, #868e96); }
+.dot { width:12px; height:12px; border-radius:50%; background:var(--c, #868e96); flex:none; }
+.pill[data-kind="running"] .dot, .pill[data-kind="permission"] .dot,
+.pill[data-kind="input"] .dot, .pill[data-kind="error"] .dot { animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 0%,100% { box-shadow:0 0 0 0 color-mix(in srgb, var(--c) 55%, transparent); }
+  50% { box-shadow:0 0 0 6px transparent; } }
+@media (prefers-reduced-motion: reduce) { .dot { animation:none !important; } }
+.txt { min-width:0; flex:1; }
+.head { font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.sub { color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.agents { display:flex; flex-wrap:wrap; gap:3px; max-width:84px; justify-content:flex-end; }
+.agents i { width:8px; height:8px; border-radius:2px; background:var(--muted); display:block; }
+.agents i[data-s="running"] { background:#1c7ed6; } .agents i[data-s="completed"] { background:#2f9e44; }
+.agents i[data-s="failed"], .agents i[data-s="orphaned"] { background:#e03131; }
+.agents i[data-s="stalled"] { background:#e8950c; } .agents i[data-s="waiting"] { background:#7950f2; }
+`;
+
+function renderPill(model) {
+  const win = state.pill;
+  if (!win || win.closed) return;
+  const doc = win.document;
+  let root = doc.getElementById("pill-root");
+  if (!root) {
+    root = doc.createElement("div");
+    root.id = "pill-root";
+    doc.body.appendChild(root);
+  }
+  root.textContent = "";
+  const make = (tag, cls, text) => {
+    const el = doc.createElement(tag);
+    if (cls) el.className = cls;
+    if (text !== undefined) el.textContent = text;
+    return el;
+  };
+  const pill = make("div", "pill");
+  pill.setAttribute("data-kind", model.kind);
+  pill.style.setProperty("--c", PILL_COLORS[model.kind] || PILL_COLORS.idle);
+  pill.appendChild(make("span", "dot"));
+  const txt = make("div", "txt");
+  txt.appendChild(make("div", "head", model.headline));
+  txt.appendChild(make("div", "sub", model.detail));
+  pill.appendChild(txt);
+  const agents = make("div", "agents");
+  for (const status of model.agents) {
+    const cell = make("i");
+    cell.setAttribute("data-s", status);
+    agents.appendChild(cell);
+  }
+  pill.appendChild(agents);
+  root.appendChild(pill);
+}
+
+function updatePillButton() {
+  const btn = $("pill-toggle");
+  if (!btn) return;
+  btn.setAttribute("aria-pressed", String(!!state.pill));
+}
+
+async function togglePill() {
+  if (state.pill) { state.pill.close(); return; }
+  if (typeof window.documentPictureInPicture === "undefined") return;
+  let win;
+  try {
+    win = await window.documentPictureInPicture.requestWindow({ width: 340, height: 96 });
+  } catch (err) { return; }   // refused (no user gesture, or the user declined)
+  const style = win.document.createElement("style");
+  style.textContent = PILL_CSS;
+  win.document.head.appendChild(style);
+  win.document.title = "Workflow";
+  win.addEventListener("pagehide", () => { state.pill = null; updatePillButton(); });
+  state.pill = win;
+  updatePillButton();
+  updateChrome();
+}
+
+function updateChrome() {
+  const model = pillModel(state.run, state.fleet);
+  updateTabChrome(model);
+  renderPill(model);
 }
 
 // ------------------------------------------------------------------ fleet
@@ -1224,6 +1400,7 @@ async function pollFleet() {
     state.fleet = data;
     checkFleetNotifications(data);
     renderFleetBadge();
+    updateChrome();
     if (state.view === "fleet") renderFleet();
   } catch (err) { /* the fleet is an extra; the current session still works */ }
   if (state.live && !state.offline) state.fleetTimer = setTimeout(pollFleet, FLEET_POLL_MS);
@@ -1347,6 +1524,12 @@ function init() {
     $("notify-toggle").hidden = true;
   }
   $("copy-summary").onclick = copySummary;
+  // Only where the browser can do it (Chromium); a static report has no use.
+  const pillBtn = $("pill-toggle");
+  if (pillBtn && !state.offline && typeof window.documentPictureInPicture !== "undefined") {
+    pillBtn.hidden = false;
+    pillBtn.onclick = togglePill;
+  }
   for (const tab of document.querySelectorAll(".tab")) {
     tab.onclick = () => setView(tab.dataset.view);
   }

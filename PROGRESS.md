@@ -21,7 +21,7 @@ feature; on failure record it here and stop. See `CLAUDE.md`.
 | 1.4 | Live push (SSE) | done (measured in Chromium: 613 ms event->banner; idle page 0 req/3s) |
 | 1.5a | Fleet backend (`/api/fleet`, cross-project recent sessions, urgency sort) | done |
 | 1.5b | Fleet UI (tab, badge, cross-session notifications) | done (verified in Chromium; fixed an empty-bar bug via global [hidden] rule) |
-| 2.1 | Pill (Picture-in-Picture) + tab badge | todo |
+| 2.1 | Pill (Picture-in-Picture) + tab badge | done (title, favicon, and PiP window verified in real Chromium; PiP is Chromium-only, button hidden elsewhere) |
 | 2.2 | Synthesized sounds | todo |
 | 2.3 | Cost, budget alert, runaway detection | todo |
 | 4.1 | Run history (sqlite3) | todo |
