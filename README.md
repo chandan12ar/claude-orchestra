@@ -69,6 +69,25 @@ Workflow is local and read-only.
 - It never writes to any file under `~/.claude`.
 - Anything that looks like a credential is redacted before it reaches the page.
 
+## Configuration
+
+Every threshold has a default and can be overridden with an environment
+variable, read at startup. A missing, non-numeric, or out-of-range value is
+ignored in favour of the default.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `ORCHESTRA_STALL_SECONDS` | 300 | An agent with an open round and no activity this long reads as `stalled` |
+| `ORCHESTRA_SESSION_LIVE_SECONDS` | 600 | A session whose transcript was touched this recently counts as live |
+| `ORCHESTRA_HUB_FILE_THRESHOLD` | 3 | A file read by more agents than this, written by none, is shared context |
+| `ORCHESTRA_HANDOFF_CONTAINMENT` | 0.15 | Text-reuse score (0-1) at which a handoff edge is inferred |
+| `ORCHESTRA_HANDOFF_RUN_WORDS` | 40 | A shared run this many words long also infers a handoff |
+| `ORCHESTRA_SHINGLE_SIZE` | 8 | Words per shingle in handoff scoring |
+| `ORCHESTRA_IDLE_SHUTDOWN_SECONDS` | 1800 | The server exits after this long with no request |
+| `ORCHESTRA_PORT` | 7717 | First port tried (it walks upward if taken) |
+| `ORCHESTRA_MAX_BUILDERS` | 8 | Sessions kept in memory at once |
+| `ORCHESTRA_STATE_DIR` | OS temp dir | Where port files and logs live |
+
 ## Development
 
 ```bash

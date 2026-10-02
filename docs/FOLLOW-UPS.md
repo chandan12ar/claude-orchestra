@@ -74,6 +74,10 @@ is visible rather than forgotten. Ranked roughly by value.
 
 ## Resolved
 
+- **Thresholds only configurable by editing code (#10).** Every threshold in
+  `constants.py` now reads an `ORCHESTRA_*` env var (validated, falls back to
+  the default); table in README.
+
 - **Idle builders never evicted (#5).** `OrchestraService` keeps an LRU of
   `MAX_BUILDERS` (8); the default session is pinned; evicted sessions are
   rebuilt from disk on next visit.
