@@ -46,6 +46,7 @@ const state = {
   fleetSeeded: false,    // first fleet poll only records, never notifies
   fleetAttention: {},    // session_id -> kind@since already announced
   fleetTimer: null,
+  history: { data: null, selected: [], compare: null, timer: null },
   liveRun: null,         // the newest run from the server; state.run may be a replay of it
   replay: { on: false, t: 0, playing: false, speed: 30, timer: null },
   faviconKey: "",
@@ -1191,6 +1192,7 @@ function setView(view) {
   $("view-activity").hidden = view !== "activity";
   $("view-workfloor").hidden = view !== "workfloor";
   $("view-fleet").hidden = view !== "fleet";
+  $("view-history").hidden = view !== "history";
   for (const tab of document.querySelectorAll(".tab")) {
     const active = tab.dataset.view === view;
     tab.classList.toggle("active", active);
@@ -1200,6 +1202,7 @@ function setView(view) {
   // Refresh immediately on switching in, rather than waiting up to POLL_MS
   // for the next cycle to notice the tab is now visible.
   if (view === "activity" && state.run) refreshTicker(state.run);
+  if (view === "history") loadHistory();
 }
 
 function render() {
@@ -1216,6 +1219,7 @@ function render() {
   else if (state.view === "graph") renderGraph(state.run);
   else if (state.view === "workfloor") renderWorkfloor(state.run);
   else if (state.view === "fleet") renderFleet();
+  else if (state.view === "history") renderHistory();
   else renderTicker();
 }
 
@@ -1597,6 +1601,167 @@ function toggleReplay() {
   btn.setAttribute("aria-pressed", "true");
   buildReplayBar();
   setReplayTime(b.start);
+}
+
+// ----------------------------------------------------------------- history
+//
+// Past runs, from the opt-in metrics store. Metrics only: there is nothing here
+// to leak, because nothing but counts, durations, tokens and cost is kept.
+
+// For each comparable metric: does a bigger number mean better, worse, or neither?
+const HISTORY_METRICS = [
+  ["agents", "Agents", "neutral", "count"],
+  ["completed", "Completed", "higher", "count"],
+  ["failed", "Failed", "lower", "count"],
+  ["wall_s", "Wall time", "lower", "duration"],
+  ["tokens_total", "Tokens", "lower", "count"],
+  ["cost", "Cost", "lower", "money"],
+  ["loops", "Possible loops", "lower", "count"],
+  ["write_conflicts", "Write conflicts", "lower", "count"],
+  ["cache_hit_ratio", "Cache hit", "higher", "pct"],
+];
+
+function fmtHistoryValue(value, kind, currency) {
+  if (value === null || value === undefined) return "—";
+  if (kind === "duration") return fmtDuration(value);
+  if (kind === "money") return fmtMoney(value, currency);
+  if (kind === "pct") return fmtPct(value);
+  return fmtCount(value);
+}
+
+// "better" / "worse" / "flat" for a change in a metric.
+function deltaVerdict(change, direction) {
+  if (change === null || change === undefined || change === 0) return "flat";
+  if (direction === "neutral") return "flat";
+  const up = change > 0;
+  return (direction === "higher") === up ? "good" : "bad";
+}
+
+function fmtWhen(seconds) {
+  if (!seconds) return "—";
+  const d = new Date(seconds * 1000);
+  const pad = (n) => (n < 10 ? "0" : "") + n;
+  return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + " " +
+    pad(d.getHours()) + ":" + pad(d.getMinutes());
+}
+
+async function loadHistory() {
+  try {
+    state.history.data = await api("/api/history?limit=100");
+  } catch (err) {
+    state.history.data = { enabled: true, runs: [], error: "could not load history" };
+  }
+  if (state.view === "history") renderHistory();
+}
+
+// The earlier run first, whatever order the user clicked them in: the compare
+// table reads "Earlier / Later", so a click order of new-then-old would
+// otherwise label the newer run "Earlier" and flip every verdict.
+function orderRuns(ids, runs) {
+  const when = (id) => {
+    const run = runs.find((r) => r.session_id === id);
+    return run ? (run.started_at || run.first_seen_at || 0) : 0;
+  };
+  return ids.slice().sort((x, y) => when(x) - when(y));
+}
+
+async function loadCompare() {
+  if (state.history.selected.length < 2) { state.history.compare = null; return; }
+  const runs = state.history.data ? state.history.data.runs : [];
+  const [a, b] = orderRuns(state.history.selected, runs);
+  try {
+    state.history.compare = await api("/api/history/compare?a=" + encodeURIComponent(a) +
+      "&b=" + encodeURIComponent(b));
+  } catch (err) { state.history.compare = null; }
+  if (state.view === "history") renderHistory();
+}
+
+function selectHistoryRun(sessionId) {
+  const sel = state.history.selected;
+  const at = sel.indexOf(sessionId);
+  if (at >= 0) sel.splice(at, 1);
+  else { sel.push(sessionId); if (sel.length > 2) sel.shift(); }
+  state.history.compare = null;
+  renderHistory();
+  loadCompare();
+}
+
+function renderHistory() {
+  const box = $("history");
+  if (!box) return;
+  const data = state.history.data;
+  if (!data) { box.innerHTML = '<div class="history-note">Loading…</div>'; return; }
+  if (!data.enabled) {
+    box.innerHTML = '<div class="history-note"><strong>Run history is off.</strong><br>' +
+      "Set <code>ORCHESTRA_HISTORY=on</code> in the environment Claude Code runs in, then " +
+      "restart the dashboard, to start remembering how runs went.<br>Only counts, durations, " +
+      "tokens and cost are kept — never prompts, results, or file contents.</div>";
+    return;
+  }
+  if (data.error) {
+    box.innerHTML = '<div class="history-note">' + esc(data.error) + "</div>";
+    return;
+  }
+  if (!data.runs.length) {
+    box.innerHTML = '<div class="history-note">No runs recorded yet — they appear as you ' +
+      "view sessions.<br>Select two runs here to compare them.</div>";
+    return;
+  }
+  const sel = new Set(state.history.selected);
+  const rows = data.runs.map((r) =>
+    '<tr data-session="' + esc(r.session_id) + '" aria-selected="' + sel.has(r.session_id) + '" tabindex="0">' +
+    "<td>" + esc(fmtWhen(r.started_at || r.first_seen_at)) + "</td>" +
+    "<td>" + esc(r.project_name || "(unknown)") + "</td>" +
+    '<td class="num">' + esc(r.agents) + "</td>" +
+    '<td class="num">' + esc(r.failed) + "</td>" +
+    '<td class="num">' + esc(fmtHistoryValue(r.wall_s, "duration")) + "</td>" +
+    '<td class="num">' + esc(fmtHistoryValue(r.tokens_total, "count")) + "</td>" +
+    '<td class="num">' + esc(fmtHistoryValue(r.cost, "money", r.currency)) + "</td>" +
+    "</tr>").join("");
+  box.innerHTML = "<table><thead><tr><th>Started</th><th>Project</th>" +
+    '<th class="num">Agents</th><th class="num">Failed</th><th class="num">Wall</th>' +
+    '<th class="num">Tokens</th><th class="num">Cost</th></tr></thead><tbody>' + rows +
+    "</tbody></table>" + renderCompare();
+  for (const tr of box.querySelectorAll("tbody tr")) {
+    tr.onclick = () => selectHistoryRun(tr.dataset.session);
+    tr.onkeydown = (event) => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectHistoryRun(tr.dataset.session); }
+    };
+  }
+}
+
+function renderCompare() {
+  const c = state.history.compare;
+  if (state.history.selected.length < 2) {
+    return '<div class="history-compare history-note" style="padding:12px">Select two runs to compare them.</div>';
+  }
+  if (!c) return '<div class="history-compare history-note" style="padding:12px">Comparing…</div>';
+  const label = (r) => (r.project_name || "run") + " · " + fmtWhen(r.started_at || r.first_seen_at);
+  const currency = c.a.currency || c.b.currency;
+  const lines = HISTORY_METRICS.map(([key, name, direction, kind]) => {
+    const d = c.delta[key];
+    if (!d) {
+      return "<tr><td>" + esc(name) + '</td><td class="num">—</td><td class="num">—</td>' +
+        '<td class="num delta-flat">n/a</td></tr>';
+    }
+    const verdict = deltaVerdict(d.change, direction);
+    // Sign and magnitude are formatted apart: the duration formatter has no
+    // notion of a negative ("-2m -30s"), and a change of 0 should read "0".
+    const sign = d.change > 0 ? "+" : d.change < 0 ? "\u2212" : "";
+    const pct = d.pct === null || d.pct === undefined ? "" :
+      " (" + (d.pct > 0 ? "+" : d.pct < 0 ? "\u2212" : "") + Math.abs(d.pct).toFixed(0) + "%)";
+    const size = Math.abs(d.change);
+    const change = d.change === 0 ? "0" : (kind === "pct"
+      ? sign + (size * 100).toFixed(1) + " pts"
+      : sign + fmtHistoryValue(size, kind, currency));
+    return "<tr><td>" + esc(name) + '</td><td class="num">' + esc(fmtHistoryValue(d.a, kind, currency)) +
+      '</td><td class="num">' + esc(fmtHistoryValue(d.b, kind, currency)) +
+      '</td><td class="num delta-' + verdict + '">' + esc(change + pct) + "</td></tr>";
+  }).join("");
+  return '<div class="history-compare"><h3>' + esc(label(c.b)) + " vs " + esc(label(c.a)) +
+    "</h3><table><thead><tr><th>Metric</th>" +
+    '<th class="num">Earlier</th><th class="num">Later</th><th class="num">Change</th></tr></thead><tbody>' +
+    lines + "</tbody></table></div>";
 }
 
 // ------------------------------------------------------- pill + tab chrome
@@ -2057,7 +2222,7 @@ function init() {
   if (state.offline) {
     // A frozen snapshot has no other sessions to list.
     for (const tab of document.querySelectorAll(".tab")) {
-      if (tab.dataset.view === "fleet") tab.hidden = true;
+      if (tab.dataset.view === "fleet" || tab.dataset.view === "history") tab.hidden = true;
     }
   } else {
     pollFleet();

@@ -56,6 +56,7 @@ _SHELL = """<!doctype html>
   <button type="button" class="tab" data-view="activity" role="tab">Activity</button>
   <button type="button" class="tab" data-view="workfloor" role="tab">Work Floor</button>
   <button type="button" hidden class="tab" data-view="fleet" role="tab">Fleet <span id="fleet-badge" class="badge" hidden></span></button>
+  <button type="button" hidden class="tab" data-view="history" role="tab">History</button>
 </nav>
 <main>
   <section id="view-timeline" class="view">
@@ -70,6 +71,9 @@ _SHELL = """<!doctype html>
   </section>
   <section id="view-fleet" class="view" hidden>
     <div id="fleet" class="fleet"></div>
+  </section>
+  <section id="view-history" class="view" hidden>
+    <div id="history" class="history"></div>
   </section>
   <section id="view-workfloor" class="view" hidden>
     <div id="workfloor" class="workfloor"></div>

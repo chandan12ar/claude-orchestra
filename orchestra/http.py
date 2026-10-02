@@ -140,6 +140,19 @@ def make_handler(service: OrchestraService, state: Dict[str, Any]):
                     self._json(200, service.agent_detail(agent_id, session))
                 elif path == "/api/sessions":
                     self._json(200, service.session_list(session))
+                elif path == "/api/history":
+                    try:
+                        limit = int(query.get("limit", ["50"])[0])
+                    except ValueError:
+                        limit = 50
+                    self._json(200, service.history_list(limit))
+                elif path == "/api/history/compare":
+                    result = service.history_compare(query.get("a", [""])[0],
+                                                     query.get("b", [""])[0])
+                    if result is None:
+                        self._error(404, "both runs must be in the history")
+                    else:
+                        self._json(200, result)
                 elif path == "/api/export":
                     self._export(session, query.get("format", ["csv"])[0])
                 elif path == "/api/fleet":

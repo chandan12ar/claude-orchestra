@@ -11,6 +11,10 @@ versions follow [SemVer](https://semver.org/) (the `version` in
   events) feed ground-truth state: what the session is waiting on (permission /
   input / idle / API error type), exact session end, exact subagent stop, and a
   new `waiting` agent status. `ORCHESTRA_EVENTS=off` disables recording.
+- Run history (opt-in, `ORCHESTRA_HISTORY=on`): a History tab to list past runs and
+  compare any two (agents, failures, wall time, tokens, cost, loops). Stores
+  metrics only - never prompts, results, or file paths - in a per-user 0600 database
+  pruned by age and count; off by default.
 - Replay: scrub or play back the run to see who had launched, who was running and
   who had finished at any moment - in the live dashboard and in a static report,
   so a post-mortem needs no server. Statuses are reconstructed from start/end
@@ -46,6 +50,8 @@ versions follow [SemVer](https://semver.org/) (the `version` in
 - Session builders are held in a bounded LRU (default 8) instead of forever.
 
 ### Fixed
+- **Security:** the page's `esc()` helper did not escape quotes, so a value containing
+  one could break out of a quoted HTML attribute and inject another. It now does.
 - **Token counts were inflated 2.6-3.1x on real transcripts.** Claude Code writes
   one entry per content block, each repeating the message's usage; usage is now
   counted once per API message id (and tracked per model).

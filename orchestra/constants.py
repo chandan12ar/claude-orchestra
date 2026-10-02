@@ -69,6 +69,11 @@ LOOP_REPEATS = _tunable("LOOP_REPEATS", "ORCHESTRA_LOOP_REPEATS", 6, 2, 1000, in
 LOOP_CYCLE_CALLS = _tunable("LOOP_CYCLE_CALLS", "ORCHESTRA_LOOP_CYCLE_CALLS",
                             16, 4, 1000, int)
 
+# Run history (opt-in, see orchestra/history.py): how long to keep a run, and how many.
+HISTORY_DAYS = _tunable("HISTORY_DAYS", "ORCHESTRA_HISTORY_DAYS", 90, 1, 3650, int)
+HISTORY_MAX_RUNS = _tunable("HISTORY_MAX_RUNS", "ORCHESTRA_HISTORY_MAX_RUNS",
+                            500, 10, 100000, int)
+
 RUNNING = "running"
 COMPLETED = "completed"
 FAILED = "failed"

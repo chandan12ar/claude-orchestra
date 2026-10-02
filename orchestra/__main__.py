@@ -125,9 +125,13 @@ def cmd_serve(args) -> int:
 
     session_id = _resolve_session(args)
     token = args.token or secrets.token_urlsafe(24)
+    from orchestra import history as history_mod
     from orchestra.pricing import PriceSource
+    # History persists data after the session is gone, so it is opt-in only.
+    store = history_mod.HistoryStore() if history_mod.enabled() else None
     service = OrchestraService(token=token, default_session=session_id,
-                               spool_factory=_make_spool, prices=PriceSource())
+                               spool_factory=_make_spool, prices=PriceSource(),
+                               history=store)
 
     port = args.port
     server = None

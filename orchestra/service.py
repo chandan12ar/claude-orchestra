@@ -10,6 +10,7 @@ from orchestra import constants as C
 from orchestra.build import RunBuilder
 from orchestra import export as export_mod
 from orchestra.events import EventSpool
+from orchestra.history import HistoryStore
 from orchestra.pricing import PriceSource
 from orchestra.locate import find_session, list_recent_sessions, list_sessions
 from orchestra.redact import scrub
@@ -25,7 +26,8 @@ class OrchestraService:
                  now_fn: Callable[[], float] = time.time,
                  max_builders: int = C.MAX_BUILDERS,
                  spool_factory: Optional[Callable[[], Optional[EventSpool]]] = None,
-                 prices: Optional[PriceSource] = None) -> None:
+                 prices: Optional[PriceSource] = None,
+                 history: Optional[HistoryStore] = None) -> None:
         self.root = root
         self.token = token
         self.default_session = default_session
@@ -35,6 +37,7 @@ class OrchestraService:
         # beginning instead of inheriting a cursor that skips events.
         self.spool_factory = spool_factory
         self.prices = prices
+        self.history = history        # None unless the user opted in
         self.max_builders = max(1, max_builders)
         # Least recently used first. Each builder holds every agent's digest, so
         # an unbounded dict grows with every session the picker ever visits.
@@ -142,6 +145,8 @@ class OrchestraService:
             summary = self._builder(info.session_id).refresh().to_summary_dict()
         except (NotFound, OSError):
             return entry
+        if self.history is not None:
+            self.history.maybe_record(summary)
         path = scrub(summary.get("project_path") or "")
         live = summary.get("live") or {}
         attention = live.get("attention")
@@ -165,7 +170,21 @@ class OrchestraService:
         return entry
 
     def run_summary(self, session_id: str = "") -> Dict[str, Any]:
-        return self._builder(session_id).refresh().to_summary_dict()
+        summary = self._builder(session_id).refresh().to_summary_dict()
+        if self.history is not None:
+            self.history.maybe_record(summary)
+        return summary
+
+    def history_list(self, limit: int = 50) -> Dict[str, Any]:
+        if self.history is None:
+            return {"enabled": False, "runs": [], "error": ""}
+        runs = self.history.list(limit)
+        return {"enabled": True, "runs": runs, "error": self.history.error}
+
+    def history_compare(self, a: str, b: str) -> Optional[Dict[str, Any]]:
+        if self.history is None:
+            return None
+        return self.history.compare(a, b)
 
     def export(self, fmt: str, session_id: str = ""):
         """(content_type, body, filename) for csv/json, or None for an unknown format."""

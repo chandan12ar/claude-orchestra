@@ -365,3 +365,23 @@ main { padding: 12px 16px 24px; }
 .replay-bar .replay-time { font-variant-numeric: tabular-nums; color: var(--muted);
   white-space: nowrap; }
 .replay-bar .replay-note { color: var(--muted); font-size: 12px; }
+
+/* ----------------------------------------------------------------- history */
+.history { background: var(--panel); border: 1px solid var(--line);
+  border-radius: 8px; overflow: hidden; }
+.history-note { padding: 28px 18px; color: var(--muted); text-align: center;
+  line-height: 1.5; }
+.history-note code { font-family: var(--mono); color: var(--ink); }
+.history table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.history th { text-align: left; font-weight: 600; color: var(--muted); font-size: 12px;
+  padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.history td { padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.history td.num, .history th.num { text-align: right; }
+.history tbody tr { cursor: pointer; }
+.history tbody tr:hover { background: var(--bg); }
+.history tbody tr[aria-selected="true"] { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.history-compare { padding: 12px 14px; border-top: 2px solid var(--accent); }
+.history-compare h3 { margin: 0 0 8px; font-size: 13px; }
+.delta-good { color: var(--completed); }
+.delta-bad { color: var(--failed); }
+.delta-flat { color: var(--muted); }

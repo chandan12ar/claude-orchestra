@@ -120,6 +120,19 @@ yours, and the header gains a cost figure. The file is re-read when it changes.
 - Set `ORCHESTRA_BUDGET` (in the price file's currency) to get a warning at 80 %
   of it and an alert when it is passed.
 
+## Run history (opt-in)
+
+Set `ORCHESTRA_HISTORY=on` to remember how past runs went and compare them
+(agents, failures, wall time, tokens, cost, loops) in the **History** tab.
+
+This is the one feature that keeps data after a session is gone, so it is off by
+default and stores the least that answers the question: **metrics only** —
+counts, durations, tokens, cost, and the project directory. No prompts, briefs,
+results, task descriptions, or file paths. It lives in
+`~/.local/share/workflow/history.sqlite` (Windows: `%LOCALAPPDATA%\workflow`),
+mode `0600`, is pruned after 90 days / 500 runs, and deleting that file erases
+it. A database problem never breaks the dashboard.
+
 ## Privacy
 
 Workflow is local, and does not control Claude Code: it only observes.
@@ -155,6 +168,10 @@ ignored in favour of the default.
 | `ORCHESTRA_BUDGET_WARN_RATIO` | 0.8 | Fraction of the budget at which warnings start |
 | `ORCHESTRA_LOOP_REPEATS` | 6 | An open agent whose last N tool calls are identical is flagged as a possible loop |
 | `ORCHESTRA_LOOP_CYCLE_CALLS` | 16 | ...or whose last N calls strictly alternate between two distinct calls |
+| `ORCHESTRA_HISTORY` | off | `on` records run metrics for the History tab |
+| `ORCHESTRA_HISTORY_DB` | `~/.local/share/workflow/history.sqlite` | Where history is kept |
+| `ORCHESTRA_HISTORY_DAYS` | 90 | Runs older than this are deleted |
+| `ORCHESTRA_HISTORY_MAX_RUNS` | 500 | Most runs kept |
 | `ORCHESTRA_STATE_DIR` | per-user dir in the OS temp dir | Where port files, logs and the event spool live |
 | `ORCHESTRA_EVENTS` | on | `off` stops the hooks recording anything |
 

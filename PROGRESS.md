@@ -26,7 +26,7 @@ feature; on failure record it here and stop. See `CLAUDE.md`.
 | 2.3.0 | FIX: token double-counting (per-entry vs per-message) | done (real transcript: old overcounted 2.6-3.1x) |
 | 2.3a | Cost + budget alert (incl. orchestrator tokens, per model) | done (verified in Chromium; hand-computed orchestrator cost matched) |
 | 2.3b | Runaway/loop detection | done (verified in Chromium: health box + drawer) |
-| 4.1 | Run history (sqlite3) | todo |
+| 4.1 | Run history (sqlite3, opt-in, metrics only) | done (verified in Chromium: table, compare, hostile names inert, off-by-default creates no file) |
 | 4.2 | Replay scrubber | done (live + static report verified in Chromium) |
 | 4.3 | Export JSON/CSV | done (verified: real browser downloads, CLI, scrubbing, CSV-injection guard) |
 
