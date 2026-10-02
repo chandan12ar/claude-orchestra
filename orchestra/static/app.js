@@ -1369,6 +1369,19 @@ function updateSoundButton() {
   btn.textContent = state.soundEnabled ? "Sound: on" : "Sound";
 }
 
+// Exports come from the server (one implementation of the format, the same
+// scrubbed data the dashboard shows), so a static report has nothing to call.
+function downloadExport(format) {
+  const session = state.sessionId ? "&session=" + encodeURIComponent(state.sessionId) : "";
+  const link = document.createElement("a");
+  link.href = "/api/export?format=" + encodeURIComponent(format) +
+    "&k=" + encodeURIComponent(TOKEN) + session;
+  link.download = "";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
 function setStoredSoundPref(enabled) {
   try {
     if (typeof localStorage !== "undefined") {
@@ -1764,6 +1777,14 @@ function init() {
     $("notify-toggle").hidden = true;
   }
   $("copy-summary").onclick = copySummary;
+  const exportSelect = $("export-select");
+  if (exportSelect && !state.offline) {
+    exportSelect.hidden = false;
+    exportSelect.onchange = () => {
+      if (exportSelect.value) downloadExport(exportSelect.value);
+      exportSelect.value = "";        // it is a menu, not a setting
+    };
+  }
   const soundBtn = $("sound-toggle");
   const hasAudio = typeof window !== "undefined" && (window.AudioContext || window.webkitAudioContext);
   if (soundBtn && !state.offline && hasAudio) {

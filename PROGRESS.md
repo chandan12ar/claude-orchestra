@@ -28,7 +28,7 @@ feature; on failure record it here and stop. See `CLAUDE.md`.
 | 2.3b | Runaway/loop detection | done (verified in Chromium: health box + drawer) |
 | 4.1 | Run history (sqlite3) | todo |
 | 4.2 | Replay scrubber | todo |
-| 4.3 | Export JSON/CSV | todo |
+| 4.3 | Export JSON/CSV | done (verified: real browser downloads, CLI, scrubbing, CSV-injection guard) |
 
 Deferred by owner decision: dashboard approve/deny; Gemini/Cursor adapters;
 plugin rename.
@@ -67,7 +67,7 @@ only run Linux; I had not checked CI between commits and should have.
    change via (mtime_ns, size); an edit of identical size inside one filesystem
    tick on Windows would be missed. Not worth hashing the file for.)
 Process fix: from now on CI is read after every push, before starting the next
-feature.
+feature. CONFIRMED FIXED: run 16 (b2c204c) green on all 9 test jobs incl. Windows.
 
 ### Commit-message defect (cannot be fixed without rewriting pushed history)
 Commit 27815da ("feat: cost and budget alerts...") shows `/bin/bash.189` and

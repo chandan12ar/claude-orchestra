@@ -140,6 +140,8 @@ def make_handler(service: OrchestraService, state: Dict[str, Any]):
                     self._json(200, service.agent_detail(agent_id, session))
                 elif path == "/api/sessions":
                     self._json(200, service.session_list(session))
+                elif path == "/api/export":
+                    self._export(session, query.get("format", ["csv"])[0])
                 elif path == "/api/fleet":
                     self._json(200, service.fleet())
                 elif path == "/api/stream":
@@ -148,6 +150,24 @@ def make_handler(service: OrchestraService, state: Dict[str, Any]):
                     self._error(404, "no such route")
             except NotFound as exc:
                 self._error(404, str(exc))
+
+        def _export(self, session: str, fmt: str) -> None:
+            result = service.export(fmt, session)
+            if result is None:
+                self._error(400, "format must be csv or json")
+                return
+            content_type, body, filename = result
+            data = body.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(data)))
+            # filename is built from alphanumerics, '-' and '_' only (export.filename).
+            self.send_header("Content-Disposition",
+                             'attachment; filename="{}"'.format(filename))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(data)
 
         def _stream(self, session: str) -> None:
             """Tell the browser *when* something changed; it fetches the data.

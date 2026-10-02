@@ -11,6 +11,10 @@ versions follow [SemVer](https://semver.org/) (the `version` in
   events) feed ground-truth state: what the session is waiting on (permission /
   input / idle / API error type), exact session end, exact subagent stop, and a
   new `waiting` agent status. `ORCHESTRA_EVENTS=off` disables recording.
+- Export: `Export` menu (CSV one-row-per-agent, JSON everything), `GET /api/export`,
+  and `python -m orchestra --export csv|json [--out PATH]`. CSV cells that a
+  spreadsheet would run as a formula are neutralised; output is the same scrubbed
+  data the dashboard shows.
 - Possible-loop detection: an agent that is still running and has repeated the
   same tool call (or strictly alternated between two) is listed as a *possible*
   loop with the evidence; thresholds configurable. Never a verdict.

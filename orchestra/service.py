@@ -8,6 +8,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from orchestra import constants as C
 from orchestra.build import RunBuilder
+from orchestra import export as export_mod
 from orchestra.events import EventSpool
 from orchestra.pricing import PriceSource
 from orchestra.locate import find_session, list_recent_sessions, list_sessions
@@ -165,6 +166,12 @@ class OrchestraService:
 
     def run_summary(self, session_id: str = "") -> Dict[str, Any]:
         return self._builder(session_id).refresh().to_summary_dict()
+
+    def export(self, fmt: str, session_id: str = ""):
+        """(content_type, body, filename) for csv/json, or None for an unknown format."""
+        if fmt not in export_mod.FORMATS:
+            return None
+        return export_mod.render(self.run_summary(session_id), fmt)
 
     def agent_detail(self, agent_id: str, session_id: str = "") -> Dict[str, Any]:
         run = self._builder(session_id).refresh()

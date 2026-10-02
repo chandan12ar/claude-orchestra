@@ -241,6 +241,30 @@ def cmd_report(args) -> int:
     return 0
 
 
+def cmd_export(args) -> int:
+    from orchestra import export as export_mod
+    from orchestra.build import RunBuilder
+    from orchestra.locate import find_session
+    from orchestra.pricing import PriceSource
+
+    session_id = _resolve_session(args)
+    paths = find_session(session_id)
+    if paths is None:
+        print("no transcript found for session: {}".format(session_id or "(none)"))
+        return 2
+    summary = RunBuilder(paths, spool=_make_spool(),
+                         prices=PriceSource()).refresh().to_summary_dict()
+    content_type, body, name = export_mod.render(summary, args.export)
+    target = args.out or os.path.join(args.cwd or os.getcwd(), name)
+    if os.path.isdir(target):
+        target = os.path.join(target, name)
+    # newline="" so the CSV's own \r\n is written as-is on every platform.
+    with open(target, "w", encoding="utf-8", newline="") as fh:
+        fh.write(body)
+    print(target)
+    return 0
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     if sys.version_info < MIN_PYTHON:
         print("orchestra needs Python {}.{} or newer; this is {}.{}".format(
@@ -259,6 +283,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--serve", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--stop", action="store_true")
     parser.add_argument("--report", nargs="?", const="", default=None)
+    parser.add_argument("--export", choices=("csv", "json"), default=None,
+                        help="write the run as CSV (one row per agent) or JSON")
+    parser.add_argument("--out", default="", help="file or directory for --export")
     args = parser.parse_args(argv)
 
     if args.serve:
@@ -267,6 +294,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         return cmd_stop(args)
     if args.report is not None:
         return cmd_report(args)
+    if args.export:
+        return cmd_export(args)
     return cmd_start(args)
 
 

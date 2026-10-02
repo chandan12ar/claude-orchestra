@@ -24,6 +24,12 @@ Requires Python 3.9 or newer. Nothing else — no pip install, no npm, no build.
 | `/workflow:open stop` | Shut the server down |
 | `/workflow:open report` | Write a self-contained HTML snapshot you can share |
 
+From a terminal, outside Claude Code:
+`python -m orchestra --session <id> --export csv|json [--out PATH]` writes the
+run as CSV (one row per agent) or JSON. The dashboard's **Export** menu does the
+same. Exports contain only what the dashboard shows (already redacted), and CSV
+cells a spreadsheet would execute as formulas are neutralised.
+
 ## What you get
 
 - **Timeline** — one row per agent: a status dot, a duration bar, parallel

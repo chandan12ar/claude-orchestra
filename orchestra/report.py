@@ -26,6 +26,7 @@ _SHELL = """<!doctype html>
     <button id="pill-toggle" type="button" aria-pressed="false" hidden>Pill</button>
     <button id="sound-toggle" type="button" aria-pressed="false" hidden>Sound</button>
     <button id="copy-summary" type="button">Copy summary</button>
+    <select id="export-select" aria-label="Export this run" hidden><option value="">Export…</option><option value="csv">CSV (agents)</option><option value="json">JSON (everything)</option></select>
     <!-- id is load-bearing: app.js sets $("conn").textContent inside poll(),
          before render(). Without it the whole page throws and stays blank. -->
     <span id="conn" class="conn">static report · session {session}</span>
