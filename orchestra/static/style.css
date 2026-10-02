@@ -11,6 +11,7 @@
   --failed: #e03131;
   --stalled: #e8950c;
   --orphaned: #868e96;
+  --waiting: #7950f2;
   --unknown: #adb5bd;
   /* Tool-call categories, distinct from the status palette above so a
      category swatch never reads as a status. Validated (dataviz skill's
@@ -73,6 +74,21 @@ button[aria-pressed="false"] { opacity: 0.55; }
   border: 1px solid var(--stalled); background: color-mix(in srgb, var(--stalled) 10%, transparent); }
 .health ul { margin: 6px 0 0; padding-left: 18px; }
 
+/* What the session is waiting on, from hook events. Louder than .health: this
+   is the one thing that blocks everything else until a person acts. */
+.attention { margin: 12px 16px; padding: 10px 12px; border-radius: 8px;
+  display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap;
+  border: 1px solid var(--waiting);
+  background: color-mix(in srgb, var(--waiting) 12%, transparent); }
+.attention[data-kind="error"] { border-color: var(--failed);
+  background: color-mix(in srgb, var(--failed) 10%, transparent); }
+.attention[data-kind="idle"], .attention[data-kind="ended"] {
+  border-color: var(--line); background: var(--panel); }
+.attention .att-title { font-weight: 600; }
+.attention .att-detail { color: var(--muted); overflow-wrap: anywhere; }
+.attention .att-since { color: var(--muted); font-variant-numeric: tabular-nums;
+  margin-left: auto; }
+
 .filter-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   margin: 0 16px; }
 
@@ -116,6 +132,7 @@ main { padding: 12px 16px 24px; }
 .s-failed    { fill: var(--failed);    color: var(--failed); }
 .s-stalled   { fill: var(--stalled);   color: var(--stalled); }
 .s-orphaned  { fill: var(--orphaned);  color: var(--orphaned); }
+.s-waiting   { fill: var(--waiting);   color: var(--waiting); }
 .s-unknown   { fill: var(--unknown);   color: var(--unknown); }
 
 /* A running agent needs to read as "actively happening," not just

@@ -37,6 +37,7 @@ const state = {
   // burst of notifications for history.
   notifyEnabled: false,
   notifySeeded: false,
+  knownAttention: "",   // kind@since of the last attention already announced
   knownFailedIds: new Set(),
   lastSessionLive: null,
   // agent_id -> { toolCount, tokenTotal } as of the last render, so the Work
@@ -214,7 +215,7 @@ function agentMatchesFilter(agent) {
 function renderFilterChips() {
   const box = $("filter-status");
   if (!box || !state.run) return;
-  const order = ["running", "completed", "failed", "stalled", "orphaned", "unknown"];
+  const order = ["running", "waiting", "completed", "failed", "stalled", "orphaned", "unknown"];
   const present = new Set(state.run.agents.map((a) => a.status));
   const statuses = order.filter((s) => present.has(s));
   box.innerHTML = statuses.map((s) =>
@@ -300,6 +301,16 @@ function checkNotifications(run) {
     }
   }
 
+  // A prompt that appears while the tab is open is exactly what a notification
+  // is for; one already pending at page load is shown by the banner instead.
+  const att = run.live && run.live.attention;
+  const attKey = att ? att.kind + "@" + att.since : "";
+  if (!seeding && state.notifyEnabled && att && attKey !== state.knownAttention &&
+      att.kind !== "idle") {
+    notify(attentionTitle(att), att.message || "");
+  }
+  state.knownAttention = attKey;
+
   state.knownFailedIds = currentlyFailed;
   state.lastSessionLive = run.session_live;
   state.notifySeeded = true;
@@ -321,9 +332,13 @@ function buildSummaryMarkdown(run) {
       fmtDuration(t.wall_time_s) + " wall",
   ];
 
-  const trouble = run.agents.filter((a) => ["stalled", "failed", "orphaned"].includes(a.status));
-  if (trouble.length) {
+  const trouble = run.agents.filter((a) =>
+    ["waiting", "stalled", "failed", "orphaned"].includes(a.status));
+  const att = run.live && run.live.attention;
+  if (trouble.length || att) {
     lines.push("", "### Needs attention");
+    if (att) lines.push("- " + attentionTitle(att).toUpperCase() +
+      (att.message ? " — " + att.message : ""));
     for (const agent of trouble) {
       lines.push("- " + agent.status.toUpperCase() + " — " + (agent.description || agent.agent_id));
     }
@@ -543,6 +558,7 @@ const AGENT_SPRITE_STATE = {
   completed: { row: 3, fps: 3 },
   failed: { row: 5, fps: 3 },
   stalled: { row: 6, fps: 4 },
+  waiting: { row: 6, fps: 3 },
   orphaned: { row: 0, fps: 2 },
   unknown: { row: 0, fps: 2 },
 };
@@ -827,6 +843,7 @@ function renderHeader(run) {
   const parts = [
     ["agents", t.agents],
     ["running", t.running],
+    ...(t.waiting ? [["waiting", t.waiting]] : []),
     ["done", t.completed],
     ["failed", t.failed + t.orphaned],
     ["tokens", fmtTokens(t.tokens)],
@@ -843,7 +860,7 @@ function renderHeader(run) {
 
 function renderHealth(run) {
   const trouble = run.agents.filter((a) =>
-    ["stalled", "failed", "orphaned"].includes(a.status));
+    ["waiting", "stalled", "failed", "orphaned"].includes(a.status));
   const box = $("health");
   if (!trouble.length) { box.hidden = true; return; }
   box.hidden = false;
@@ -858,6 +875,54 @@ function renderHealth(run) {
     list.appendChild(item);
   }
   box.appendChild(list);
+}
+
+function attentionTitle(att) {
+  if (att.kind === "permission") return "Waiting for your permission";
+  if (att.kind === "input") return "Waiting for your input";
+  if (att.kind === "idle") return "Idle — waiting for your next prompt";
+  if (att.kind === "error") {
+    return "API error" + (att.error_type ? ": " + att.error_type : "");
+  }
+  return att.kind;
+}
+
+// What the session is blocked on, straight from hook events. Built with
+// textContent, never innerHTML: the message is text from outside this page.
+function renderAttention(run) {
+  const box = $("attention");
+  if (!box) return;
+  const live = run.live;
+  let kind = "";
+  let title = "";
+  let detail = "";
+  let since = null;
+  if (live && live.attention) {
+    kind = live.attention.kind;
+    title = attentionTitle(live.attention);
+    detail = live.attention.message || "";
+    since = live.attention.since;
+  } else if (live && live.ended && !run.session_live) {
+    kind = "ended";
+    title = "Session ended" + (live.ended.reason ? " (" + live.ended.reason + ")" : "");
+    since = live.ended.at;
+  }
+  if (!kind) { box.hidden = true; return; }
+  box.hidden = false;
+  box.setAttribute("data-kind", kind);
+  box.setAttribute("role", kind === "permission" || kind === "error" ? "alert" : "status");
+  box.textContent = "";
+  const add = (cls, text) => {
+    const span = document.createElement("span");
+    span.className = cls;
+    span.textContent = text;
+    box.appendChild(span);
+  };
+  add("att-title", title);
+  if (detail) add("att-detail", detail);
+  if (since !== null && !state.offline) {
+    add("att-since", fmtDuration(Math.max(0, Date.now() / 1000 - since)) + " ago");
+  }
 }
 
 function renderDiagnostics(run) {
@@ -1015,6 +1080,7 @@ function setView(view) {
 function render() {
   if (!state.run) return;
   renderHeader(state.run);
+  renderAttention(state.run);
   renderHealth(state.run);
   renderConflicts(state.run);
   renderFilterChips();

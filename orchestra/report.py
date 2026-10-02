@@ -30,6 +30,7 @@ _SHELL = """<!doctype html>
   </div>
   <div id="totals" class="totals"></div>
 </header>
+<div id="attention" class="attention" hidden></div>
 <div id="health" class="health" hidden></div>
 <div id="conflicts" class="health" hidden></div>
 <div id="filter-bar" class="filter-bar">

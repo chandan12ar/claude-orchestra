@@ -17,7 +17,7 @@ feature; on failure record it here and stop. See `CLAUDE.md`.
 | 1.1 | Agent-neutral event schema + spool (`events.py`, `statedir.py`) | done (state dir now per-user + ownership-checked) |
 | 1.2 | Hook entrypoint + `hooks/hooks.json` | done |
 | 1.3a | Ground-truth states: backend (`livestate.py`, build + service wiring) | done |
-| 1.3b | Ground-truth states: UI (attention banner, `waiting` status) | todo |
+| 1.3b | Ground-truth states: UI (attention banner, `waiting` status) | done (verified in real Chromium, light+dark) |
 | 1.4 | Live push (SSE) | todo |
 | 1.5 | Fleet view / attention inbox | todo |
 | 2.1 | Pill (Picture-in-Picture) + tab badge | todo |
