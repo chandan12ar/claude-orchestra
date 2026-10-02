@@ -1,6 +1,6 @@
 # CLAUDE.md — working context for Workflow (repo: claude-orchestra)
 
-Read this first, then `PROGRESS.md` (what is done / what is next), then
+Read `RESUME.md` first (one-page session handoff), then `PROGRESS.md` (what is done / what is next), then
 `docs/ROADMAP.md` (why).
 
 ## What this project is
