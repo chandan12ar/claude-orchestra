@@ -11,6 +11,9 @@ versions follow [SemVer](https://semver.org/) (the `version` in
   events) feed ground-truth state: what the session is waiting on (permission /
   input / idle / API error type), exact session end, exact subagent stop, and a
   new `waiting` agent status. `ORCHESTRA_EVENTS=off` disables recording.
+- Sounds (off by default, synthesized with Web Audio, no audio files): a distinct
+  tone when Claude needs you, when something fails, and when everything finishes
+  cleanly - for the open session and for other sessions in the fleet.
 - Pill: a small always-on-top window (Document Picture-in-Picture, Chromium) showing
   what needs you across all sessions, plus a tab-title count and a favicon badge
   that work in every browser.

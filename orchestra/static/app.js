@@ -47,6 +47,11 @@ const state = {
   fleetAttention: {},    // session_id -> kind@since already announced
   fleetTimer: null,
   faviconKey: "",
+  soundEnabled: false,   // off by default; turning it on is the click autoplay needs
+  soundMemo: null,       // per-session baseline so history never makes noise
+  soundFleetMemo: null,
+  lastSoundAt: 0,
+  audio: null,
   pill: null,            // the open Picture-in-Picture window, if any
   stream: null,          // the open EventSource, if any
   streamLive: false,     // true only while that stream is connected
@@ -1134,11 +1139,139 @@ async function poll(generation) {
   state.backoff = state.streamLive ? STREAM_POLL_MS : POLL_MS;
   $("conn").textContent = run.session_live ? "" : "session ended";
   checkNotifications(run);
+  checkSounds(run);
   render();
   // Only actively poll agent detail while the tab showing it is open, so
   // watching Timeline/Graph never costs N extra per-agent fetches.
   if (state.view === "activity") refreshTicker(run);
   if (state.live) setTimeout(() => poll(generation), state.backoff);
+}
+
+// ------------------------------------------------------------------ sounds
+//
+// Synthesized with Web Audio: no audio files, so nothing to fetch (the no-egress
+// guarantee stands) and nothing to license. Off until the user clicks Sound,
+// which is also the user gesture browsers require before a page may make noise.
+//
+// Three sounds, by what a person should do about it:
+//   fail   something broke (API error, an agent failed)   -> look now
+//   alert  Claude is waiting on you                       -> act now
+//   done   everything that was running has finished       -> optional
+// At most one plays per update (the most important), and never twice in 1.5 s.
+
+const SOUND_PRIORITY = { fail: 3, alert: 2, done: 1 };
+const SOUND_NOTES = {            // [frequency Hz, start offset s]
+  alert: [[660, 0], [880, 0.14]],
+  fail: [[330, 0], [220, 0.18]],
+  done: [[523, 0], [659, 0.11], [784, 0.22]],
+};
+
+function topSound(names) {
+  let best = null;
+  for (const name of names) {
+    if (!best || SOUND_PRIORITY[name] > SOUND_PRIORITY[best]) best = name;
+  }
+  return best;
+}
+
+// What should sound, given this poll of the viewed session? `memo` is the
+// baseline from the previous poll; the first call only records it.
+function computeSounds(run, memo) {
+  const att = run.live && run.live.attention;
+  const attKey = att && att.kind !== "idle" ? att.kind + "@" + att.since : "";
+  const failed = new Set(run.agents
+    .filter((a) => a.status === "failed").map((a) => a.agent_id));
+  const running = run.totals ? run.totals.running + (run.totals.waiting || 0) : 0;
+  const out = [];
+  if (memo.seeded) {
+    if (attKey && attKey !== memo.attKey) out.push(att.kind === "error" ? "fail" : "alert");
+    for (const id of failed) if (!memo.failed.has(id)) out.push("fail");
+    if (memo.running > 0 && running === 0 && failed.size === 0) out.push("done");
+  }
+  memo.seeded = true;
+  memo.attKey = attKey;
+  memo.failed = failed;
+  memo.running = running;
+  return out;
+}
+
+// Other sessions: a prompt or error in one you are not looking at.
+function computeFleetSounds(fleet, viewing, memo) {
+  const next = {};
+  const out = [];
+  for (const s of fleet.sessions) {
+    const att = s.attention && s.session_live && s.urgency > 0 ? s.attention : null;
+    if (!att) continue;
+    const key = att.kind + "@" + att.since;
+    next[s.session_id] = key;
+    if (memo.seeded && s.session_id !== viewing && memo.keys[s.session_id] !== key) {
+      out.push(att.kind === "error" ? "fail" : "alert");
+    }
+  }
+  memo.seeded = true;
+  memo.keys = next;
+  return out;
+}
+
+function audioContext() {
+  if (state.audio) return state.audio;
+  const Ctor = typeof window !== "undefined" && (window.AudioContext || window.webkitAudioContext);
+  if (!Ctor) return null;
+  try { state.audio = new Ctor(); } catch (err) { return null; }
+  return state.audio;
+}
+
+function playSound(name) {
+  const ctx = state.soundEnabled ? audioContext() : null;
+  const notes = SOUND_NOTES[name];
+  if (!ctx || !notes) return;
+  const now = Date.now();
+  if (now - state.lastSoundAt < 1500) return;
+  state.lastSoundAt = now;
+  if (ctx.state === "suspended" && typeof ctx.resume === "function") ctx.resume();
+  for (const [freq, offset] of notes) {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const t = ctx.currentTime + offset;
+    osc.type = "sine";
+    osc.frequency.value = freq;
+    // A short attack and release: a bare square edge clicks.
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.12, t + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(t);
+    osc.stop(t + 0.25);
+  }
+}
+
+function checkSounds(run) {
+  if (!state.soundMemo) state.soundMemo = { seeded: false, attKey: "", failed: new Set(), running: 0 };
+  const names = computeSounds(run, state.soundMemo);
+  if (state.soundEnabled && names.length) playSound(topSound(names));
+}
+
+function checkFleetSounds(fleet) {
+  if (!state.soundFleetMemo) state.soundFleetMemo = { seeded: false, keys: {} };
+  const viewing = state.run && state.run.session_id;
+  const names = computeFleetSounds(fleet, viewing, state.soundFleetMemo);
+  if (state.soundEnabled && names.length) playSound(topSound(names));
+}
+
+function updateSoundButton() {
+  const btn = $("sound-toggle");
+  if (!btn) return;
+  btn.setAttribute("aria-pressed", String(state.soundEnabled));
+  btn.textContent = state.soundEnabled ? "Sound: on" : "Sound";
+}
+
+function setStoredSoundPref(enabled) {
+  try {
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem("orchestra-sound", enabled ? "1" : "0");
+    }
+  } catch (err) { /* blocked storage; not worth failing over */ }
 }
 
 // ------------------------------------------------------- pill + tab chrome
@@ -1399,6 +1532,7 @@ async function pollFleet() {
     const data = await api("/api/fleet");
     state.fleet = data;
     checkFleetNotifications(data);
+    checkFleetSounds(data);
     renderFleetBadge();
     updateChrome();
     if (state.view === "fleet") renderFleet();
@@ -1429,6 +1563,7 @@ function switchSession(sessionId) {
   state.notifySeeded = false;
   state.knownFailedIds = new Set();
   state.knownAttention = "";
+  state.soundMemo = null;           // reseed: another session's history is silent
   state.lastSessionLive = null;
   // A different session's agents are all pre-existing history — reseed so
   // switching sessions doesn't read as a burst of simultaneous activity.
@@ -1524,6 +1659,31 @@ function init() {
     $("notify-toggle").hidden = true;
   }
   $("copy-summary").onclick = copySummary;
+  const soundBtn = $("sound-toggle");
+  const hasAudio = typeof window !== "undefined" && (window.AudioContext || window.webkitAudioContext);
+  if (soundBtn && !state.offline && hasAudio) {
+    let stored = "0";
+    try {
+      if (typeof localStorage !== "undefined") stored = localStorage.getItem("orchestra-sound") || "0";
+    } catch (err) { /* off */ }
+    soundBtn.hidden = false;
+    // A remembered "on" still needs a fresh click before the browser lets this
+    // page make noise, so the first click after a reload re-arms it.
+    state.soundEnabled = stored === "1";
+    updateSoundButton();
+    // Browsers keep an audio context silent until a gesture; the first click
+    // anywhere on the page re-arms it, so a remembered "on" works after reload.
+    document.addEventListener("click", () => {
+      const ctx = state.soundEnabled ? audioContext() : null;
+      if (ctx && ctx.state === "suspended" && typeof ctx.resume === "function") ctx.resume();
+    }, { once: true });
+    soundBtn.onclick = () => {
+      state.soundEnabled = !state.soundEnabled;
+      setStoredSoundPref(state.soundEnabled);
+      updateSoundButton();
+      if (state.soundEnabled) { state.lastSoundAt = 0; playSound("done"); }  // hear what you turned on
+    };
+  }
   // Only where the browser can do it (Chromium); a static report has no use.
   const pillBtn = $("pill-toggle");
   if (pillBtn && !state.offline && typeof window.documentPictureInPicture !== "undefined") {

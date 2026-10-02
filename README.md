@@ -63,6 +63,9 @@ Requires Python 3.9 or newer. Nothing else — no pip install, no npm, no build.
 - **Pill** — a small always-on-top window (Chrome/Edge: click *Pill*) showing
   what needs you across all sessions, with a dot per agent. Every browser also
   gets a `(2) Workflow` tab title and a colored, counted favicon.
+- **Sounds** — optional (click *Sound*). Three synthesized tones: needs you,
+  something failed, all done. History never makes noise; at most one sound per
+  update. No audio files, so nothing is fetched.
 - **Live** — updates arrive the moment a transcript or hook event changes
   (Server-Sent Events), not on a timer; polling is only a safety net.
 - **Attention banner** — what the session is blocked on right now: a permission
