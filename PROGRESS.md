@@ -23,7 +23,9 @@ feature; on failure record it here and stop. See `CLAUDE.md`.
 | 1.5b | Fleet UI (tab, badge, cross-session notifications) | done (verified in Chromium; fixed an empty-bar bug via global [hidden] rule) |
 | 2.1 | Pill (Picture-in-Picture) + tab badge | done (title, favicon, and PiP window verified in real Chromium; PiP is Chromium-only, button hidden elsewhere) |
 | 2.2 | Synthesized sounds | done (verified in Chromium: off=0 oscillators, chime=3, alert=2). Not built yet: per-event mute, quiet hours (client-only follow-up) |
-| 2.3 | Cost, budget alert, runaway detection | todo |
+| 2.3.0 | FIX: token double-counting (per-entry vs per-message) | done (real transcript: old overcounted 2.6-3.1x) |
+| 2.3a | Cost + budget alert (incl. orchestrator tokens, per model) | todo |
+| 2.3b | Runaway/loop detection | todo |
 | 4.1 | Run history (sqlite3) | todo |
 | 4.2 | Replay scrubber | todo |
 | 4.3 | Export JSON/CSV | todo |

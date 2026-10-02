@@ -1,6 +1,7 @@
 import unittest
 
-from orchestra.agentlog import AgentDigest
+from orchestra.agentlog import AgentDigest, TokenTally
+from tests.fixtures import ts
 
 TS = "2026-09-09T05:00:00.000Z"
 TS_LATER = "2026-09-09T05:05:00.000Z"
@@ -143,3 +144,115 @@ class TestActivityAndFinalText(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestUsageIsCountedOncePerApiMessage(unittest.TestCase):
+    """Claude Code writes one entry per content block, each repeating the
+    message's usage. A real session had 271 such entries for 103 messages."""
+
+    def entry(self, mid, block, usage, model="claude-sonnet-5", at=1):
+        message = {"role": "assistant", "id": mid, "model": model,
+                   "content": [block], "usage": usage}
+        return {"isSidechain": True, "timestamp": ts(at), "type": "assistant",
+                "message": message}
+
+    USAGE = {"input_tokens": 2, "output_tokens": 295,
+             "cache_read_input_tokens": 1000, "cache_creation_input_tokens": 50}
+
+    def blocks(self):
+        return [{"type": "thinking", "thinking": "hm"},
+                {"type": "text", "text": "ok"},
+                {"type": "tool_use", "id": "t1", "name": "Read",
+                 "input": {"file_path": "a.py"}},
+                {"type": "tool_use", "id": "t2", "name": "Read",
+                 "input": {"file_path": "b.py"}}]
+
+    def test_four_blocks_of_one_message_count_once(self):
+        d = AgentDigest()
+        d.ingest([self.entry("msg_1", b, self.USAGE) for b in self.blocks()])
+        self.assertEqual(d.tokens, {"input": 2, "output": 295,
+                                    "cache_read": 1000, "cache_create": 50})
+
+    def test_distinct_messages_still_add_up(self):
+        d = AgentDigest()
+        d.ingest([self.entry("msg_1", self.blocks()[0], self.USAGE),
+                  self.entry("msg_2", self.blocks()[0], self.USAGE)])
+        self.assertEqual(d.tokens["output"], 590)
+
+    def test_when_a_message_recurs_with_grown_usage_the_latest_wins(self):
+        d = AgentDigest()
+        early = dict(self.USAGE, output_tokens=10)
+        d.ingest([self.entry("msg_1", self.blocks()[0], early),
+                  self.entry("msg_1", self.blocks()[1], self.USAGE)])
+        self.assertEqual(d.tokens["output"], 295)
+
+    def test_dedup_survives_being_split_across_incremental_reads(self):
+        d = AgentDigest()
+        d.ingest([self.entry("msg_1", self.blocks()[0], self.USAGE)])
+        d.ingest([self.entry("msg_1", self.blocks()[1], self.USAGE),
+                  self.entry("msg_1", self.blocks()[2], self.USAGE)])
+        self.assertEqual(d.tokens["output"], 295)
+
+    def test_entries_without_an_id_are_each_counted_as_before(self):
+        d = AgentDigest()
+        for _ in range(3):
+            e = self.entry("x", self.blocks()[0], self.USAGE)
+            del e["message"]["id"]
+            d.ingest([e])
+        self.assertEqual(d.tokens["output"], 885)
+
+    def test_tokens_are_attributed_per_model(self):
+        d = AgentDigest()
+        d.ingest([self.entry("msg_1", self.blocks()[0], self.USAGE, model="claude-opus-5"),
+                  self.entry("msg_2", self.blocks()[0], self.USAGE, model="claude-haiku-4-5")])
+        self.assertEqual(set(d.tokens_by_model), {"claude-opus-5", "claude-haiku-4-5"})
+        self.assertEqual(d.tokens_by_model["claude-opus-5"]["output"], 295)
+
+    def test_a_synthetic_message_is_attributed_to_the_last_real_model(self):
+        d = AgentDigest()
+        d.ingest([self.entry("msg_1", self.blocks()[0], self.USAGE, model="claude-opus-5"),
+                  self.entry("msg_2", self.blocks()[0], self.USAGE, model="<synthetic>")])
+        self.assertEqual(list(d.tokens_by_model), ["claude-opus-5"])
+        self.assertEqual(d.tokens_by_model["claude-opus-5"]["output"], 590)
+
+    def test_per_model_totals_always_sum_to_the_overall_total(self):
+        d = AgentDigest()
+        d.ingest([self.entry("m1", self.blocks()[0], self.USAGE, model="a"),
+                  self.entry("m1", self.blocks()[1], self.USAGE, model="a"),
+                  self.entry("m2", self.blocks()[0], self.USAGE, model="b")])
+        for label, total in d.tokens.items():
+            self.assertEqual(sum(m.get(label, 0) for m in d.tokens_by_model.values()), total)
+
+    def test_tool_calls_are_still_recorded_per_block(self):
+        d = AgentDigest()
+        d.ingest([self.entry("msg_1", b, self.USAGE) for b in self.blocks()])
+        self.assertEqual([c.target for c in d.tool_calls], ["a.py", "b.py"])
+
+
+class TestTokenTally(unittest.TestCase):
+    def test_counts_the_orchestrators_messages_once_each(self):
+        t = TokenTally()
+        usage = {"input_tokens": 1, "output_tokens": 100}
+        entries = [{"type": "assistant", "message": {
+            "id": "m1", "model": "claude-opus-5", "usage": usage, "content": []}}
+            for _ in range(4)]
+        t.ingest(entries)
+        self.assertEqual(t.tokens, {"input": 1, "output": 100})
+        self.assertEqual(t.model, "claude-opus-5")
+
+    def test_sidechain_entries_are_not_the_orchestrators(self):
+        t = TokenTally()
+        t.ingest([{"isSidechain": True, "message": {
+            "id": "m1", "usage": {"output_tokens": 999}}}])
+        self.assertEqual(t.tokens, {})
+
+    def test_junk_entries_are_ignored(self):
+        t = TokenTally()
+        t.ingest([None, "x", {}, {"message": "nope"}, {"message": {"usage": 3}}])
+        self.assertEqual(t.tokens, {})
+
+    def test_reset_forgets_everything(self):
+        t = TokenTally()
+        t.ingest([{"message": {"id": "m", "usage": {"output_tokens": 5}}}])
+        t.reset()
+        self.assertEqual((t.tokens, t.by_model, t.model), ({}, {}, ""))

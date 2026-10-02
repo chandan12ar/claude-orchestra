@@ -31,6 +31,9 @@ versions follow [SemVer](https://semver.org/) (the `version` in
 - Session builders are held in a bounded LRU (default 8) instead of forever.
 
 ### Fixed
+- **Token counts were inflated 2.6-3.1x on real transcripts.** Claude Code writes
+  one entry per content block, each repeating the message's usage; usage is now
+  counted once per API message id (and tracked per model).
 - `/workflow:open report` wrote into the plugin directory; it now writes into
   the project.
 - A leaked log file handle in `cmd_start`.

@@ -266,6 +266,15 @@ last entry was a tool call with no matching result, which the status state
 machine (below) uses to tell "process died while doing something" apart from
 "process just went away."
 
+**Usage is counted once per API message, not once per entry.** Claude Code
+writes one transcript entry per content block (thinking, text, each tool call)
+and every entry repeats the whole message's usage — in a real session, 271
+assistant entries carried usage for 103 distinct messages, and summing per
+entry overstated every token count by 2.6-3.1x. `apply_usage` keys on
+`message.id`: a recurring id replaces its earlier usage instead of adding to it;
+entries with no id (older formats) are still counted individually. Tokens are
+also kept per model (`tokens_by_model`), because a session can switch models.
+
 It also records `model` — the real, versioned model the agent's own
 transcript reports (`"claude-sonnet-5"`), which is the ground truth over the
 short alias requested at spawn time (`"sonnet"`, carried in `meta.json`);
