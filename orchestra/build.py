@@ -12,7 +12,7 @@ from typing import Callable, Dict, List, Optional
 
 from orchestra import constants as C
 from orchestra.agentlog import AgentDigest
-from orchestra.edges import infer_edges
+from orchestra.edges import HandoffCache, infer_edges
 from orchestra.extract import extract_expected_output, extract_objective
 from orchestra.locate import SessionPaths
 from orchestra.model import Agent, Batch, Run
@@ -38,6 +38,7 @@ class RunBuilder:
         self._parent = ParentIndex()
         self._digests: Dict[str, AgentDigest] = {}
         self._metas: Dict[str, dict] = {}
+        self._handoffs = HandoffCache()
 
     def refresh(self) -> Run:
         with self._lock:
@@ -54,7 +55,7 @@ class RunBuilder:
         agents = [a for a in agents if a is not None]
         agents.sort(key=lambda a: (a.started_at is None, a.started_at or 0))
 
-        edges, hubs, conflicts = infer_edges(agents)
+        edges, hubs, conflicts = infer_edges(agents, self._handoffs)
         starts = [a.started_at for a in agents if a.started_at is not None]
         ends = [a.ended_at for a in agents if a.ended_at is not None]
 

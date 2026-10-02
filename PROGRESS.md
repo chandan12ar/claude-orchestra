@@ -8,7 +8,7 @@ feature; on failure record it here and stop. See `CLAUDE.md`.
 | # | Item | State |
 |---|---|---|
 | 0.0 | CLAUDE.md + PROGRESS.md | done |
-| 0.1 | Cache handoff-edge inference (perf) | todo |
+| 0.1 | Cache handoff-edge inference (perf) | done (96 agents: 5.2s -> 0.22s cold, 0.024s warm; results proven identical to old algorithm) |
 | 0.2 | Evict idle session builders | todo |
 | 0.3 | `report` writes to project, not plugin dir; wire/remove `--cwd` | todo |
 | 0.4 | Configurable thresholds (env vars + plugin userConfig) | todo |

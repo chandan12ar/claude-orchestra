@@ -214,3 +214,99 @@ class TestHandoffEdges(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _reference_handoffs(agents):
+    """The pre-optimization algorithm, kept verbatim as the oracle."""
+    import difflib
+    from orchestra.edges import _WORD, _shingles
+    out = {}
+    for src in agents:
+        if not src.result or src.ended_at is None:
+            continue
+        src_words = _WORD.findall(src.result.lower())
+        src_sh = _shingles(src_words, C.SHINGLE_SIZE)
+        if not src_sh:
+            continue
+        for dst in agents:
+            if dst.agent_id == src.agent_id or not dst.brief:
+                continue
+            if dst.started_at is None or dst.started_at < src.ended_at:
+                continue
+            dst_words = _WORD.findall(dst.brief.lower())
+            overlap = src_sh & _shingles(dst_words, C.SHINGLE_SIZE)
+            score = len(overlap) / float(len(src_sh))
+            m = difflib.SequenceMatcher(None, src_words, dst_words, autojunk=False)
+            match = m.find_longest_match(0, len(src_words), 0, len(dst_words))
+            if score < C.HANDOFF_CONTAINMENT and match.size < C.HANDOFF_RUN_WORDS:
+                continue
+            out[(src.agent_id, dst.agent_id)] = (
+                round(score, 3), match.size,
+                " ".join(src_words[match.a:match.a + match.size])[:400])
+    return out
+
+
+class TestHandoffCache(unittest.TestCase):
+    def _agents(self, n, seed=7):
+        import random
+        rng = random.Random(seed)
+        vocab = ["w%d" % i for i in range(60)]
+        shared = " ".join(rng.choice(vocab) for _ in range(120))
+        agents = []
+        for i in range(n):
+            tail = " ".join(rng.choice(vocab) for _ in range(rng.randint(10, 150)))
+            # Mix of: shares a long run, shares scattered words, shares nothing.
+            kind = i % 3
+            result = shared[: rng.randint(40, len(shared))] + " " + tail
+            if kind == 0:
+                brief = "intro " + shared + " " + tail
+            elif kind == 1:
+                brief = " ".join(rng.choice(vocab) for _ in range(200))
+            else:
+                brief = "totally different text " + str(i)
+            agents.append(agent("a%d" % i, i * 10, i * 10 + 5,
+                                result=result, brief=brief))
+        return agents
+
+    def test_matches_the_unoptimized_algorithm_exactly(self):
+        for seed in (1, 2, 3):
+            agents = self._agents(24, seed)
+            expected = _reference_handoffs(agents)
+            from orchestra.edges import _handoff_edges
+            got = {(e.src, e.dst): (e.evidence["score"], e.evidence["run_words"],
+                                    e.evidence["snippet"])
+                   for e in _handoff_edges(agents)}
+            self.assertEqual(got, expected)
+
+    def test_an_unchanged_poll_scores_no_pair_twice(self):
+        from unittest import mock
+        from orchestra import edges
+        from orchestra.edges import HandoffCache
+        agents = self._agents(20)
+        cache = HandoffCache()
+        edges.infer_edges(agents, cache)
+        with mock.patch.object(edges, "_longest_run",
+                               side_effect=AssertionError("rescored")):
+            first, _, _ = edges.infer_edges(agents, cache)
+            second, _, _ = edges.infer_edges(agents, cache)
+        self.assertEqual([e.to_dict() for e in first],
+                         [e.to_dict() for e in second])
+
+    def test_cache_drops_entries_for_texts_no_longer_present(self):
+        from orchestra import edges
+        from orchestra.edges import HandoffCache
+        cache = HandoffCache()
+        edges.infer_edges(self._agents(12), cache)
+        before = len(cache._pairs)
+        edges.infer_edges(self._agents(3), cache)
+        self.assertGreater(before, len(cache._pairs))
+
+    def test_long_orchestration_is_fast_enough_to_poll(self):
+        import time
+        from orchestra import edges
+        agents = self._agents(96)
+        cache = edges.HandoffCache()
+        edges.infer_edges(agents, cache)          # cold
+        start = time.time()
+        edges.infer_edges(agents, cache)          # warm: every 2s poll
+        self.assertLess(time.time() - start, 0.5)

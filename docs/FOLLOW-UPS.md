@@ -74,6 +74,12 @@ is visible rather than forgotten. Ranked roughly by value.
 
 ## Resolved
 
+- **Handoff-edge inference cost (#2).** `HandoffCache` in `edges.py` keys scores
+  by text content so unchanged pairs are never rescored across polls, and a
+  provably exact prefilter skips `SequenceMatcher` when too few 8-word shingles
+  are shared for a 40-word run to exist. 96 agents: 5.2s -> 0.22s cold, 0.024s
+  warm. `TestHandoffCache` checks results against the old algorithm.
+
 - **`AgentDigest`'s docstring claim.** Was false: "safe to ingest repeatedly"
   didn't hold, because `transcript.py` resetting its offset to 0 on a
   truncated/replaced file left `build.py`'s accumulated per-agent digest in

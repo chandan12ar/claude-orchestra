@@ -6,6 +6,7 @@ dismiss it.
 """
 
 import difflib
+import hashlib
 import os
 import re
 from typing import Dict, List, Optional, Set, Tuple
@@ -113,36 +114,106 @@ def _longest_run(src_words: List[str], dst_words: List[str]) -> Tuple[int, str]:
     return match.size, snippet
 
 
-def _handoff_edges(agents: List[Agent]) -> List[Edge]:
+def _digest(text: str) -> bytes:
+    return hashlib.blake2b(text.encode("utf-8", "replace"), digest_size=16).digest()
+
+
+class HandoffCache:
+    """Remembers handoff scores between polls.
+
+    infer_edges runs on every 2-second poll over every agent pair, but a
+    finished agent's result and a launched agent's brief never change. Scores
+    are keyed by the *content* of the two texts, so an unchanged pair is never
+    scored twice. Each call keeps only the entries it used, so the cache
+    cannot grow past the current run.
+    """
+
+    def __init__(self) -> None:
+        self._texts: Dict[bytes, Tuple[List[str], Set[Tuple[str, ...]]]] = {}
+        self._pairs: Dict[Tuple[bytes, bytes], Optional[Tuple[float, int, str]]] = {}
+        self._used_texts: Dict[bytes, Tuple[List[str], Set[Tuple[str, ...]]]] = {}
+        self._used_pairs: Dict[Tuple[bytes, bytes], Optional[Tuple[float, int, str]]] = {}
+
+    def begin(self) -> None:
+        self._used_texts = {}
+        self._used_pairs = {}
+
+    def end(self) -> None:
+        self._texts = self._used_texts
+        self._pairs = self._used_pairs
+
+    def text(self, key: bytes, raw: str) -> Tuple[List[str], Set[Tuple[str, ...]]]:
+        found = self._texts.get(key) or self._used_texts.get(key)
+        if found is None:
+            words = _WORD.findall(raw.lower())
+            found = (words, _shingles(words, C.SHINGLE_SIZE))
+        self._used_texts[key] = found
+        return found
+
+    def pair(self, src_key: bytes, dst_key: bytes, src_raw: str, dst_raw: str
+             ) -> Optional[Tuple[float, int, str]]:
+        """(score, run_words, snippet) when the pair is a handoff, else None."""
+        key = (src_key, dst_key)
+        if key in self._pairs:
+            result = self._pairs[key]
+        elif key in self._used_pairs:
+            result = self._used_pairs[key]
+        else:
+            result = self._score(src_key, dst_key, src_raw, dst_raw)
+        self._used_pairs[key] = result
+        return result
+
+    def _score(self, src_key: bytes, dst_key: bytes, src_raw: str, dst_raw: str
+               ) -> Optional[Tuple[float, int, str]]:
+        src_words, src_shingles = self.text(src_key, src_raw)
+        dst_words, dst_shingles = self.text(dst_key, dst_raw)
+        if not src_shingles:
+            return None
+        overlap = len(src_shingles & dst_shingles)
+        score = overlap / float(len(src_shingles))
+        # A shared run of N words contains exactly N - SHINGLE_SIZE + 1 shared
+        # shingles, so fewer shared shingles than that bound proves the run
+        # test cannot pass. SequenceMatcher is the expensive part; skip it
+        # whenever the answer is already decided without changing any result.
+        min_shingles_for_run = C.HANDOFF_RUN_WORDS - C.SHINGLE_SIZE + 1
+        if score < C.HANDOFF_CONTAINMENT and overlap < min_shingles_for_run:
+            return None
+        run, snippet = _longest_run(src_words, dst_words)
+        if score < C.HANDOFF_CONTAINMENT and run < C.HANDOFF_RUN_WORDS:
+            return None
+        return score, run, snippet
+
+
+def _handoff_edges(agents: List[Agent],
+                   cache: Optional[HandoffCache] = None) -> List[Edge]:
+    cache = cache or HandoffCache()
+    cache.begin()
     edges = []
     for src in agents:
         if not src.result or src.ended_at is None:
             continue
-        src_words = _WORD.findall(src.result.lower())
-        src_shingles = _shingles(src_words, C.SHINGLE_SIZE)
-        if not src_shingles:
-            continue
+        src_key = _digest(src.result)
         for dst in agents:
             if dst.agent_id == src.agent_id or not dst.brief:
                 continue
             if dst.started_at is None or dst.started_at < src.ended_at:
                 continue
-            dst_words = _WORD.findall(dst.brief.lower())
-            overlap = src_shingles & _shingles(dst_words, C.SHINGLE_SIZE)
-            score = len(overlap) / float(len(src_shingles))
-            run, snippet = _longest_run(src_words, dst_words)
-            if score < C.HANDOFF_CONTAINMENT and run < C.HANDOFF_RUN_WORDS:
+            scored = cache.pair(src_key, _digest(dst.brief), src.result, dst.brief)
+            if scored is None:
                 continue
+            score, run, snippet = scored
             edges.append(Edge(src=src.agent_id, dst=dst.agent_id, kind="handoff",
                               confidence="inferred",
                               evidence={"score": round(score, 3),
                                         "run_words": run,
                                         "snippet": snippet[:400]}))
+    cache.end()
     return edges
 
 
 def infer_edges(
     agents: List[Agent],
+    cache: Optional[HandoffCache] = None,
 ) -> Tuple[List[Edge], List[HubFile], List[WriteConflict]]:
     """All four kinds, deduplicated. Handoff folds into an exact edge if one exists."""
     edges = _spawn_edges(agents)
@@ -164,7 +235,7 @@ def infer_edges(
         if e.kind in ("artifact", "message"):
             exact_pairs.setdefault((e.src, e.dst), []).append(e)
 
-    for edge in _handoff_edges(agents):
+    for edge in _handoff_edges(agents, cache):
         existing = exact_pairs.get((edge.src, edge.dst))
         if existing:
             for e in existing:
