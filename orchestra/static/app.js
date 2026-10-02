@@ -2351,10 +2351,14 @@ function showEvidence(edge) {
 
 // ---------------------------------------------------------------- drawer
 
+// Safe in text AND in a quoted attribute. Serializing a DOM text node escapes
+// < > & but not quotes, so a value containing " would end an attribute early
+// (data-agent="..."), which is how markup gets injected. Ids and paths come from
+// file names and transcripts, i.e. from outside this page.
 function esc(text) {
   const div = document.createElement("div");
   div.textContent = text === null || text === undefined ? "" : String(text);
-  return div.innerHTML;
+  return div.innerHTML.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
 // Deep-linkable: #agent=<id> is set while the drawer is open (replaceState,
