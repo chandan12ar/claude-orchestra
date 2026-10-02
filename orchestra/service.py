@@ -65,6 +65,41 @@ class OrchestraService:
             if victim != self.default_session:
                 del self._builders[victim]
 
+    def change_token(self, session_id: str = "") -> str:
+        """A cheap fingerprint that changes whenever this session's inputs do.
+
+        Only stats files (no reads, no parsing): the live-push stream calls it
+        a few times a second. It covers the main transcript, every subagent
+        transcript and meta file, and the event spool for the session.
+        """
+        session_id = session_id or self.default_session
+        paths = find_session(session_id, root=self.root)
+        if paths is None:
+            raise NotFound("unknown session: {}".format(session_id))
+        parts: List[str] = []
+
+        def note(path: str) -> None:
+            try:
+                info = os.stat(path)
+            except OSError:
+                return
+            parts.append("{}:{}:{}".format(os.path.basename(path), info.st_size,
+                                           info.st_mtime_ns))
+
+        note(paths.session_jsonl)
+        try:
+            names = sorted(os.listdir(paths.subagents_dir))
+        except OSError:
+            names = []
+        for name in names:
+            if name.startswith("agent-"):
+                note(os.path.join(paths.subagents_dir, name))
+        if self.spool_factory is not None:
+            spool = self.spool_factory()
+            if spool is not None:
+                note(spool.path_for(session_id))
+        return "|".join(parts)
+
     def run_summary(self, session_id: str = "") -> Dict[str, Any]:
         return self._builder(session_id).refresh().to_summary_dict()
 

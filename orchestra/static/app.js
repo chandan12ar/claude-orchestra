@@ -2,6 +2,10 @@
 
 const TOKEN = new URLSearchParams(location.search).get("k") || "";
 const POLL_MS = 2000;
+// While the push stream is healthy, polling is only a safety net (it also
+// catches time-based changes no file write announces, like a stall threshold).
+const STREAM_POLL_MS = 15000;
+const STREAM_DEBOUNCE_MS = 300;
 
 const state = {
   run: null,
@@ -37,6 +41,9 @@ const state = {
   // burst of notifications for history.
   notifyEnabled: false,
   notifySeeded: false,
+  stream: null,          // the open EventSource, if any
+  streamLive: false,     // true only while that stream is connected
+  refreshTimer: null,    // pending debounced refresh after a push
   knownAttention: "",   // kind@since of the last attention already announced
   knownFailedIds: new Set(),
   lastSessionLive: null,
@@ -1098,6 +1105,8 @@ function startPolling() {
 }
 
 async function poll(generation) {
+  // A timer scheduled by a loop that has since been superseded must not fetch.
+  if (generation !== state.generation) return;
   let run = null;
   try {
     run = await api("/api/run");
@@ -1112,7 +1121,7 @@ async function poll(generation) {
   // superseded, must not overwrite the current view.
   if (generation !== state.generation) return;
   state.run = run;
-  state.backoff = POLL_MS;
+  state.backoff = state.streamLive ? STREAM_POLL_MS : POLL_MS;
   $("conn").textContent = run.session_live ? "" : "session ended";
   checkNotifications(run);
   render();
@@ -1120,6 +1129,41 @@ async function poll(generation) {
   // watching Timeline/Graph never costs N extra per-agent fetches.
   if (state.view === "activity") refreshTicker(run);
   if (state.live) setTimeout(() => poll(generation), state.backoff);
+}
+
+// Live push. The server only says *that* something changed; the data still
+// comes from /api/run, so there is one place anything is redacted. Without
+// EventSource, or if the stream drops, the 2-second poll simply carries on.
+function stopStream() {
+  if (state.stream) { state.stream.close(); state.stream = null; }
+  state.streamLive = false;
+}
+
+function scheduleRefresh() {
+  if (!state.live || state.refreshTimer) return;
+  state.refreshTimer = setTimeout(() => {
+    state.refreshTimer = null;
+    if (state.live) startPolling();
+  }, STREAM_DEBOUNCE_MS);
+}
+
+function startStream() {
+  stopStream();
+  if (state.offline || typeof EventSource === "undefined") return;
+  const session = state.sessionId ? "&session=" + encodeURIComponent(state.sessionId) : "";
+  let source;
+  try {
+    source = new EventSource("/api/stream?k=" + encodeURIComponent(TOKEN) + session);
+  } catch (err) { return; }
+  state.stream = source;
+  source.addEventListener("hello", () => { state.streamLive = true; });
+  source.addEventListener("tick", scheduleRefresh);
+  source.onerror = () => {
+    // EventSource retries by itself; meanwhile go back to fast polling.
+    const wasLive = state.streamLive;
+    state.streamLive = false;
+    if (wasLive) scheduleRefresh();
+  };
 }
 
 async function loadSessions() {
@@ -1144,7 +1188,8 @@ function init() {
     state.live = !state.live;
     event.target.setAttribute("aria-pressed", String(state.live));
     event.target.textContent = state.live ? "Live" : "Paused";
-    if (state.live) startPolling();
+    if (state.live) { startPolling(); startStream(); }
+    else stopStream();
   };
   $("session-picker").onchange = (event) => {
     state.sessionId = event.target.value;
@@ -1165,6 +1210,7 @@ function init() {
     state.agentPrevStatus = {};
     state.agentCelebrateUntil = {};
     startPolling();
+    startStream();
   };
   if (notificationsSupported()) {
     let stored = "0";
@@ -1213,6 +1259,7 @@ function init() {
   if (!state.offline) setInterval(tickAgentClocks, 500);
   loadSessions();
   startPolling();
+  startStream();
   // A #agent=<id> link (pasted from a health-box item, a ticker row, or an
   // earlier session) opens straight to that agent's drawer. openDrawer fetches
   // independently of run state, so this doesn't need to wait for the first poll.

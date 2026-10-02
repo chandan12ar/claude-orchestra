@@ -53,8 +53,13 @@ Requires Python 3.9 or newer. Nothing else — no pip install, no npm, no build.
   independently — a real correctness risk, not just informational.
 - **Deep links** — every agent has a `#agent=<id>` URL, pasteable into a PR
   or a Slack thread, that opens straight to its drawer.
-- **Notifications** — an optional desktop alert when an agent fails or the
-  session ends, for when you're not watching the tab.
+- **Notifications** — an optional desktop alert when an agent fails, the
+  session ends, or Claude is waiting on your permission, for when you're not
+  watching the tab.
+- **Live** — updates arrive the moment a transcript or hook event changes
+  (Server-Sent Events), not on a timer; polling is only a safety net.
+- **Attention banner** — what the session is blocked on right now: a permission
+  prompt, your input, or an API error such as `rate_limit`.
 - **Copy summary** — one click produces a paste-ready markdown summary for a
   PR description or a status update.
 
