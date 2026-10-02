@@ -135,6 +135,6 @@ is wrong. Dollar signs are now avoided/escaped in commit messages.
 
 ## Next step
 
-Everything planned is built and pushed. Do, in order: (1) read CI on the latest
-commit, (2) Open item 1 with a real Claude Code session, (3) open a PR from
+Everything planned is built and pushed; CI is green through 1960490. Do, in order:
+(1) Open item 1 with a real Claude Code session, (2) open a PR from
 `feature/live-events` and merge, bumping `plugin.json` to 0.2.0.

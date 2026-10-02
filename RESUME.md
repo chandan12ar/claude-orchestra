@@ -31,7 +31,7 @@ work** = the record (transcripts) + the live truth (hooks), across all sessions.
 ## 4. Verified vs NOT verified
 Verified: all features in a real Chromium (Playwright) against live servers; token fix against a
 real transcript; `hooks.json` valid per Claude Code 2.1.287's validator (mutation-tested);
-CI green on Linux/macOS/Windows through `0f7a978`.
+CI green on Linux/macOS/Windows through `1960490` (run 23).
 
 **NOT verified — do this first:** the hook payload **field names** (`notification_type`,
 `message`, `error_type`, `error_message`, `reason`, `last_assistant_message`) came from the docs,
@@ -40,9 +40,8 @@ not a captured payload. If wrong, the headline "waiting on permission" feature s
 install plugin -> trigger a permission prompt -> read `<state dir>/events/<session>.jsonl`.
 (State dir: `ORCHESTRA_STATE_DIR`, else `<tmp>/orchestra-<uid>`.)
 
-Also unconfirmed: whether plugin hooks reach already-running sessions or only after reload;
-CI run 23 (`1960490`) was still `in_progress` when I stopped — its plugin-validate job passed,
-the test matrix result was not yet read. Prior identical code was green.
+Also unconfirmed: whether plugin hooks reach already-running sessions or only after reload.
+CI run 23 (`1960490`) finished **green** (full test matrix on 3 OS x 3 Pythons + plugin validation).
 
 ## 5. Incidents (honest log)
 - CI red on Windows for 3 commits (bc5121c..b6351fc): my tests used `text=True` (cp1252 vs Node
@@ -54,13 +53,12 @@ the test matrix result was not yet read. Prior identical code was green.
   `317d4bf` (says 603 tests, was 584), `2ef5e09` (says 440, was 436).
 
 ## 6. Next steps, in order
-1. Read CI for `1960490` (and any later commit) on GitHub.
-2. Verify hook field names with a real Claude Code session (section 4).
-3. Open a PR `feature/live-events` -> default branch; bump `.claude-plugin/plugin.json`
+1. Verify hook field names with a real Claude Code session (section 4).
+2. Open a PR `feature/live-events` -> default branch; bump `.claude-plugin/plugin.json`
    `version` 0.1.0 -> 0.2.0 (CHANGELOG `[Unreleased]` is ready); merge.
-4. Decide the plugin name (`workflow` vs package `orchestra` vs repo `claude-orchestra`;
+3. Decide the plugin name (`workflow` vs package `orchestra` vs repo `claude-orchestra`;
    a plugin name can't start with `claude-`).
-5. Later, owner's call: approvals (spike `PermissionRequest` first: runs before/alongside the
+4. Later, owner's call: approvals (spike `PermissionRequest` first: runs before/alongside the
    terminal dialog? timeout? subagents? auto mode?), other-agent adapters, per-event sound mute.
 
 ## 7. Practical notes for the next session
