@@ -63,6 +63,8 @@ class Agent:
     last_activity_at: Optional[float] = None
     result: str = ""
     tokens: Dict[str, int] = field(default_factory=dict)
+    tokens_by_model: Dict[str, Dict[str, int]] = field(default_factory=dict)
+    cost: Optional[float] = None     # None = no price table (or nothing priced)
     tool_calls: List[ToolCall] = field(default_factory=list)
     files_written: List[str] = field(default_factory=list)
     files_read: List[str] = field(default_factory=list)
@@ -102,6 +104,7 @@ class Agent:
             "duration_s": self.duration_s,
             "last_activity_at": self.last_activity_at,
             "tokens": dict(self.tokens),
+            "cost": self.cost,
             "rounds": [{"started_at": r.started_at, "ended_at": r.ended_at,
                         "status": r.status} for r in self.rounds],
             "objective": _cap(scrub(self.objective.text)),
@@ -194,6 +197,11 @@ class Run:
     # Hook-event ground truth (orchestra.livestate.LiveState.to_dict), or None
     # when no hook has ever reported for this session.
     live: Optional[Dict[str, Any]] = None
+    # The orchestrator's own usage (the main transcript), which no per-agent
+    # figure includes: {"tokens", "model", "cost"}.
+    orchestrator: Optional[Dict[str, Any]] = None
+    # Money, when a price table is configured; see RunBuilder._cost_block.
+    cost: Optional[Dict[str, Any]] = None
 
     def agent(self, agent_id: str) -> Optional[Agent]:
         for a in self.agents:
@@ -231,4 +239,6 @@ class Run:
             "write_conflicts": [c.to_dict() for c in self.write_conflicts],
             "diagnostics": dict(self.diagnostics),
             "live": self.live,
+            "orchestrator": self.orchestrator,
+            "cost": self.cost,
         }

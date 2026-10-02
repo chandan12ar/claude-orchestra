@@ -57,6 +57,12 @@ FLEET_WINDOW_S = _tunable("FLEET_WINDOW_S", "ORCHESTRA_FLEET_SECONDS",
 FLEET_MAX_SESSIONS = _tunable("FLEET_MAX_SESSIONS", "ORCHESTRA_FLEET_MAX_SESSIONS",
                               50, 1, 500, int)
 
+# Spend limit for one session, in the price file's currency. 0 = no budget.
+BUDGET = _tunable("BUDGET", "ORCHESTRA_BUDGET", 0.0, 0.0, 1e9, float)
+# Fraction of the budget at which the dashboard starts warning.
+BUDGET_WARN_RATIO = _tunable("BUDGET_WARN_RATIO", "ORCHESTRA_BUDGET_WARN_RATIO",
+                             0.8, 0.01, 1.0, float)
+
 RUNNING = "running"
 COMPLETED = "completed"
 FAILED = "failed"

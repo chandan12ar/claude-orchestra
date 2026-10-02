@@ -11,6 +11,10 @@ versions follow [SemVer](https://semver.org/) (the `version` in
   events) feed ground-truth state: what the session is waiting on (permission /
   input / idle / API error type), exact session end, exact subagent stop, and a
   new `waiting` agent status. `ORCHESTRA_EVENTS=off` disables recording.
+- Cost and budget: with a user-supplied price file, the header shows what the run
+  cost - the orchestrator's own usage included, priced per model - with a partial
+  flag for unpriced models and a budget (`ORCHESTRA_BUDGET`) that warns at 80 %
+  and alerts when exceeded. No prices are built in.
 - Sounds (off by default, synthesized with Web Audio, no audio files): a distinct
   tone when Claude needs you, when something fails, and when everything finishes
   cleanly - for the open session and for other sessions in the fleet.

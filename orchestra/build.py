@@ -11,7 +11,7 @@ import time
 from typing import Callable, Dict, List, Optional
 
 from orchestra import constants as C
-from orchestra.agentlog import AgentDigest
+from orchestra.agentlog import AgentDigest, TokenTally
 from orchestra.edges import HandoffCache, infer_edges
 from orchestra import livestate
 from orchestra.events import Event, EventSpool
@@ -19,6 +19,7 @@ from orchestra.extract import extract_expected_output, extract_objective
 from orchestra.locate import SessionPaths
 from orchestra.model import Agent, Batch, Round, Run
 from orchestra.parent import ParentIndex, parse_timestamp
+from orchestra.pricing import PriceSource, PriceTable
 from orchestra.status import build_rounds, compute_status
 from orchestra.transcript import IncrementalReader
 
@@ -31,13 +32,17 @@ class RunBuilder:
 
     def __init__(self, paths: SessionPaths,
                  now_fn: Callable[[], float] = time.time,
-                 spool: Optional[EventSpool] = None) -> None:
+                 spool: Optional[EventSpool] = None,
+                 prices: Optional[PriceSource] = None) -> None:
         self.paths = paths
         self.now_fn = now_fn
         # Hook events, when a spool is given. Without one the run is built from
         # transcripts alone, exactly as before.
         self._spool = spool
         self._events: List[Event] = []
+        self._prices = prices
+        self._table: Optional[PriceTable] = None
+        self._main_tally = TokenTally()
         self._main_activity: Optional[float] = None
         # ThreadingHTTPServer runs a thread per connection, and every one of
         # them calls refresh() on this same builder. refresh mutates the
@@ -58,6 +63,9 @@ class RunBuilder:
     def _refresh_locked(self) -> Run:
         now = self.now_fn()
         main_entries = self._reader.read_new(self.paths.session_jsonl)
+        if self._reader.consume_reset(self.paths.session_jsonl):
+            self._main_tally.reset()          # re-read from byte 0: don't double count
+        self._main_tally.ingest(main_entries)
         self._parent.ingest(main_entries)
         self._note_main_activity(main_entries)
         self._scan_subagents()
@@ -67,6 +75,7 @@ class RunBuilder:
         live = livestate.derive(self._events, self._activity_at(),
                                 self._agent_activity())
         session_live = self._session_live(now, live)
+        self._table = self._prices.get() if self._prices else None
 
         agents = [self._assemble(agent_id, now, session_live, live)
                   for agent_id in sorted(self._agent_ids())]
@@ -89,6 +98,8 @@ class RunBuilder:
             write_conflicts=conflicts,
             diagnostics=dict(self._reader.diagnostics),
             live=live.to_dict() if live.has_events else None,
+            orchestrator=self._orchestrator_block(),
+            cost=self._cost_block(agents),
         )
 
     # -- internals ---------------------------------------------------------
@@ -243,11 +254,48 @@ class RunBuilder:
             last_activity_at=digest.last_activity_at,
             result=final_result,
             tokens=dict(digest.tokens),
+            tokens_by_model={m: dict(t) for m, t in digest.tokens_by_model.items()},
+            cost=(self._table.cost(digest.tokens_by_model)[0]
+                  if self._table is not None else None),
             tool_calls=list(digest.tool_calls),
             files_written=list(digest.files_written),
             files_read=list(digest.files_read),
             transcript_path=log_path,
         )
+
+    def _orchestrator_block(self) -> Optional[Dict[str, object]]:
+        tally = self._main_tally
+        if not tally.tokens:
+            return None
+        cost = (self._table.cost(tally.by_model)[0]
+                if self._table is not None else None)
+        return {"tokens": dict(tally.tokens), "model": tally.model, "cost": cost}
+
+    def _cost_block(self, agents: List[Agent]) -> Dict[str, object]:
+        """Money for the whole run, or why there is none."""
+        if self._table is None:
+            block: Dict[str, object] = {"enabled": False}
+            if self._prices is not None and self._prices.error:
+                block["error"] = self._prices.error
+            return block
+        agents_total = sum(a.cost or 0.0 for a in agents)
+        main_cost, main_unpriced = self._table.cost(self._main_tally.by_model)
+        unpriced = set(main_unpriced)
+        for a in agents:
+            unpriced.update(self._table.cost(a.tokens_by_model)[1])
+        total = agents_total + main_cost
+        block = {"enabled": True, "currency": self._table.currency,
+                 "total": total, "agents": agents_total,
+                 "orchestrator": main_cost,
+                 "partial": bool(unpriced), "unpriced_models": sorted(unpriced),
+                 "budget": None}
+        if C.BUDGET > 0:
+            ratio = total / C.BUDGET
+            block["budget"] = {
+                "limit": C.BUDGET, "spent": total, "ratio": ratio,
+                "state": ("exceeded" if ratio >= 1.0 else
+                          "warn" if ratio >= C.BUDGET_WARN_RATIO else "ok")}
+        return block
 
     @staticmethod
     def _apply_stop_event(rounds: List[Round], digest: AgentDigest,

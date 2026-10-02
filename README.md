@@ -91,6 +91,22 @@ permission*, or that it died to a rate limit — facts a transcript cannot show.
 - Turn recording off entirely with `ORCHESTRA_EVENTS=off` in the environment
   Claude Code runs in. The dashboard then works from transcripts alone.
 
+## Cost and budget
+
+Workflow shows what a run cost **only if you give it prices** — prices change
+and differ by contract, so none are built in. Copy
+[`docs/prices.example.json`](docs/prices.example.json) to
+`~/.config/workflow/prices.json` (Windows: `%APPDATA%\workflow\prices.json`, or
+point `ORCHESTRA_PRICES` at any file), replace the illustrative numbers with
+yours, and the header gains a cost figure. The file is re-read when it changes.
+
+- Cost covers the **orchestrator's own usage as well as every subagent's**, per
+  model (a session can switch models). A model with no matching price is listed
+  as unpriced and the total is marked *partial* rather than silently counting it
+  as free.
+- Set `ORCHESTRA_BUDGET` (in the price file's currency) to get a warning at 80 %
+  of it and an alert when it is passed.
+
 ## Privacy
 
 Workflow is local, and does not control Claude Code: it only observes.
@@ -121,6 +137,9 @@ ignored in favour of the default.
 | `ORCHESTRA_MAX_BUILDERS` | 24 | Sessions kept in memory at once |
 | `ORCHESTRA_FLEET_SECONDS` | 21600 | The Fleet view lists sessions active within this window |
 | `ORCHESTRA_FLEET_MAX_SESSIONS` | 50 | Most sessions the Fleet view lists |
+| `ORCHESTRA_PRICES` | `~/.config/workflow/prices.json` | Price table that enables cost (see above) |
+| `ORCHESTRA_BUDGET` | 0 (off) | Per-session spend limit, in the price file's currency |
+| `ORCHESTRA_BUDGET_WARN_RATIO` | 0.8 | Fraction of the budget at which warnings start |
 | `ORCHESTRA_STATE_DIR` | per-user dir in the OS temp dir | Where port files, logs and the event spool live |
 | `ORCHESTRA_EVENTS` | on | `off` stops the hooks recording anything |
 

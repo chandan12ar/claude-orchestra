@@ -125,8 +125,9 @@ def cmd_serve(args) -> int:
 
     session_id = _resolve_session(args)
     token = args.token or secrets.token_urlsafe(24)
+    from orchestra.pricing import PriceSource
     service = OrchestraService(token=token, default_session=session_id,
-                               spool_factory=_make_spool)
+                               spool_factory=_make_spool, prices=PriceSource())
 
     port = args.port
     server = None

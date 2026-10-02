@@ -57,6 +57,7 @@ const state = {
   streamLive: false,     // true only while that stream is connected
   refreshTimer: null,    // pending debounced refresh after a push
   knownAttention: "",   // kind@since of the last attention already announced
+  knownBudget: "",      // last budget state announced (ok / warn / exceeded)
   knownFailedIds: new Set(),
   lastSessionLive: null,
   // agent_id -> { toolCount, tokenTotal } as of the last render, so the Work
@@ -100,6 +101,15 @@ function fmtDuration(seconds) {
   const m = Math.floor(seconds / 60);
   const s = Math.round(seconds % 60);
   return m + "m " + (s < 10 ? "0" : "") + s + "s";
+}
+
+// Money in the price file's currency. Tiny amounts say "<", not "$0.00", which
+// would read as free.
+function fmtMoney(amount, currency) {
+  if (amount === null || amount === undefined) return "—";
+  const symbol = !currency || currency === "USD" ? "$" : currency + " ";
+  if (amount > 0 && amount < 0.01) return "<" + symbol + "0.01";
+  return symbol + (amount >= 100 ? amount.toFixed(0) : amount.toFixed(2));
 }
 
 function fmtCount(n) {
@@ -330,6 +340,15 @@ function checkNotifications(run) {
   }
   state.knownAttention = attKey;
 
+  // Budget: announce crossing INTO warn/exceeded while the tab is open.
+  const budget = run.cost && run.cost.budget ? run.cost.budget.state : "";
+  if (!seeding && state.notifyEnabled && budget !== state.knownBudget &&
+      (budget === "warn" || budget === "exceeded")) {
+    notify(budget === "exceeded" ? "Budget exceeded" : "Budget warning",
+      costText(run.cost) + " (" + Math.round(run.cost.budget.ratio * 100) + "%)");
+  }
+  state.knownBudget = budget;
+
   state.knownFailedIds = currentlyFailed;
   state.lastSessionLive = run.session_live;
   state.notifySeeded = true;
@@ -350,6 +369,10 @@ function buildSummaryMarkdown(run) {
       fmtTokens(t.tokens) + " tokens (" + fmtPct(cacheHitRatio(t.tokens)) + " cached) · " +
       fmtDuration(t.wall_time_s) + " wall",
   ];
+  if (run.cost && run.cost.enabled) {
+    lines.push("Cost: " + costText(run.cost) + (run.cost.partial ? " (partial — no price for " +
+      run.cost.unpriced_models.join(", ") + ")" : ""));
+  }
 
   const trouble = run.agents.filter((a) =>
     ["waiting", "stalled", "failed", "orphaned"].includes(a.status));
@@ -869,12 +892,50 @@ function renderHeader(run) {
     ["cached", fmtPct(cacheHitRatio(t.tokens))],
     ["wall", fmtDuration(t.wall_time_s)],
   ];
+  if (run.orchestrator) {
+    // The per-agent "tokens" above exclude the orchestrator; say so, don't hide it.
+    parts.splice(parts.length - 2, 0, ["orchestrator", fmtTokens(run.orchestrator.tokens)]);
+  }
   for (const [label, value] of parts) {
     const span = document.createElement("span");
     span.innerHTML = "<strong>" + value + "</strong> " + label;
     $("totals").appendChild(span);
   }
+  renderCostPart(run);
   $("conn").textContent = run.session_live ? "" : "session ended";
+}
+
+function costText(cost) {
+  const total = fmtMoney(cost.total, cost.currency);
+  const b = cost.budget;
+  return total + (b ? " / " + fmtMoney(b.limit, cost.currency) : "");
+}
+
+function renderCostPart(run) {
+  const cost = run.cost;
+  if (!cost) return;
+  const span = document.createElement("span");
+  if (cost.enabled) {
+    const strong = document.createElement("strong");
+    strong.textContent = costText(cost);
+    span.appendChild(strong);
+    const label = document.createElement("span");
+    label.textContent = cost.partial ? " cost (partial)" : " cost";
+    span.appendChild(label);
+    if (cost.budget && cost.budget.state !== "ok") span.className = "cost-" + cost.budget.state;
+    const notes = [];
+    if (cost.partial) notes.push("No price for: " + cost.unpriced_models.join(", "));
+    if (cost.budget) notes.push(Math.round(cost.budget.ratio * 100) + "% of budget");
+    notes.push("agents " + fmtMoney(cost.agents, cost.currency) +
+      " + orchestrator " + fmtMoney(cost.orchestrator, cost.currency));
+    span.title = notes.join(" · ");
+  } else if (cost.error) {
+    span.className = "cost-warn";
+    span.textContent = cost.error;
+  } else {
+    return;     // no price file: tokens only, as documented
+  }
+  $("totals").appendChild(span);
 }
 
 function renderHealth(run) {
@@ -1182,8 +1243,10 @@ function computeSounds(run, memo) {
   const failed = new Set(run.agents
     .filter((a) => a.status === "failed").map((a) => a.agent_id));
   const running = run.totals ? run.totals.running + (run.totals.waiting || 0) : 0;
+  const budget = run.cost && run.cost.budget ? run.cost.budget.state : "";
   const out = [];
   if (memo.seeded) {
+    if (budget === "exceeded" && memo.budget !== "exceeded") out.push("alert");
     if (attKey && attKey !== memo.attKey) out.push(att.kind === "error" ? "fail" : "alert");
     for (const id of failed) if (!memo.failed.has(id)) out.push("fail");
     if (memo.running > 0 && running === 0 && failed.size === 0) out.push("done");
@@ -1192,6 +1255,7 @@ function computeSounds(run, memo) {
   memo.attKey = attKey;
   memo.failed = failed;
   memo.running = running;
+  memo.budget = budget;
   return out;
 }
 
@@ -1563,6 +1627,7 @@ function switchSession(sessionId) {
   state.notifySeeded = false;
   state.knownFailedIds = new Set();
   state.knownAttention = "";
+  state.knownBudget = "";
   state.soundMemo = null;           // reseed: another session's history is silent
   state.lastSessionLive = null;
   // A different session's agents are all pre-existing history — reseed so
@@ -2082,6 +2147,8 @@ async function openDrawer(agentId) {
     ["launch", agent.launch_mode],
     ["duration", fmtDuration(agent.duration_s)],
     ["tokens", fmtTokens(agent.tokens)],
+    ...(agent.cost !== null && agent.cost !== undefined && state.run && state.run.cost
+      ? [["cost", fmtMoney(agent.cost, state.run.cost.currency)]] : []),
     ["cache hit", fmtPct(cacheHitRatio(agent.tokens)) +
       (cacheHitRatio(agent.tokens) !== null ? "  (" + fmtTokenMix(agent.tokens) + ")" : "")],
     ["rounds", agent.rounds.length],
