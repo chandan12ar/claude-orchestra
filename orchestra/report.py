@@ -50,6 +50,7 @@ _SHELL = """<!doctype html>
   <button type="button" class="tab" data-view="graph" role="tab">Graph</button>
   <button type="button" class="tab" data-view="activity" role="tab">Activity</button>
   <button type="button" class="tab" data-view="workfloor" role="tab">Work Floor</button>
+  <button type="button" hidden class="tab" data-view="fleet" role="tab">Fleet <span id="fleet-badge" class="badge" hidden></span></button>
 </nav>
 <main>
   <section id="view-timeline" class="view">
@@ -61,6 +62,9 @@ _SHELL = """<!doctype html>
   </section>
   <section id="view-activity" class="view" hidden>
     <div id="ticker" class="ticker"></div>
+  </section>
+  <section id="view-fleet" class="view" hidden>
+    <div id="fleet" class="fleet"></div>
   </section>
   <section id="view-workfloor" class="view" hidden>
     <div id="workfloor" class="workfloor"></div>

@@ -20,7 +20,7 @@ feature; on failure record it here and stop. See `CLAUDE.md`.
 | 1.3b | Ground-truth states: UI (attention banner, `waiting` status) | done (verified in real Chromium, light+dark) |
 | 1.4 | Live push (SSE) | done (measured in Chromium: 613 ms event->banner; idle page 0 req/3s) |
 | 1.5a | Fleet backend (`/api/fleet`, cross-project recent sessions, urgency sort) | done |
-| 1.5b | Fleet UI (tab, badge, cross-session notifications) | todo |
+| 1.5b | Fleet UI (tab, badge, cross-session notifications) | done (verified in Chromium; fixed an empty-bar bug via global [hidden] rule) |
 | 2.1 | Pill (Picture-in-Picture) + tab badge | todo |
 | 2.2 | Synthesized sounds | todo |
 | 2.3 | Cost, budget alert, runaway detection | todo |

@@ -6,6 +6,7 @@ const POLL_MS = 2000;
 // catches time-based changes no file write announces, like a stall threshold).
 const STREAM_POLL_MS = 15000;
 const STREAM_DEBOUNCE_MS = 300;
+const FLEET_POLL_MS = 4000;
 
 const state = {
   run: null,
@@ -41,6 +42,10 @@ const state = {
   // burst of notifications for history.
   notifyEnabled: false,
   notifySeeded: false,
+  fleet: null,           // last /api/fleet payload
+  fleetSeeded: false,    // first fleet poll only records, never notifies
+  fleetAttention: {},    // session_id -> kind@since already announced
+  fleetTimer: null,
   stream: null,          // the open EventSource, if any
   streamLive: false,     // true only while that stream is connected
   refreshTimer: null,    // pending debounced refresh after a push
@@ -1073,6 +1078,7 @@ function setView(view) {
   $("view-graph").hidden = view !== "graph";
   $("view-activity").hidden = view !== "activity";
   $("view-workfloor").hidden = view !== "workfloor";
+  $("view-fleet").hidden = view !== "fleet";
   for (const tab of document.querySelectorAll(".tab")) {
     const active = tab.dataset.view === view;
     tab.classList.toggle("active", active);
@@ -1096,6 +1102,7 @@ function render() {
   if (state.view === "timeline") renderTimeline(state.run);
   else if (state.view === "graph") renderGraph(state.run);
   else if (state.view === "workfloor") renderWorkfloor(state.run);
+  else if (state.view === "fleet") renderFleet();
   else renderTicker();
 }
 
@@ -1129,6 +1136,131 @@ async function poll(generation) {
   // watching Timeline/Graph never costs N extra per-agent fetches.
   if (state.view === "activity") refreshTicker(run);
   if (state.live) setTimeout(() => poll(generation), state.backoff);
+}
+
+// ------------------------------------------------------------------ fleet
+//
+// Every recently active session across every project, most urgent first: the
+// answer to "which of my sessions needs me?" without opening each one.
+
+function fleetAgo(modifiedAt) {
+  return fmtDuration(Math.max(0, Date.now() / 1000 - modifiedAt)) + " ago";
+}
+
+function renderFleetBadge() {
+  const badge = $("fleet-badge");
+  if (!badge) return;
+  const n = state.fleet ? state.fleet.attention_count : 0;
+  badge.hidden = !n;
+  badge.textContent = n ? String(n) : "";
+}
+
+function renderFleet() {
+  const box = $("fleet");
+  if (!box) return;
+  const data = state.fleet;
+  if (!data) { box.innerHTML = '<div class="fleet-empty">Loading sessions…</div>'; return; }
+  if (!data.sessions.length) {
+    box.innerHTML = '<div class="fleet-empty">No sessions active in the last ' +
+      esc(fmtDuration(data.window_s)) + ".</div>";
+    return;
+  }
+  const current = state.run && state.run.session_id;
+  box.innerHTML = data.sessions.map((s) => {
+    const att = s.attention && s.session_live ? s.attention : null;
+    const t = s.totals;
+    const sub = att
+      ? attentionTitle(att) + (att.message ? " — " + att.message : "")
+      : (!s.session_live ? "Ended" + (s.ended && s.ended.reason ? " (" + s.ended.reason + ")" : "")
+        : (t && t.running ? t.running + " agent(s) running" : "Idle"));
+    const meta = (t ? t.agents + " agents" +
+      (t.waiting ? " · " + t.waiting + " waiting" : "") +
+      (t.failed ? " · " + t.failed + " failed" : "") + " · " : "") + fleetAgo(s.modified_at);
+    return '<div class="fleet-row' + (s.session_id === current ? " fleet-current" : "") +
+      (s.session_live ? "" : " fleet-quiet") + '" data-session="' + esc(s.session_id) + '"' +
+      (att ? ' data-kind="' + esc(att.kind) + '"' : "") +
+      (s.session_live ? ' data-live="1"' : "") + ' role="button" tabindex="0">' +
+      '<span class="fleet-dot"></span>' +
+      '<div class="fleet-main"><div class="fleet-title">' +
+        esc(s.project_name || "(unknown project)") +
+        '<span class="fleet-id">' + esc(s.session_id.slice(0, 8)) + "</span></div>" +
+        '<div class="fleet-sub">' + esc(sub) + "</div></div>" +
+      '<div class="fleet-meta">' + esc(meta) + "</div></div>";
+  }).join("");
+  for (const row of box.querySelectorAll(".fleet-row")) {
+    const open = () => { switchSession(row.dataset.session); setView("timeline"); };
+    row.onclick = open;
+    row.onkeydown = (event) => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); open(); }
+    };
+  }
+}
+
+// Announce a prompt or failure in a session you are NOT looking at — the case
+// the current-session notifications cannot cover. Seeded like every other alert:
+// whatever is already pending when the page opens is shown, not announced.
+function checkFleetNotifications(data) {
+  const viewing = state.run && state.run.session_id;
+  const next = {};
+  for (const s of data.sessions) {
+    const att = s.attention && s.session_live && s.urgency > 0 ? s.attention : null;
+    if (!att) continue;
+    const key = att.kind + "@" + att.since;
+    next[s.session_id] = key;
+    if (state.fleetSeeded && state.notifyEnabled && s.session_id !== viewing &&
+        state.fleetAttention[s.session_id] !== key) {
+      notify(attentionTitle(att) + " — " + (s.project_name || s.session_id.slice(0, 8)),
+        att.message || "");
+    }
+  }
+  state.fleetAttention = next;
+  state.fleetSeeded = true;
+}
+
+async function pollFleet() {
+  if (state.fleetTimer) { clearTimeout(state.fleetTimer); state.fleetTimer = null; }
+  try {
+    const data = await api("/api/fleet");
+    state.fleet = data;
+    checkFleetNotifications(data);
+    renderFleetBadge();
+    if (state.view === "fleet") renderFleet();
+  } catch (err) { /* the fleet is an extra; the current session still works */ }
+  if (state.live && !state.offline) state.fleetTimer = setTimeout(pollFleet, FLEET_POLL_MS);
+}
+
+// One place that knows everything to reset when the viewed session changes.
+function switchSession(sessionId) {
+  state.sessionId = sessionId;
+  const picker = $("session-picker");
+  if (picker) {
+    if (![...picker.options].some((o) => o.value === sessionId)) {
+      const option = document.createElement("option");
+      option.value = sessionId;
+      option.textContent = sessionId.slice(0, 8);
+      picker.appendChild(option);
+    }
+    picker.value = sessionId;
+  }
+  state.run = null;
+  // A different session's edges are all pre-existing history to us, not
+  // events happening live — reseed instead of flashing every one of them.
+  state.seenEdgeKeys = new Set();
+  state.graphSeeded = false;
+  // Same reasoning for notifications: a different session's existing
+  // failures/end-state are history, not something to alert on.
+  state.notifySeeded = false;
+  state.knownFailedIds = new Set();
+  state.knownAttention = "";
+  state.lastSessionLive = null;
+  // A different session's agents are all pre-existing history — reseed so
+  // switching sessions doesn't read as a burst of simultaneous activity.
+  state.floorActivity = {};
+  state.floorSeeded = false;
+  state.agentPrevStatus = {};
+  state.agentCelebrateUntil = {};
+  startPolling();
+  startStream();
 }
 
 // Live push. The server only says *that* something changed; the data still
@@ -1188,30 +1320,10 @@ function init() {
     state.live = !state.live;
     event.target.setAttribute("aria-pressed", String(state.live));
     event.target.textContent = state.live ? "Live" : "Paused";
-    if (state.live) { startPolling(); startStream(); }
+    if (state.live) { startPolling(); startStream(); pollFleet(); }
     else stopStream();
   };
-  $("session-picker").onchange = (event) => {
-    state.sessionId = event.target.value;
-    state.run = null;
-    // A different session's edges are all pre-existing history to us, not
-    // events happening live — reseed instead of flashing every one of them.
-    state.seenEdgeKeys = new Set();
-    state.graphSeeded = false;
-    // Same reasoning for notifications: a different session's existing
-    // failures/end-state are history, not something to alert on.
-    state.notifySeeded = false;
-    state.knownFailedIds = new Set();
-    state.lastSessionLive = null;
-    // A different session's agents are all pre-existing history — reseed so
-    // switching sessions doesn't read as a burst of simultaneous activity.
-    state.floorActivity = {};
-    state.floorSeeded = false;
-    state.agentPrevStatus = {};
-    state.agentCelebrateUntil = {};
-    startPolling();
-    startStream();
-  };
+  $("session-picker").onchange = (event) => switchSession(event.target.value);
   if (notificationsSupported()) {
     let stored = "0";
     try {
@@ -1260,6 +1372,14 @@ function init() {
   loadSessions();
   startPolling();
   startStream();
+  if (state.offline) {
+    // A frozen snapshot has no other sessions to list.
+    for (const tab of document.querySelectorAll(".tab")) {
+      if (tab.dataset.view === "fleet") tab.hidden = true;
+    }
+  } else {
+    pollFleet();
+  }
   // A #agent=<id> link (pasted from a health-box item, a ticker row, or an
   // earlier session) opens straight to that agent's drawer. openDrawer fetches
   // independently of run state, so this doesn't need to wait for the first poll.

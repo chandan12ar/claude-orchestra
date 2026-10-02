@@ -11,6 +11,8 @@ versions follow [SemVer](https://semver.org/) (the `version` in
   events) feed ground-truth state: what the session is waiting on (permission /
   input / idle / API error type), exact session end, exact subagent stop, and a
   new `waiting` agent status. `ORCHESTRA_EVENTS=off` disables recording.
+- Fleet view: every recently active session across all projects, most urgent
+  first, with a badge and notifications for sessions you are not viewing.
 - Live push (Server-Sent Events): the dashboard updates when something changes
   instead of every 2 s; polling remains as a 15 s safety net and as the fallback.
 - `--cwd` flag: base for relative report paths; fallback session discovery.

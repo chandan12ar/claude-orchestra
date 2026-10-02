@@ -183,3 +183,56 @@ class TestFleetEndpoint(FleetCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestFleetUiWiring(unittest.TestCase):
+    STATIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                          "orchestra", "static")
+
+    def read(self, name):
+        with open(os.path.join(self.STATIC, name), encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_page_has_the_tab_badge_and_view(self):
+        html = self.read("index.html")
+        for needle in ('data-view="fleet"', 'id="fleet-badge"',
+                       'id="view-fleet"', 'id="fleet"'):
+            self.assertIn(needle, html)
+
+    def test_report_shell_has_the_mount_points_but_hides_the_tab(self):
+        from orchestra import report
+        for needle in ('id="fleet-badge"', 'id="view-fleet"', 'id="fleet"'):
+            self.assertIn(needle, report._SHELL)
+        tab = report._SHELL[report._SHELL.index('data-view="fleet"') - 60:
+                            report._SHELL.index('data-view="fleet"')]
+        self.assertIn("hidden", tab)     # a frozen snapshot has no other sessions
+
+    def test_session_picker_and_fleet_share_one_switch_function(self):
+        js = self.read("app.js")
+        self.assertIn("function switchSession(", js)
+        self.assertIn('onchange = (event) => switchSession(event.target.value)', js)
+        self.assertIn("switchSession(row.dataset.session)", js)
+
+    def test_switching_reseeds_every_history_baseline(self):
+        js = self.read("app.js")
+        body = js[js.index("function switchSession("):]
+        body = body[:body.index("\n}\n")]
+        for reset in ("seenEdgeKeys", "graphSeeded", "notifySeeded",
+                      "knownFailedIds", "knownAttention", "floorSeeded",
+                      "agentPrevStatus", "startPolling()", "startStream()"):
+            self.assertIn(reset, body)
+
+    def test_fleet_text_is_escaped(self):
+        js = self.read("app.js")
+        body = js[js.index("function renderFleet("):]
+        body = body[:body.index("\n}\n")]
+        for raw in ("+ s.project_name", "+ s.session_id", "+ sub +", "+ meta +"):
+            self.assertNotIn(raw, body)
+        self.assertIn("esc(s.project_name", body)
+        self.assertIn("esc(sub)", body)
+
+    def test_fleet_polling_follows_the_live_toggle_and_skips_reports(self):
+        js = self.read("app.js")
+        body = js[js.index("async function pollFleet("):]
+        body = body[:body.index("\n}\n")]
+        self.assertIn("state.live && !state.offline", body)

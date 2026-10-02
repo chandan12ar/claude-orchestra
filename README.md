@@ -56,6 +56,10 @@ Requires Python 3.9 or newer. Nothing else — no pip install, no npm, no build.
 - **Notifications** — an optional desktop alert when an agent fails, the
   session ends, or Claude is waiting on your permission, for when you're not
   watching the tab.
+- **Fleet** — every session active in the last few hours, across all projects,
+  most urgent first (blocked on a permission prompt or an API error), with a
+  tab badge and an alert when a session you are *not* looking at needs you.
+  Click one to jump to it.
 - **Live** — updates arrive the moment a transcript or hook event changes
   (Server-Sent Events), not on a timer; polling is only a safety net.
 - **Attention banner** — what the session is blocked on right now: a permission

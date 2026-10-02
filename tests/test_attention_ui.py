@@ -130,6 +130,13 @@ class TestStaticAssetsKnowAboutWaiting(unittest.TestCase):
         self.assertIn('"waiting"', js[js.index("function renderFilterChips"):][:400])
         self.assertIn("waiting: {", js)
 
+    def test_hidden_really_hides_even_for_elements_that_set_their_own_display(self):
+        # `.attention { display: flex }` and `.badge { display: inline-block }`
+        # override the browser's default [hidden] rule, leaving an empty bar and
+        # an empty pill on screen. A global !important rule must win.
+        css = read("style.css")
+        self.assertRegex(css, r"\[hidden\]\s*\{\s*display:\s*none\s*!important")
+
     def test_attention_text_never_goes_through_inner_html(self):
         js = read("app.js")
         body = js[js.index("function renderAttention("):]
