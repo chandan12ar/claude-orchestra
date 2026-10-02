@@ -57,6 +57,10 @@ cells a spreadsheet would execute as formulas are neutralised.
 - **Health & write-conflict boxes** — stalled, failed, and orphaned agents
   surfaced instead of buried, plus a flag for any file two agents wrote
   independently — a real correctness risk, not just informational.
+- **Replay** — scrub or play back the run (1×-120×) to see who had launched,
+  who was running and who had finished at any moment. Works in a static report
+  too, so a post-mortem needs no server. Statuses are reconstructed from start
+  and end times; token totals are shown as unavailable, not as wrong numbers.
 - **Possible loops** — a still-running agent that has repeated the same tool
   call several times (or strictly alternated between two) is listed with the
   evidence. Reported as *possible*: legitimate polling looks the same.

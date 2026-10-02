@@ -11,6 +11,10 @@ versions follow [SemVer](https://semver.org/) (the `version` in
   events) feed ground-truth state: what the session is waiting on (permission /
   input / idle / API error type), exact session end, exact subagent stop, and a
   new `waiting` agent status. `ORCHESTRA_EVENTS=off` disables recording.
+- Replay: scrub or play back the run to see who had launched, who was running and
+  who had finished at any moment - in the live dashboard and in a static report,
+  so a post-mortem needs no server. Statuses are reconstructed from start/end
+  times; token totals are shown as unavailable rather than wrong.
 - Export: `Export` menu (CSV one-row-per-agent, JSON everything), `GET /api/export`,
   and `python -m orchestra --export csv|json [--out PATH]`. CSV cells that a
   spreadsheet would run as a formula are neutralised; output is the same scrubbed

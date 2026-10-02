@@ -356,3 +356,12 @@ main { padding: 12px 16px 24px; }
   color: var(--ink); }
 .fleet-meta { color: var(--muted); font-size: 12px; text-align: right; flex: none;
   font-variant-numeric: tabular-nums; }
+
+/* ------------------------------------------------------------------ replay */
+.replay-bar { margin: 12px 16px 0; padding: 8px 12px; border-radius: 8px;
+  display: flex; align-items: center; gap: 12px;
+  border: 1px solid var(--accent); background: var(--panel); }
+.replay-bar input[type="range"] { flex: 1 1 auto; min-width: 120px; accent-color: var(--accent); }
+.replay-bar .replay-time { font-variant-numeric: tabular-nums; color: var(--muted);
+  white-space: nowrap; }
+.replay-bar .replay-note { color: var(--muted); font-size: 12px; }

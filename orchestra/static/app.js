@@ -46,6 +46,8 @@ const state = {
   fleetSeeded: false,    // first fleet poll only records, never notifies
   fleetAttention: {},    // session_id -> kind@since already announced
   fleetTimer: null,
+  liveRun: null,         // the newest run from the server; state.run may be a replay of it
+  replay: { on: false, t: 0, playing: false, speed: 30, timer: null },
   faviconKey: "",
   soundEnabled: false,   // off by default; turning it on is the click autoplay needs
   soundMemo: null,       // per-session baseline so history never makes noise
@@ -432,7 +434,7 @@ function buildSummaryMarkdown(run) {
 async function copySummary() {
   const btn = $("copy-summary");
   if (!state.run || !btn) return;
-  const text = buildSummaryMarkdown(state.run);
+  const text = buildSummaryMarkdown(state.liveRun || state.run);
   let ok = false;
   try {
     if (typeof navigator !== "undefined" && navigator.clipboard && navigator.clipboard.writeText) {
@@ -918,8 +920,8 @@ function renderHeader(run) {
     ...(t.waiting ? [["waiting", t.waiting]] : []),
     ["done", t.completed],
     ["failed", t.failed + t.orphaned],
-    ["tokens", fmtTokens(t.tokens)],
-    ["cached", fmtPct(cacheHitRatio(t.tokens))],
+    ["tokens", run.replay_at !== undefined ? "\u2014" : fmtTokens(t.tokens)],
+    ["cached", run.replay_at !== undefined ? "\u2014" : fmtPct(cacheHitRatio(t.tokens))],
     ["wall", fmtDuration(t.wall_time_s)],
   ];
   if (run.orchestrator) {
@@ -1061,6 +1063,9 @@ const DOT_R = 4;
 const LABEL_X = 14;
 
 function timeWindow(run) {
+  // A replay scrubs along a FIXED axis (the whole run), so bars grow across a
+  // stable scale instead of the scale itself rescaling on every frame.
+  if (run.replay_window) return run.replay_window;
   let min = Infinity;
   let max = -Infinity;
   for (const agent of run.agents) {
@@ -1235,7 +1240,8 @@ async function poll(generation) {
   // A response that arrived after the session changed, or after this loop was
   // superseded, must not overwrite the current view.
   if (generation !== state.generation) return;
-  state.run = run;
+  state.liveRun = run;
+  state.run = state.replay.on ? deriveRunAt(run, replayClamp(state.replay.t, run)) : run;
   state.backoff = state.streamLive ? STREAM_POLL_MS : POLL_MS;
   $("conn").textContent = run.session_live ? "" : "session ended";
   checkNotifications(run);
@@ -1388,6 +1394,209 @@ function setStoredSoundPref(enabled) {
       localStorage.setItem("orchestra-sound", enabled ? "1" : "0");
     }
   } catch (err) { /* blocked storage; not worth failing over */ }
+}
+
+// ------------------------------------------------------------------ replay
+//
+// "What did this run look like at 02:13?" Rebuilt purely from the round start
+// and end times already in the payload, so it works live AND in a static report
+// shared after the fact (a post-mortem needs no server).
+//
+// What it can know: who had launched, who was still in a round, who had ended
+// and how. What it cannot know: stalled / waiting / orphaned (those depend on
+// the clock and on hook events of that moment) and token totals at that moment.
+// So an open round replays as "running", and tokens are left out rather than
+// shown as final numbers that would be wrong.
+
+function replayBounds(run) {
+  if (!run || run.started_at === null || run.started_at === undefined) return null;
+  const times = [];
+  for (const a of run.agents) {
+    if (a.ended_at !== null && a.ended_at !== undefined) times.push(a.ended_at);
+    if (a.last_activity_at) times.push(a.last_activity_at);
+  }
+  if (run.ended_at) times.push(run.ended_at);
+  const end = times.length ? Math.max.apply(null, times) : run.started_at;
+  return { start: run.started_at, end: Math.max(end, run.started_at) };
+}
+
+function agentAt(agent, t) {
+  const rounds = (agent.rounds || []).filter((r) => r.started_at !== null &&
+    r.started_at !== undefined && r.started_at <= t);
+  if (!rounds.length) return null;                     // not launched yet
+  const open = rounds.some((r) => r.ended_at === null || r.ended_at === undefined ||
+    r.ended_at > t);
+  const closed = rounds.filter((r) => r.ended_at !== null && r.ended_at !== undefined &&
+    r.ended_at <= t);
+  let status = "running";
+  if (!open) {
+    status = closed.length ? closed[closed.length - 1].status : "unknown";
+  }
+  const ended = open ? null : Math.max.apply(null, closed.map((r) => r.ended_at));
+  const started = Math.min.apply(null, rounds.map((r) => r.started_at));
+  return Object.assign({}, agent, {
+    status: status,
+    started_at: started,
+    ended_at: ended,
+    duration_s: ended === null ? null : ended - started,
+    rounds: rounds.map((r) => ({
+      started_at: r.started_at,
+      ended_at: r.ended_at !== null && r.ended_at !== undefined && r.ended_at <= t ? r.ended_at : null,
+      status: r.ended_at !== null && r.ended_at !== undefined && r.ended_at <= t ? r.status : "running",
+    })),
+    // An open agent has been going at least until t; this is what the bar is
+    // drawn to. A finished one keeps its own last activity.
+    last_activity_at: open ? t : Math.min(agent.last_activity_at || ended, t),
+    tokens: {}, cost: null, loop: null, tool_call_count: 0, files_written_count: 0,
+  });
+}
+
+function deriveRunAt(run, t) {
+  const agents = run.agents.map((a) => agentAt(a, t)).filter((a) => a !== null);
+  const present = new Set(agents.map((a) => a.agent_id));
+  present.add("main");
+  const counts = { agents: agents.length, running: 0, waiting: 0, completed: 0,
+    failed: 0, stalled: 0, orphaned: 0, unknown: 0, tokens: {}, wall_time_s: null };
+  for (const a of agents) counts[a.status] = (counts[a.status] || 0) + 1;
+  const ends = agents.map((a) => a.ended_at).filter((e) => e !== null);
+  const starts = agents.map((a) => a.started_at);
+  if (starts.length) {
+    counts.wall_time_s = (ends.length ? Math.max.apply(null, ends) : t) - Math.min.apply(null, starts);
+  }
+  return Object.assign({}, run, {
+    agents: agents,
+    totals: counts,
+    edges: run.edges.filter((e) => present.has(e.src) && present.has(e.dst)),
+    batches: run.batches.map((b) => Object.assign({}, b, {
+      agent_ids: b.agent_ids.filter((id) => present.has(id)) })).filter((b) => b.agent_ids.length),
+    hub_files: [], write_conflicts: [],
+    live: null, cost: null, orchestrator: null,
+    session_live: t < replayBounds(run).end,
+    ended_at: t >= replayBounds(run).end ? run.ended_at : null,
+    replay_at: t,
+    replay_window: [replayBounds(run).start,
+      Math.max(replayBounds(run).end, replayBounds(run).start + 1)],
+  });
+}
+
+// Replay controls. state.run is what the views draw; during a replay it is
+// deriveRunAt(state.liveRun, t), and everything else (notifications, sounds,
+// the pill, copy-summary) keeps reading the true live run.
+
+function replayClamp(t, run) {
+  const b = replayBounds(run);
+  if (!b) return t;
+  return Math.min(Math.max(t, b.start), b.end);
+}
+
+function fmtOffset(seconds) {
+  const s = Math.max(0, Math.round(seconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const pad = (n) => (n < 10 ? "0" : "") + n;
+  return (h ? h + ":" + pad(m) : m) + ":" + pad(s % 60);
+}
+
+function setReplayTime(t) {
+  const base = state.liveRun;
+  if (!base) return;
+  state.replay.t = replayClamp(t, base);
+  state.run = deriveRunAt(base, state.replay.t);
+  updateReplayBar();
+  render();
+}
+
+function stopReplayTimer() {
+  if (state.replay.timer) { clearInterval(state.replay.timer); state.replay.timer = null; }
+  state.replay.playing = false;
+}
+
+function playReplay() {
+  const b = replayBounds(state.liveRun);
+  if (!b) return;
+  if (state.replay.t >= b.end) setReplayTime(b.start);      // play again from the top
+  state.replay.playing = true;
+  updateReplayBar();
+  state.replay.timer = setInterval(() => {
+    const bounds = replayBounds(state.liveRun);
+    if (!bounds) { stopReplayTimer(); return; }
+    const next = state.replay.t + state.replay.speed * 0.1;
+    if (next >= bounds.end) {
+      setReplayTime(bounds.end);
+      stopReplayTimer();
+      updateReplayBar();
+    } else {
+      setReplayTime(next);
+    }
+  }, 100);
+}
+
+function updateReplayBar() {
+  const bar = $("replay-bar");
+  const b = replayBounds(state.liveRun);
+  if (!bar || !b || bar.hidden) return;
+  const refs = state.replayRefs;
+  if (!refs) return;
+  refs.slider.min = String(b.start);
+  refs.slider.max = String(b.end);
+  refs.slider.value = String(state.replay.t);
+  refs.play.textContent = state.replay.playing ? "Pause" : "Play";
+  refs.time.textContent = fmtOffset(state.replay.t - b.start) + " / " + fmtOffset(b.end - b.start);
+}
+
+function buildReplayBar() {
+  const bar = $("replay-bar");
+  bar.textContent = "";
+  const make = (tag, cls, text) => {
+    const el = document.createElement(tag);
+    if (cls) el.className = cls;
+    if (text !== undefined) el.textContent = text;
+    return el;
+  };
+  const play = make("button", "", "Play");
+  play.type = "button";
+  play.onclick = () => (state.replay.playing ? (stopReplayTimer(), updateReplayBar()) : playReplay());
+  const slider = make("input");
+  slider.type = "range";
+  slider.step = "1";
+  slider.setAttribute("aria-label", "Replay position");
+  slider.oninput = () => { stopReplayTimer(); setReplayTime(Number(slider.value)); };
+  const time = make("span", "replay-time", "");
+  const speed = make("select");
+  speed.setAttribute("aria-label", "Replay speed");
+  for (const x of [1, 10, 30, 60, 120]) {
+    const option = make("option", "", x + "×");
+    option.value = String(x);
+    speed.appendChild(option);
+  }
+  speed.value = String(state.replay.speed);
+  speed.onchange = () => { state.replay.speed = Number(speed.value); };
+  const note = make("span", "replay-note",
+    "Statuses are reconstructed from start/end times; token totals are not shown.");
+  for (const el of [play, slider, time, speed, note]) bar.appendChild(el);
+  state.replayRefs = { play: play, slider: slider, time: time };
+}
+
+function toggleReplay() {
+  const bar = $("replay-bar");
+  const btn = $("replay-toggle");
+  if (!bar || !btn) return;
+  if (state.replay.on) {
+    stopReplayTimer();
+    state.replay.on = false;
+    bar.hidden = true;
+    btn.setAttribute("aria-pressed", "false");
+    state.run = state.liveRun;
+    render();
+    return;
+  }
+  const b = replayBounds(state.liveRun);
+  if (!b) return;
+  state.replay.on = true;
+  bar.hidden = false;
+  btn.setAttribute("aria-pressed", "true");
+  buildReplayBar();
+  setReplayTime(b.start);
 }
 
 // ------------------------------------------------------- pill + tab chrome
@@ -1558,7 +1767,7 @@ async function togglePill() {
 }
 
 function updateChrome() {
-  const model = pillModel(state.run, state.fleet);
+  const model = pillModel(state.liveRun || state.run, state.fleet);
   updateTabChrome(model);
   renderPill(model);
 }
@@ -1669,7 +1878,9 @@ function switchSession(sessionId) {
     }
     picker.value = sessionId;
   }
+  if (state.replay.on) toggleReplay();      // a replay belongs to one session
   state.run = null;
+  state.liveRun = null;
   // A different session's edges are all pre-existing history to us, not
   // events happening live — reseed instead of flashing every one of them.
   state.seenEdgeKeys = new Set();
@@ -1777,6 +1988,8 @@ function init() {
     $("notify-toggle").hidden = true;
   }
   $("copy-summary").onclick = copySummary;
+  const replayBtn = $("replay-toggle");
+  if (replayBtn) replayBtn.onclick = toggleReplay;
   const exportSelect = $("export-select");
   if (exportSelect && !state.offline) {
     exportSelect.hidden = false;
