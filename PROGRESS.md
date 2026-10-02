@@ -9,8 +9,8 @@ feature; on failure record it here and stop. See `CLAUDE.md`.
 |---|---|---|
 | 0.0 | CLAUDE.md + PROGRESS.md | done |
 | 0.1 | Cache handoff-edge inference (perf) | done (96 agents: 5.2s -> 0.22s cold, 0.024s warm; results proven identical to old algorithm) |
-| 0.2 | Evict idle session builders | todo |
-| 0.3 | `report` writes to project, not plugin dir; wire/remove `--cwd` | todo |
+| 0.2 | Evict idle session builders | done (LRU, MAX_BUILDERS=8, default session pinned) |
+| 0.3 | `report` writes to project, not plugin dir; wire/remove `--cwd` | done (`--cwd` wired; also finds newest session when no id) |
 | 0.4 | Configurable thresholds (env vars + plugin userConfig) | todo |
 | 0.5 | Dead code + log-handle cleanup | todo |
 | 0.6 | CI workflow, CHANGELOG, SECURITY.md | todo |

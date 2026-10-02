@@ -92,8 +92,20 @@ def _kill(pid: int) -> None:
 
 # -- commands -------------------------------------------------------------
 
+def _latest_session_in(cwd: str) -> str:
+    """Newest session of the project that `cwd` belongs to, or ""."""
+    from orchestra.locate import find_project_dir, list_sessions
+    project = find_project_dir(cwd)
+    sessions = list_sessions(project) if project else []
+    return sessions[0].session_id if sessions else ""
+
+
 def _resolve_session(args) -> str:
-    return args.session or os.environ.get("CLAUDE_CODE_SESSION_ID", "")
+    """--session, else $CLAUDE_CODE_SESSION_ID, else the newest in --cwd's project."""
+    explicit = args.session or os.environ.get("CLAUDE_CODE_SESSION_ID", "")
+    if explicit or not getattr(args, "cwd", ""):
+        return explicit
+    return _latest_session_in(args.cwd)
 
 
 def cmd_serve(args) -> int:
@@ -201,7 +213,13 @@ def cmd_report(args) -> int:
     if paths is None:
         print("no transcript found for session: {}".format(session_id or "(none)"))
         return 2
-    written = write_report(RunBuilder(paths), args.report)
+    target = args.report or ""
+    base = args.cwd or os.getcwd()
+    # A relative path means "relative to the project", not to wherever this
+    # process happens to be: the slash command runs from the plugin directory.
+    if not os.path.isabs(target):
+        target = os.path.join(base, target) if target else base + os.sep
+    written = write_report(RunBuilder(paths), target)
     print(written)
     return 0
 
@@ -214,6 +232,10 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     parser = argparse.ArgumentParser(prog="orchestra", add_help=True)
     parser.add_argument("--session", default="")
+    parser.add_argument("--cwd", default="",
+                        help="project directory: base for relative report "
+                             "paths, and where to look for a session when "
+                             "none is given")
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--token", default="")
     parser.add_argument("--no-open", action="store_true")

@@ -74,6 +74,13 @@ is visible rather than forgotten. Ranked roughly by value.
 
 ## Resolved
 
+- **Idle builders never evicted (#5).** `OrchestraService` keeps an LRU of
+  `MAX_BUILDERS` (8); the default session is pinned; evicted sessions are
+  rebuilt from disk on next visit.
+- **`report` wrote to the plugin dir (#3) and `--cwd` did not exist (#4).**
+  `--cwd` now exists: base for relative report paths and fallback session
+  discovery (newest session of that project). `commands/open.md` passes it.
+
 - **Handoff-edge inference cost (#2).** `HandoffCache` in `edges.py` keys scores
   by text content so unchanged pairs are never rescored across polls, and a
   provably exact prefilter skips `SequenceMatcher` when too few 8-word shingles
