@@ -37,7 +37,7 @@ def run_js(body):
     path = os.path.join(tempfile.mkdtemp(), "s.js")
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(prelude + "\n" + body)
-    proc = subprocess.run([NODE, path], capture_output=True, text=True, timeout=30)
+    proc = subprocess.run([NODE, path], capture_output=True, encoding="utf-8", timeout=30)
     if proc.returncode != 0:
         raise AssertionError(proc.stderr[-1500:])
     return json.loads(proc.stdout)

@@ -52,6 +52,29 @@ plugin rename.
 - Plugin hooks only apply once the plugin is (re)loaded; not yet confirmed whether
   already-running sessions pick them up (roadmap spike 5).
 
+### CI incident: red from bc5121c (sounds) through b6351fc (loops)
+
+Windows-only, all in MY TESTS (no product bug). Local runs were green because I
+only run Linux; I had not checked CI between commits and should have.
+1. `text=True` on subprocess output decodes with the locale encoding (cp1252 on
+   Windows) while Node writes UTF-8, so assertions on `·` / `▶` (test_pill) saw
+   mojibake. Fixed: every test names `encoding="utf-8"`; new
+   `tests/test_encoding_hygiene.py` fails on any `text=True` or unencoded node
+   run / `open(path, "w")`, so this cannot recur unnoticed on Linux.
+2. `test_loads_and_reloads_when_the_file_changes` (pricing) rewrote a file with a
+   same-size change and relied on the mtime moving; Windows timestamps are coarse.
+   Fixed by setting the mtime explicitly. (Product note: PriceSource detects a
+   change via (mtime_ns, size); an edit of identical size inside one filesystem
+   tick on Windows would be missed. Not worth hashing the file for.)
+Process fix: from now on CI is read after every push, before starting the next
+feature.
+
+### Commit-message defect (cannot be fixed without rewriting pushed history)
+Commit 27815da ("feat: cost and budget alerts...") shows `/bin/bash.189` and
+`/bin/bash.19` where `$0.189` / `$0.19` were meant: `$0` was expanded by the
+shell inside a double-quoted message. The code is right; only the message text
+is wrong. Dollar signs are now avoided/escaped in commit messages.
+
 ## Next step
 
 Start at the first `todo` row above.

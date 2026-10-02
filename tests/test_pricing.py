@@ -100,7 +100,11 @@ class TestPriceSource(unittest.TestCase):
         changed = json.loads(json.dumps(TABLE))
         changed["models"]["claude-opus-*"]["output"] = 99.0
         self.write(changed)
-        os.utime(self.path, None)
+        # "50.0" -> "99.0" is the same size, so the change is only visible through
+        # the mtime. Windows timestamps are coarse (a rewrite within one tick can
+        # keep the old value), so move it explicitly instead of trusting "now".
+        before = os.stat(self.path).st_mtime
+        os.utime(self.path, (before + 10, before + 10))
         self.assertEqual(src.get().price_for("claude-opus-5")["output"], 99.0)
 
     def test_a_broken_file_is_reported_and_never_raises(self):

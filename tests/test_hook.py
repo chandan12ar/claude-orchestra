@@ -15,7 +15,7 @@ HOOK = os.path.join(ROOT, "orchestra", "hook.py")
 def run_hook(stdin, state, **extra_env):
     env = dict(os.environ, ORCHESTRA_STATE_DIR=state, **extra_env)
     return subprocess.run([sys.executable, HOOK], input=stdin, env=env,
-                          capture_output=True, text=True, timeout=30)
+                          capture_output=True, encoding="utf-8", timeout=30)
 
 
 class TestHookProcess(unittest.TestCase):

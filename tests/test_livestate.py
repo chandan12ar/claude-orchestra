@@ -208,9 +208,9 @@ class TestBuildIntegration(IntegrationCase):
     def test_a_stop_after_an_unanswered_tool_call_is_a_failure(self):
         # Make a3 die mid-tool: drop its tool_result.
         path = os.path.join(self.paths.subagents_dir, "agent-a3.jsonl")
-        with open(path) as fh:
+        with open(path, encoding="utf-8") as fh:
             lines = fh.read().splitlines()[:1]
-        with open(path, "w") as fh:
+        with open(path, "w", encoding="utf-8") as fh:
             fh.write("\n".join(lines) + "\n")
         self.put(ev(E.AGENT_STOP, 120, agent_id="a3"))
         self.assertEqual(self.run_at(150).agent("a3").status, C.FAILED)

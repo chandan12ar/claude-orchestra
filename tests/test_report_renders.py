@@ -101,7 +101,7 @@ class TestReportActuallyRenders(unittest.TestCase):
         path = os.path.join(self.root, "harness.js")
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(program)
-        proc = subprocess.run([NODE, path], capture_output=True, text=True,
+        proc = subprocess.run([NODE, path], capture_output=True, encoding="utf-8",
                               timeout=60)
         self.assertEqual(proc.returncode, 0,
                          "report JS crashed:\n" + proc.stderr[-2000:])

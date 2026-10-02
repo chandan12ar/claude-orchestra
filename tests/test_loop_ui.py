@@ -40,7 +40,7 @@ def loop_text(loop):
     path = os.path.join(tempfile.mkdtemp(), "l.js")
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(program)
-    proc = subprocess.run([NODE, path], capture_output=True, text=True, timeout=30)
+    proc = subprocess.run([NODE, path], capture_output=True, encoding="utf-8", timeout=30)
     assert proc.returncode == 0, proc.stderr
     return json.loads(proc.stdout)
 
@@ -80,7 +80,7 @@ class TestHealthBox(unittest.TestCase):
         path = os.path.join(tempfile.mkdtemp(), "h.js")
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(program)
-        proc = subprocess.run([NODE, path], capture_output=True, text=True, timeout=60)
+        proc = subprocess.run([NODE, path], capture_output=True, encoding="utf-8", timeout=60)
         self.assertEqual(proc.returncode, 0, proc.stderr[-1200:])
         out = json.loads(proc.stdout.strip().splitlines()[-1])
         self.assertIsNone(out["failure"], out["failure"])

@@ -47,7 +47,7 @@ def eval_js(expression, *names):
     path = os.path.join(tempfile.mkdtemp(), "c.js")
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(program)
-    proc = subprocess.run([NODE, path], capture_output=True, text=True, timeout=30)
+    proc = subprocess.run([NODE, path], capture_output=True, encoding="utf-8", timeout=30)
     if proc.returncode != 0:
         raise AssertionError(proc.stderr[-1500:])
     return json.loads(proc.stdout)
@@ -102,7 +102,7 @@ class TestHeader(unittest.TestCase):
         path = os.path.join(tempfile.mkdtemp(), "h.js")
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(program)
-        proc = subprocess.run([NODE, path], capture_output=True, text=True, timeout=60)
+        proc = subprocess.run([NODE, path], capture_output=True, encoding="utf-8", timeout=60)
         self.assertEqual(proc.returncode, 0, proc.stderr[-1500:])
         out = json.loads(proc.stdout.strip().splitlines()[-1])
         self.assertIsNone(out["failure"], out["failure"])
@@ -166,7 +166,7 @@ class TestBudgetAlerts(unittest.TestCase):
         path = os.path.join(tempfile.mkdtemp(), "b.js")
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(program)
-        proc = subprocess.run([NODE, path], capture_output=True, text=True, timeout=30)
+        proc = subprocess.run([NODE, path], capture_output=True, encoding="utf-8", timeout=30)
         self.assertEqual(proc.returncode, 0, proc.stderr[-800:])
         return json.loads(proc.stdout)
 
