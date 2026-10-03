@@ -78,7 +78,9 @@ cells a spreadsheet would execute as formulas are neutralised.
    file before merging their work.
 6. **Share a run.** Replay a finished run, then export a self-contained HTML report (secrets redacted) to
    send to a teammate or attach to a pull request.
-7. **See what your approvals cost.** The Insights card "Waiting on you" shows how long agents sat on your
+7. **Catch work nobody tested.** An agent reports "done" but never ran the tests after its last edit, or
+   its last test run failed. The Health box lists it with the file it edited and the last command it ran.
+8. **See what your approvals cost.** The Insights card "Waiting on you" shows how long agents sat on your
    permission prompts, which agent waited longest, and how much agent time was lost while several waited
    at once, so you can decide which tools to pre-approve.
 
@@ -101,6 +103,15 @@ You can try every one of these without a real run: `python -m orchestra --demo`.
   and files dominated, the prompt-cache hit rate, who used the most fresh tokens,
   and, with a price file, where the money went and when a budget runs out at the
   current burn rate.
+- **Did they check their work?** — for every agent that edited code: did it run a
+  test, build, type check or lint (or the very file it edited) after its last edit,
+  and did that pass? Finished agents with no check, or a failing one, go in the
+  Health box with the evidence. "Unchecked" means no check was seen, not that the
+  work is wrong. Docs and scratch files do not count. Add your own check commands
+  with `ORCHESTRA_VERIFY_PATTERN`.
+
+  ![The check card, dark theme: 3 of 6 agents checked, one failing, two unchecked, with the last file edited and the last command for each](docs/evidence/screenshots/24-checks-dark.png)
+
 - **Waiting on you** — how long agents sat on permission and input prompts only
   you could answer: your time (overlapping waits counted once), agent time lost
   (every wait added), the longest wait, a per-agent ranking and the latest prompts.
@@ -259,6 +270,7 @@ ignored in favour of the default.
 | `ORCHESTRA_BUDGET_WARN_RATIO` | 0.8 | Fraction of the budget at which warnings start |
 | `ORCHESTRA_LOOP_REPEATS` | 6 | An open agent whose last N tool calls are identical is flagged as a possible loop |
 | `ORCHESTRA_LOOP_CYCLE_CALLS` | 16 | ...or whose last N calls strictly alternate between two distinct calls |
+| `ORCHESTRA_VERIFY_PATTERN` | none | Extra commands that count as checking work, as a regular expression (e.g. `\bsmoke\.sh\b`); an invalid one is ignored and the Insights card says so |
 | `ORCHESTRA_HISTORY` | off | `on` records run metrics for the History tab |
 | `ORCHESTRA_HISTORY_DB` | `~/.local/share/cuelight/history.sqlite` | Where history is kept |
 | `ORCHESTRA_HISTORY_DAYS` | 90 | Runs older than this are deleted |

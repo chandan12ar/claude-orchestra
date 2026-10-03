@@ -24,6 +24,7 @@ from orchestra.pricing import PriceSource, PriceTable
 from orchestra.runaway import detect_loop
 from orchestra.status import build_rounds, compute_status
 from orchestra.transcript import IncrementalReader
+from orchestra import verify
 
 
 MAX_EVENTS = 5000
@@ -248,6 +249,9 @@ class RunBuilder:
             found = detect_loop(digest.tool_calls, C.LOOP_REPEATS, C.LOOP_CYCLE_CALLS)
             loop = found.to_dict() if found else None
 
+        checked = verify.assess(digest.tool_calls,
+                                final=status in (C.COMPLETED, C.FAILED, C.ORPHANED))
+
         brief = launch.prompt if launch else ""
         description = str(meta.get("description") or (launch.description if launch else ""))
         final_result = ""
@@ -303,6 +307,7 @@ class RunBuilder:
             files_written=list(digest.files_written),
             files_read=list(digest.files_read),
             transcript_path=log_path,
+            verification=checked.to_dict() if checked else None,
         )
 
     def _orchestrator_block(self) -> Optional[Dict[str, object]]:

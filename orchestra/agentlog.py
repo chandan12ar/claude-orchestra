@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 from orchestra.model import ToolCall
+from orchestra.verify import classify
 from orchestra.parent import content_blocks, parse_timestamp
 
 _MAX_TARGET = 120
@@ -175,7 +176,8 @@ class AgentDigest:
     token_events: List[Tuple[float, int]] = field(default_factory=list)
     # Every timestamped entry: how a permission prompt learns when the agent moved again.
     activity: ActivityTimes = field(default_factory=ActivityTimes)
-    _open_tool_ids: set = field(default_factory=set)
+    # tool_use id -> its call, until the result arrives (and says whether it failed).
+    _open_tool_ids: Dict[str, ToolCall] = field(default_factory=dict)
     _usage_seen: Dict[str, Any] = field(default_factory=dict)
 
     def ingest(self, entries: List[Dict[str, Any]]) -> None:
@@ -222,12 +224,16 @@ class AgentDigest:
             elif kind == "tool_use":
                 name = str(block.get("name", ""))
                 params = block.get("input") if isinstance(block.get("input"), dict) else {}
-                self.tool_calls.append(
-                    ToolCall(name=name, target=_target_for(name, params), timestamp=at))
-                self._open_tool_ids.add(str(block.get("id", "")))
+                role, ref = classify(name, params)
+                call = ToolCall(name=name, target=_target_for(name, params), timestamp=at,
+                                verify=role, ref=ref)
+                self.tool_calls.append(call)
+                self._open_tool_ids[str(block.get("id", ""))] = call
                 self._record_files(name, params)
             elif kind == "tool_result":
-                self._open_tool_ids.discard(str(block.get("tool_use_id", "")))
+                call = self._open_tool_ids.pop(str(block.get("tool_use_id", "")), None)
+                if call is not None:
+                    call.ok = not bool(block.get("is_error"))
 
     def _record_files(self, name: str, params: Dict[str, Any]) -> None:
         write_field = _WRITE_TOOLS.get(name)

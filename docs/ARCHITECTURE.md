@@ -872,6 +872,22 @@ pure functions in `app.js`, tested under node.
   (`tickWaits`, any element with `data-wait-since`); a static report shows them frozen at
   the time it was written.
 
+### Did they check their work? (`verify.py`)
+- Each tool call is classified when it is read (`verify.classify`, on the full input, since the
+  stored target is cut at 120 characters): **edit** (Write/Edit/NotebookEdit of a code or config
+  file, not in a `scratchpad`/`scratch`/`tmp`/`temp` folder), **check** (a Bash/PowerShell command
+  matching the built-in list of test, build, type-check and lint commands, or
+  `ORCHESTRA_VERIFY_PATTERN`), or **run** (an interpreter followed by code files; `ref` keeps their
+  names). Here-document bodies are removed first, so a commit message that mentions `npm test` is
+  not a check, and names must stand alone (`vitest.config.ts` is not `vitest`).
+- The tool result's `is_error` sets `ToolCall.ok` (real transcripts mark a non-zero exit this way).
+- `verify.assess`: after the last edit, the last check (or a run of the file edited last) decides
+  **checked** or **failing**; none is **unchecked** (with `checked_before` when one ran earlier).
+  `final` is set once the agent has finished, and only then does the Health box list it.
+- Measured on the owner's real transcripts before release: 172 agents, 58 edited code and all 58
+  checked. The first draft flagged 11, all throwaway scripts in scratch folders; that is why scratch
+  files are excluded and running the edited file counts.
+
 ### Graph and Work Floor
 - **Graph layout** (`layoutGraph`) is a pure function split into `graphRankColumns`
   (longest path over exact edges; columns indexed, never raw rank), `graphOrderColumns`

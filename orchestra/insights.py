@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from orchestra.model import Agent, Run
 from orchestra.redact import scrub
+from orchestra import verify
 
 # Mirrors the dashboard's tool taxonomy (app.js TOOL_BUCKETS), so a colour means the
 # same thing in the drawer, the ticker and here.
@@ -392,4 +393,5 @@ def compute(run: Run, now: float, table: Any = None) -> Dict[str, Any]:
             "tokens": _tokens(run, table),
             "files": _files(run),
             "slowest": _slowest(run, now),
-            "waits": _waits(run, now)}
+            "waits": _waits(run, now),
+            "checks": verify.summary(run.agents) if run.agents else None}

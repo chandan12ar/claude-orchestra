@@ -248,7 +248,9 @@ button[aria-pressed="true"] { color: var(--ink); background: color-mix(in srgb, 
 .health li:hover { border-color: var(--line-strong); background: var(--panel); color: var(--ink); }
 .health li::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--unknown); flex: none; }
 .health li[data-kind="stalled"]::before, .health li[data-kind="loop"]::before, .health li[data-kind="conflict"]::before { background: var(--stalled); }
-.health li[data-kind="failed"]::before, .health li[data-kind="orphaned"]::before { background: var(--failed); }
+.health li[data-kind="failed"]::before, .health li[data-kind="orphaned"]::before,
+.health li[data-kind="checks-failing"]::before { background: var(--failed); }
+.health li[data-kind="unchecked"]::before { background: var(--stalled); }
 .health li[data-kind="waiting"]::before { background: var(--waiting); }
 
 .attention { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
@@ -589,7 +591,17 @@ main { padding: 16px 20px 32px; max-width: 1760px; margin: 0 auto; outline: none
 .wait-len { font-variant-numeric: tabular-nums; text-align: right; }
 .wait-open .wait-len { color: var(--waiting); font-weight: 650; }
 .wait-unanswered .wait-len { color: var(--muted); font-style: italic; }
+.check-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 12.5px; }
+.check-list li { display: grid; grid-template-columns: 9.5em minmax(0, 1fr); gap: 12px; align-items: baseline;
+  padding: 6px 8px; border-radius: var(--r-md); border: 1px solid var(--line); background: var(--panel-2); cursor: pointer; }
+.check-list li:hover { border-color: var(--line-strong); }
+.check-state { font-weight: 650; display: flex; align-items: center; gap: 7px; }
+.check-state::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--stalled); flex: none; }
+.check-failing .check-state::before { background: var(--failed); }
+.check-who { min-width: 0; overflow-wrap: anywhere; }
+.check-who small { display: block; color: var(--muted); margin-top: 2px; }
 @media (max-width: 560px) {
+  .check-list li { grid-template-columns: minmax(0, 1fr); gap: 2px; }
   .wait-list li { grid-template-columns: minmax(0, 1fr) auto; }
   .wait-when { grid-column: 1 / -1; }
 }

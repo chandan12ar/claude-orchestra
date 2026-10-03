@@ -47,6 +47,9 @@ class ToolCall:
     name: str = ""
     target: str = ""
     timestamp: Optional[float] = None
+    ok: Optional[bool] = None     # False when its result was an error; None until a result arrives
+    verify: str = ""              # orchestra.verify.EDIT / CHECK / RUN, or ""
+    ref: str = ""                 # the file an EDIT wrote or the scripts a RUN ran (orchestra.verify)
 
 
 @dataclass
@@ -80,6 +83,8 @@ class Agent:
     waited_s: float = 0.0
     wait_count: int = 0
     wait_open_since: Optional[float] = None
+    # Whether it checked its work after its last code edit (orchestra.verify), or None.
+    verification: Optional[Dict[str, Any]] = None
 
     @property
     def started_at(self) -> Optional[float]:
@@ -157,6 +162,7 @@ class Agent:
             "waited_s": self.waited_s,
             "wait_count": self.wait_count,
             "wait_open_since": self.wait_open_since,
+            "verification": self.verification,
         }
 
     def to_detail_dict(self) -> Dict[str, Any]:
@@ -171,7 +177,7 @@ class Agent:
             "expected_output": scrub(self.expected_output.text),
             "expected_output_source": self.expected_output.source,
             "tool_calls": [{"name": t.name, "target": scrub(t.target),
-                            "timestamp": t.timestamp} for t in self.tool_calls],
+                            "timestamp": t.timestamp, "ok": t.ok} for t in self.tool_calls],
             # These are transcript-derived paths too: the same string is
             # scrubbed in tool_calls[].target, so leaving it raw here would
             # be a hole in the single chokepoint spec section 11 promises.

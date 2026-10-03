@@ -1370,6 +1370,21 @@ function renderCostPart(run) {
   $("totals").appendChild(span);
 }
 
+function fileName(path) {
+  return String(path || "").replace(/\.\.\.$/, "…").replace(/^.*[\\/]/, "");
+}
+
+// What an agent's verification says, in words (orchestra/verify.py decides the state).
+function checkText(v) {
+  const check = v.last_check;
+  if (v.state === "failing") return "last check failed: " + check.target;
+  if (v.state === "checked") {
+    return (check.ok === null || check.ok === undefined ? "check running: " : "passed after the last edit: ") + check.target;
+  }
+  return "no test, build or lint after its last edit (" + fileName(v.last_edit.target) + ")" +
+    (v.checked_before ? "; one ran before it" : "") + (v.final ? "" : ", so far");
+}
+
 function renderHealth(run) {
   const items = [];
   for (const agent of run.agents) {
@@ -1381,6 +1396,12 @@ function renderHealth(run) {
     if (agent.loop) {
       items.push({ id: agent.agent_id, kind: "loop",
         text: "POSSIBLE LOOP — " + label + ": " + loopText(agent.loop) });
+    }
+    // Only once it has finished: a running agent may still be about to run its tests.
+    const v = agent.verification;
+    if (v && v.final && v.state !== "checked") {
+      items.push({ id: agent.agent_id, kind: v.state === "failing" ? "checks-failing" : "unchecked",
+        text: (v.state === "failing" ? "CHECKS FAILING — " : "UNCHECKED — ") + label + ": " + checkText(v) });
     }
   }
   const box = $("health");
@@ -3648,6 +3669,33 @@ function insWaits(ins, run) {
     "<h4>By agent</h4>" + rows + "<h4>Latest prompts</h4>" + recent, "wide");
 }
 
+// Did the agents that edited code run a test, build, type check or lint afterwards?
+function insChecks(ins) {
+  const c = ins.checks;
+  const title = "Did they check their work?";
+  if (!c) return "";
+  const notes = c.pattern_error ? '<p class="card-note">' + esc(c.pattern_error) + "</p>" : "";
+  if (!c.edited) return insCard(title, "", notes + insEmpty("No agent has edited a code file yet."));
+  const n = c.counts;
+  const metrics = '<div class="metrics">' +
+    insMetric(n.checked + " of " + c.edited, "ran a check after their last edit") +
+    insMetric(n.failing, "finished with a failing check") +
+    insMetric(n.unchecked, "ran no check after their last edit") + "</div>";
+  const split = '<div class="split">' + [["checked", "completed"], ["failing", "failed"], ["unchecked", "stalled"]]
+    .filter(([k]) => n[k]).map(([k, color]) =>
+      '<span style="width:' + ((n[k] / c.edited) * 100).toFixed(1) + "%;background:var(--" + color + ')" title="' +
+      esc(k + " " + n[k]) + '"></span>').join("") + "</div>";
+  const rows = c.attention.length ? "<h4>Worth a look</h4>" + '<ol class="check-list">' + c.attention.map((r) =>
+    '<li class="check-' + esc(r.state) + '" data-agent="' + esc(r.agent_id) + '" role="button" tabindex="0">' +
+    '<span class="check-state">' + esc(r.state === "failing" ? "failing" : r.final ? "unchecked" : "unchecked so far") + "</span>" +
+    '<span class="check-who">' + esc(r.label || r.agent_id) + "<small>" + esc(checkText(r)) + "</small></span></li>").join("") +
+    "</ol>" : "";
+  return insCard(title,
+    "A check is a test, build, type check or lint command (or running the file just edited) after an agent's last code edit. " +
+    "Unchecked means none was seen, not that the work is wrong. Docs and scratch files do not count.",
+    metrics + split + notes + rows, "wide");
+}
+
 function tickWaits() {
   if (state.offline) return;
   const now = Date.now() / 1000;
@@ -3695,7 +3743,7 @@ function renderInsights(run) {
     return;
   }
   const width = Math.max(320, (box.clientWidth || 960) - 38);
-  box.innerHTML = insParallelism(ins, width) + insCritical(ins) + insWaits(ins, run) + insTools(ins) +
+  box.innerHTML = insParallelism(ins, width) + insCritical(ins) + insChecks(ins) + insWaits(ins, run) + insTools(ins) +
     insTokens(ins, run) + insSpend(run) + insSlowest(ins) + insFiles(ins);
   for (const el of box.querySelectorAll("[data-agent]")) {
     const open = () => openDrawer(el.getAttribute("data-agent"));
@@ -4351,7 +4399,9 @@ async function openDrawer(agentId) {
     esc(agent.agent_id) + "</code></div></div>" +
     '<div class="drawer-body">' +
     "<dl>" + rows.map(([k, v]) =>
-      "<dt>" + esc(k) + "</dt><dd>" + esc(v) + "</dd>").join("") + waitRow(agent, waitNow(state.run)) + "</dl>" +
+      "<dt>" + esc(k) + "</dt><dd>" + esc(v) + "</dd>").join("") + waitRow(agent, waitNow(state.run)) +
+      (agent.verification ? "<dt>checked its work</dt><dd>" + esc((agent.verification.state === "checked" ? "yes, " : "") +
+        checkText(agent.verification)) + "</dd>" : "") + "</dl>" +
     "<h3>Tool mix</h3>" + (renderToolMix(agent.tool_calls) || '<p class="source-note">no tool calls yet</p>') +
     "<h3>Objective</h3><pre>" + esc(agent.objective || "\u2014") + "</pre>" +
     '<div class="source-note">' + esc(agent.objective_source) + "</div>" +
