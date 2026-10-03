@@ -591,6 +591,25 @@ main { padding: 16px 20px 32px; max-width: 1760px; margin: 0 auto; outline: none
 .wait-len { font-variant-numeric: tabular-nums; text-align: right; }
 .wait-open .wait-len { color: var(--waiting); font-weight: 650; }
 .wait-unanswered .wait-len { color: var(--muted); font-style: italic; }
+.change-total { margin: 0 0 8px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.change { border: 1px solid var(--line); border-radius: var(--r-md); margin: 0 0 6px; background: var(--panel); }
+.change summary { display: flex; align-items: center; gap: 8px; padding: 7px 10px; cursor: pointer; font-size: 13px; }
+.change summary:hover { background: var(--panel-2); }
+.change-name { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.change-tag { font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line-strong); color: var(--muted); }
+.change-count { margin-left: auto; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.change-count .plus { color: var(--completed); font-weight: 650; }
+.change-count .minus { color: var(--failed); font-weight: 650; }
+.change-path { padding: 0 10px 6px; color: var(--muted); font-size: 11.5px; overflow-wrap: anywhere; }
+.diff-wrap { overflow-x: auto; border-top: 1px solid var(--line); }
+.diff { border-collapse: collapse; width: 100%; font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 12px; line-height: 1.5; }
+.diff td { padding: 0 8px; vertical-align: top; }
+.diff .ln { width: 1%; min-width: 3ch; text-align: right; color: var(--faint); user-select: none; font-variant-numeric: tabular-nums; }
+.diff .code { white-space: pre; color: var(--ink); }
+.diff-add .code, .diff-add .ln { background: color-mix(in srgb, var(--completed) 14%, transparent); }
+.diff-del .code, .diff-del .ln { background: color-mix(in srgb, var(--failed) 14%, transparent); }
+.diff-hunk td { color: var(--muted); background: var(--panel-2); padding: 2px 8px; font-size: 11.5px; }
 .check-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 12.5px; }
 .check-list li { display: grid; grid-template-columns: 9.5em minmax(0, 1fr); gap: 12px; align-items: baseline;
   padding: 6px 8px; border-radius: var(--r-md); border: 1px solid var(--line); background: var(--panel-2); cursor: pointer; }

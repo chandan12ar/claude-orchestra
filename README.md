@@ -80,7 +80,9 @@ cells a spreadsheet would execute as formulas are neutralised.
    send to a teammate or attach to a pull request.
 7. **Catch work nobody tested.** An agent reports "done" but never ran the tests after its last edit, or
    its last test run failed. The Health box lists it with the file it edited and the last command it ran.
-8. **See what your approvals cost.** The Insights card "Waiting on you" shows how long agents sat on your
+8. **Review what each agent changed.** Open an agent and read its diffs file by file, with line numbers,
+   before you merge its work; the Insights card shows who changed the most and which files changed most.
+9. **See what your approvals cost.** The Insights card "Waiting on you" shows how long agents sat on your
    permission prompts, which agent waited longest, and how much agent time was lost while several waited
    at once, so you can decide which tools to pre-approve.
 
@@ -111,6 +113,13 @@ You can try every one of these without a real run: `python -m orchestra --demo`.
   with `ORCHESTRA_VERIFY_PATTERN`.
 
   ![The check card, dark theme: 3 of 6 agents checked, one failing, two unchecked, with the last file edited and the last command for each](docs/evidence/screenshots/24-checks-dark.png)
+
+- **What changed** — each agent's file changes as real diffs (from the patches Claude
+  Code records), folded per file in the agent panel with line numbers and the time of
+  each edit, plus an Insights card with lines added and removed per agent and the most
+  changed files. Redacted like everything else; scratch files are shown but not counted.
+
+  ![An agent's Changes section, dark theme: three new files and an edit with old and new line numbers](docs/evidence/screenshots/27-agent-diff-dark.png)
 
 - **Waiting on you** — how long agents sat on permission and input prompts only
   you could answer: your time (overlapping waits counted once), agent time lost

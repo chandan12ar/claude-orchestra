@@ -888,6 +888,24 @@ pure functions in `app.js`, tested under node.
   checked. The first draft flagged 11, all throwaway scripts in scratch folders; that is why scratch
   files are excluded and running the edited file counts.
 
+### What changed (`changes.py`)
+- When an edit succeeds, Claude Code writes the patch it applied beside the result
+  (`toolUseResult.structuredPatch`: hunks with `oldStart`/`newStart` and ' ', '-', '+' lines) and, for
+  a new file, `type: "create"` and its content. `AgentDigest` keeps each edit's input until its result
+  arrives, then `changes.extract` builds `{path, created, hunks}` from that record, or from the input
+  (Edit's `old_string`/`new_string`, MultiEdit's edits, Write's content) when there is none. A result
+  with `is_error` is skipped. An entry that carries several tool results has one `toolUseResult` that
+  cannot be matched, so it is not trusted for any of them.
+- `ChangeLog` groups by file in first-touched order, keeps at most 1,500 diff lines per agent (counts
+  stay complete; `truncated` marks the cut) and 200 files. The builder hands each `Agent` a snapshot, so
+  a later read never changes a run that is being serialised.
+- Output: the light payload carries totals (project files only); the detail payload carries
+  `change_files` with the hunks, each hunk scrubbed as one text (a PEM block spanning lines is caught)
+  and long lines cut after scrubbing. Static reports embed every agent's detail, diffs included.
+- `insights.changes`: totals, agents ranked by lines changed, and the most changed files, keyed by
+  `edges.normalize_path` so worktree copies of a file are one file. Scratch/temp files
+  (`verify.is_scratch`) are listed in the panel but never counted.
+
 ### Graph and Work Floor
 - **Graph layout** (`layoutGraph`) is a pure function split into `graphRankColumns`
   (longest path over exact edges; columns indexed, never raw rank), `graphOrderColumns`

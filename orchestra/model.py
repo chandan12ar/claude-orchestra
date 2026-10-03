@@ -85,6 +85,8 @@ class Agent:
     wait_open_since: Optional[float] = None
     # Whether it checked its work after its last code edit (orchestra.verify), or None.
     verification: Optional[Dict[str, Any]] = None
+    # What it changed (orchestra.changes.ChangeLog): totals in the light payload, diffs in the detail.
+    changes: Any = None
 
     @property
     def started_at(self) -> Optional[float]:
@@ -163,6 +165,7 @@ class Agent:
             "wait_count": self.wait_count,
             "wait_open_since": self.wait_open_since,
             "verification": self.verification,
+            "changes": self.changes.totals() if self.changes is not None else None,
         }
 
     def to_detail_dict(self) -> Dict[str, Any]:
@@ -184,6 +187,7 @@ class Agent:
             "files_written": [scrub(p) for p in self.files_written],
             "files_read": [scrub(p) for p in self.files_read],
             "transcript_path": scrub(self.transcript_path),
+            "change_files": self.changes.to_dicts() if self.changes is not None else [],
         })
         return d
 

@@ -3696,6 +3696,26 @@ function insChecks(ins) {
     metrics + split + notes + rows, "wide");
 }
 
+// What the run changed: totals, who changed the most, which files changed the most.
+function insChanges(ins) {
+  const c = ins.changes;
+  if (!c) return "";
+  const metrics = '<div class="metrics">' + insMetric(c.files, c.files === 1 ? "file changed" : "files changed") +
+    insMetric("+" + fmtCount(c.added), "lines added") + insMetric("−" + fmtCount(c.removed), "lines removed") +
+    insMetric(c.created, c.created === 1 ? "new file" : "new files") + "</div>";
+  const agents = "<h4>By agent</h4>" + insRank(c.by_agent.map((a) => ({
+    name: a.label || a.agent_id, agent: a.agent_id, value: a.added + a.removed,
+    label: "+" + fmtCount(a.added) + " −" + fmtCount(a.removed),
+    note: a.files + (a.files === 1 ? " file" : " files"), color: "var(--running)" })));
+  const files = "<h4>Most changed files</h4>" + insRank(c.top_files.map((f) => ({
+    name: fileName(f.path), title: f.path, value: f.added + f.removed,
+    label: "+" + fmtCount(f.added) + " −" + fmtCount(f.removed),
+    note: (f.created ? "new" : "") + (f.agents > 1 ? (f.created ? ", " : "") + f.agents + " agents" : "") })));
+  return insCard("What changed",
+    "Lines added and removed by each agent, from the patches Claude Code recorded. Open an agent to read its diffs. Scratch files are not counted.",
+    metrics + agents + files);
+}
+
 function tickWaits() {
   if (state.offline) return;
   const now = Date.now() / 1000;
@@ -3743,7 +3763,7 @@ function renderInsights(run) {
     return;
   }
   const width = Math.max(320, (box.clientWidth || 960) - 38);
-  box.innerHTML = insParallelism(ins, width) + insCritical(ins) + insChecks(ins) + insWaits(ins, run) + insTools(ins) +
+  box.innerHTML = insParallelism(ins, width) + insCritical(ins) + insChecks(ins) + insWaits(ins, run) + insChanges(ins) + insTools(ins) +
     insTokens(ins, run) + insSpend(run) + insSlowest(ins) + insFiles(ins);
   for (const el of box.querySelectorAll("[data-agent]")) {
     const open = () => openDrawer(el.getAttribute("data-agent"));
@@ -4334,6 +4354,47 @@ function closeDrawer() {
   }, DRAWER_TRANSITION_MS);
 }
 
+// One file's diff as table rows, numbered from the hunk starts when the patch gave them.
+function diffHtml(file) {
+  let rows = "";
+  for (const h of file.hunks) {
+    let oldNo = h.old_start;
+    let newNo = h.new_start;
+    const known = typeof oldNo === "number" && typeof newNo === "number";
+    rows += '<tr class="diff-hunk"><td colspan="3">' +
+      esc((known ? "@@ −" + oldNo + " +" + newNo + " @@" : "@@ edit @@") + (h.at ? "  " + fmtClock(h.at) : "")) + "</td></tr>";
+    for (const line of h.lines) {
+      const sign = line.charAt(0);
+      const cls = sign === "+" ? "add" : sign === "-" ? "del" : "ctx";
+      const o = known && sign !== "+" ? oldNo++ : "";
+      const n = known && sign !== "-" ? newNo++ : "";
+      rows += '<tr class="diff-' + cls + '"><td class="ln">' + o + '</td><td class="ln">' + n +
+        '</td><td class="code">' + esc(line) + "</td></tr>";
+    }
+  }
+  return '<div class="diff-wrap"><table class="diff">' + rows + "</table></div>";
+}
+
+// What the agent changed, file by file, each diff folded until opened.
+function changesHtml(files) {
+  if (!files || !files.length) return '<p class="source-note">no file changes recorded</p>';
+  const real = files.filter((f) => !f.scratch);
+  const added = real.reduce((s, f) => s + f.added, 0);
+  const removed = real.reduce((s, f) => s + f.removed, 0);
+  const one = (f) => '<details class="change"><summary>' +
+    '<span class="change-name" title="' + esc(f.path) + '">' + esc(fileName(f.path)) + "</span>" +
+    (f.created ? '<span class="change-tag">new</span>' : "") + (f.scratch ? '<span class="change-tag">scratch</span>' : "") +
+    '<span class="change-count"><b class="plus">+' + f.added + '</b> <b class="minus">−' + f.removed + "</b>" +
+    (f.edits > 1 ? " · " + f.edits + " edits" : "") + "</span></summary>" +
+    '<div class="change-path">' + esc(f.path) + "</div>" + diffHtml(f) +
+    (f.truncated ? '<p class="source-note">Longer than Cuelight keeps per agent; the counts above are complete.</p>' : "") +
+    "</details>";
+  const scratch = files.filter((f) => f.scratch);
+  return '<p class="change-total">' + esc("+" + added + " −" + removed + " in " + real.length +
+    (real.length === 1 ? " file" : " files")) + "</p>" + real.map(one).join("") +
+    (scratch.length ? '<p class="source-note">Scratch files (not counted):</p>' + scratch.map(one).join("") : "");
+}
+
 // The agent panel's "waited on you" line: answered waits, plus the one still open, live.
 function waitRow(agent, now) {
   const count = agent.wait_count || 0;
@@ -4410,6 +4471,7 @@ async function openDrawer(agentId) {
     "<h3>Returned result</h3><pre>" + esc(agent.result || "(still running)") + "</pre>" +
     "<details><summary>Full brief</summary><pre>" + esc(agent.brief) + "</pre></details>" +
     "<details><summary>Tool calls (last 40)</summary><pre>" + tools + "</pre></details>" +
+    "<h3>Changes</h3>" + changesHtml(agent.change_files) +
     "<h3>Files written</h3><pre>" + esc(agent.files_written.join("\n") || "\u2014") + "</pre>" +
     "<h3>Files read</h3><pre>" + esc(agent.files_read.join("\n") || "\u2014") + "</pre>" +
     "</div>";

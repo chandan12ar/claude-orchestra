@@ -218,6 +218,37 @@ def _tool_block(uid: str, name: str, target: str) -> Dict[str, Any]:
     return {"type": "tool_use", "id": uid, "name": name, "input": params}
 
 
+def _edit_result(name: str, target: str) -> Optional[Dict[str, Any]]:
+    """The toolUseResult Claude Code records for a successful Write or Edit: the patch."""
+    stem = os.path.splitext(os.path.basename(target))[0]
+    ext = os.path.splitext(target)[1].lower()
+    if name == "Write":
+        if ext == ".sql":
+            lines = ["-- 0042: checkout v2", "CREATE TABLE payment_intents (", "  id TEXT PRIMARY KEY,",
+                     "  cart_id TEXT NOT NULL REFERENCES carts(id),", "  amount_cents INTEGER NOT NULL,",
+                     "  status TEXT NOT NULL DEFAULT 'created'", ");"]
+        elif ext == ".md":
+            lines = ["# " + stem.replace("-", " ").title(), "", "Written by the demo agent."]
+        else:
+            lines = ["// " + stem + ": checkout v2", "", "export interface " + stem.title().replace("-", "") + "Options {",
+                     "  currency: string;", "  retries?: number;", "}", "",
+                     "export function create" + stem.title().replace("-", "") + "(options: "
+                     + stem.title().replace("-", "") + "Options) {", "  return { ...options, createdAt: Date.now() };",
+                     "}"]
+        content = "\n".join(lines)
+        return {"type": "create", "filePath": target, "content": content, "structuredPatch": [],
+                "originalFile": None}
+    if name == "Edit":
+        return {"filePath": target, "structuredPatch": [{
+            "oldStart": 12, "oldLines": 4, "newStart": 12, "newLines": 5,
+            "lines": [" export function total(items: Item[]) {",
+                      "-  return items.reduce((sum, i) => sum + i.price, 0);",
+                      "+  // Quantities were ignored, so a cart of two showed the price of one.",
+                      "+  return items.reduce((sum, i) => sum + i.price * i.quantity, 0);",
+                      " }"]}]}
+    return None
+
+
 def _stop_offset(agent: _Agent, now_off: float) -> float:
     if agent.status == "stalled":
         return now_off - agent.quiet_for
@@ -250,12 +281,16 @@ def _agent_entries(agent: _Agent, clock: _Clock, rng: random.Random,
             "message": {"id": "msg_" + uid, "role": "assistant", "model": model_id,
                         "content": [_tool_block(uid, name, target)],
                         "usage": _usage(rng, agent.model, i)}})
-        entries.append({
+        result = {
             "isSidechain": True, "agentId": agent.agent_id,
             "timestamp": _iso(clock.at(offset + rng.uniform(0.6, 2.4))), "type": "user",
             "message": {"role": "user", "content": [
                 {"type": "tool_result", "tool_use_id": uid, "is_error": i in agent.fails,
-                 "content": "Exit code 1\n3 failing" if i in agent.fails else "ok"}]}})
+                 "content": "Exit code 1\n3 failing" if i in agent.fails else "ok"}]}}
+        patch = _edit_result(name, target)
+        if patch is not None:
+            result["toolUseResult"] = patch
+        entries.append(result)
     if agent.status in ("completed", "failed") and agent.result:
         uid = agent.key + "_final"
         entries.append({
@@ -446,16 +481,20 @@ class Simulator(threading.Thread):
             uid = "{}_live{}".format(agent.key, self._step)
             model_id = MODELS[agent.model]
             path = os.path.join(self.paths.subagents_dir, "agent-{}.jsonl".format(agent.agent_id))
+            result = {"isSidechain": True, "agentId": agent.agent_id, "timestamp": _iso(now + 1.2),
+                      "type": "user",
+                      "message": {"role": "user", "content": [
+                          {"type": "tool_result", "tool_use_id": uid, "content": "ok"}]}}
+            patch = _edit_result(name, target)
+            if patch is not None:
+                result["toolUseResult"] = patch
             _append_jsonl(path, [
                 {"isSidechain": True, "agentId": agent.agent_id, "timestamp": _iso(now),
                  "type": "assistant", "uuid": "u-" + uid,
                  "message": {"id": "msg_" + uid, "role": "assistant", "model": model_id,
                              "content": [_tool_block(uid, name, target)],
                              "usage": _usage(self._rng, agent.model, 3 + self._step % 5, 0.2)}},
-                {"isSidechain": True, "agentId": agent.agent_id, "timestamp": _iso(now + 1.2),
-                 "type": "user",
-                 "message": {"role": "user", "content": [
-                     {"type": "tool_result", "tool_use_id": uid, "content": "ok"}]}}])
+                result])
             moved += 1
         # The orchestrator is alive too: this is what keeps the session "live".
         _append_jsonl(self.paths.session_jsonl, [

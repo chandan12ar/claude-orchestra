@@ -6,6 +6,21 @@ versions follow [SemVer](https://semver.org/) (the `version` in
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-03
+
+### Added
+- **Review the changes**: every agent's file changes as real diffs. The agent panel has a Changes
+  section: one folded entry per file with lines added and removed, "new" for created files, and the
+  diff with old and new line numbers and the time of each edit. An Insights card "What changed" totals
+  files, lines added and removed and new files, ranks agents by lines changed, and lists the most
+  changed files (worktree copies of a file count as one). Diffs come from the patch Claude Code records
+  for each successful edit (`toolUseResult.structuredPatch`, or a new file's content), so nothing is
+  re-diffed; transcripts without it fall back to the edit's own old and new text. Failed edits are not
+  counted. Bounded at 1,500 diff lines per agent (counts stay complete) and redacted as one text per
+  hunk, so a key spread over several lines is caught. Files in scratch or temp folders are shown but not
+  counted. Static reports carry the diffs too.
+- The demo records realistic patches for its new files and edits.
+
 ## [0.7.0] - 2026-10-03
 
 ### Added
