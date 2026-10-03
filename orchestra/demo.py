@@ -3,7 +3,8 @@
 ``python -m orchestra --demo`` builds a throwaway ``~/.claude`` tree in a temp
 directory, points the server at it and keeps the running agents moving, so every
 view has something to show: parallel waves, a nested agent, a handoff, a failure,
-a possible loop, a stalled agent, a write conflict, permission prompts (answered
+a possible loop, a stalled agent, a write conflict, checked, failing and
+unchecked work, permission prompts (answered
 ones and one still waiting on you) and a price table. Nothing here touches the real ``~/.claude``.
 
 The scenario is fixed (and the numbers seeded) so screenshots and tests are
@@ -60,6 +61,7 @@ class _Agent:
     loop: bool = False
     asks: Tuple[int, ...] = ()   # a permission prompt just before each of these tool calls
     waiting: int = 0          # > 0: sitting on a prompt raised this many seconds ago
+    fails: Tuple[int, ...] = ()  # tool calls whose result is an error (a failing test run)
 
     @property
     def agent_id(self) -> str:
@@ -145,7 +147,7 @@ def _scenario() -> List[_Agent]:
                _read("src/cart/service.ts", "src/payments/adapter.ts")
                + [("Write", CWD + "/tests/cart.test.ts"), ("Bash", "npm test"),
                   ("Edit", CWD + "/tests/cart.test.ts"), ("Bash", "npm test")],
-               "Tests still fail: 3 of 41 assertions fail in cart rounding.", wave="verify"),
+               "Tests still fail: 3 of 41 assertions fail in cart rounding.", wave="verify", fails=(3, 5)),
         _Agent("e2e", "Run the end-to-end suite", "general-purpose", "sonnet", 625, None, "running",
                _read("tests/e2e/checkout.spec.ts")
                + [("Bash", "npm run e2e -- checkout.spec.ts")] * 9, wave="verify", loop=True),
@@ -252,7 +254,8 @@ def _agent_entries(agent: _Agent, clock: _Clock, rng: random.Random,
             "isSidechain": True, "agentId": agent.agent_id,
             "timestamp": _iso(clock.at(offset + rng.uniform(0.6, 2.4))), "type": "user",
             "message": {"role": "user", "content": [
-                {"type": "tool_result", "tool_use_id": uid, "content": "ok"}]}})
+                {"type": "tool_result", "tool_use_id": uid, "is_error": i in agent.fails,
+                 "content": "Exit code 1\n3 failing" if i in agent.fails else "ok"}]}})
     if agent.status in ("completed", "failed") and agent.result:
         uid = agent.key + "_final"
         entries.append({

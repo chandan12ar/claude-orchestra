@@ -182,8 +182,8 @@ observability layers and Build 2026. One branch, PR and minor version each, in t
 
 | # | Feature | State |
 |---|---|---|
-| 1 | **Waiting on you**: time agents sat on permission/input prompts (`feature/waiting-on-you`, 0.6.0) | built; tests + browser check (light, dark, phone) done; PR open for the owner to merge |
-| 2 | **Did it check its work?**: flag agents that edited files and never ran a test/build/lint after, plus repeated steps and empty finishes (rule-based, no LLM) | next |
+| 1 | **Waiting on you**: time agents sat on permission/input prompts (`feature/waiting-on-you`, 0.6.0) | merged (PR #14) |
+| 2 | **Did it check its work?** (`feature/verified-work`, 0.7.0): checked / failing / unchecked after the last code edit; finished unchecked and failing agents in the Health box (owner's choice) | built; tests, real-transcript check and browser check done; PR open |
 | 3 | **Review the changes**: per-agent changed files with before/after diffs | planned |
 | 4 | **What the run produced**: commits, PRs, test results; cost per commit/PR | planned |
 | 5 | **What each agent was told**: CLAUDE.md/rules/skills per agent via `InstructionsLoaded` (verify the payload in a live session first) | planned |

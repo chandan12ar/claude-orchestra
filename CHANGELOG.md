@@ -6,6 +6,20 @@ versions follow [SemVer](https://semver.org/) (the `version` in
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-03
+
+### Added
+- **Did they check their work?** For every agent that edited code, whether it ran a test, build,
+  type check or lint (or ran the very file it edited) after its last edit, and whether that check
+  passed. Finished agents that are unchecked or whose last check failed are listed in the Health box;
+  an Insights card counts checked, failing and unchecked agents and lists the ones worth a look with
+  the evidence (last file edited, last check command); the agent panel says it in one line. Docs and
+  files in scratch or temp folders do not count as code. Rule-based (`orchestra/verify.py`), no model
+  calls. Add your own check commands with `ORCHESTRA_VERIFY_PATTERN` (a regular expression; an
+  invalid one is ignored and the card says so).
+- Tool calls now record whether their result was an error (`ok` in the agent detail payload).
+- The demo has a failing test run, an agent that edited after its last type check, and checked ones.
+
 ## [0.6.0] - 2026-10-03
 
 ### Added

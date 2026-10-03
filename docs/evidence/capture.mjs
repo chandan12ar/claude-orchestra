@@ -41,6 +41,13 @@ const palette = (query) => `(async () => { ${press({ key: "k", ctrlKey: true })}
   const i = document.getElementById('palette-input'); i.value = ${JSON.stringify(query)};
   i.dispatchEvent(new Event('input')); await new Promise(r => setTimeout(r, 900)); })()`;
 
+// Scrolls an Insights card (by its title) to just under the sticky header.
+const cardShot = (title) => `(async () => { await new Promise(r => setTimeout(r, 600));
+  const h = document.querySelector('header').getBoundingClientRect().height;
+  const card = [...document.querySelectorAll('#insights h3')].find((e) => e.textContent === ${JSON.stringify(title)}).parentElement;
+  window.scrollTo(0, card.getBoundingClientRect().top + window.scrollY - h - 12);
+  await new Promise(r => setTimeout(r, 300)); })()`;
+
 // name, url, width, height, colour scheme, optional script run before the shot
 const shots = [
   ["01-timeline-light", DEMO, 1440, 900, "light"],
@@ -77,6 +84,12 @@ const shots = [
       const h = document.querySelector('header').getBoundingClientRect().height;
       const card = [...document.querySelectorAll('#insights h3')].find((e) => e.textContent === 'Waiting on you').parentElement;
       window.scrollTo(0, card.getBoundingClientRect().top + window.scrollY - h - 12);
+      await new Promise(r => setTimeout(r, 300)); })()`],
+  ["23-checks-light", DEMO + "#view=insights", 1440, 560, "light", cardShot("Did they check their work?")],
+  ["24-checks-dark", DEMO + "#view=insights", 1440, 560, "dark", cardShot("Did they check their work?")],
+  ["25-health-dark", DEMO, 1440, 420, "dark",
+    `(async () => { const h = document.querySelector('header').getBoundingClientRect().height;
+      window.scrollTo(0, document.getElementById('health').getBoundingClientRect().top + window.scrollY - h - 12);
       await new Promise(r => setTimeout(r, 300)); })()`],
   ["14-phone-timeline-light", DEMO, 390, 844, "light"],
   ["15-phone-insights-dark", DEMO + "#view=insights", 390, 1500, "dark"],
