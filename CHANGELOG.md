@@ -6,6 +6,11 @@ versions follow [SemVer](https://semver.org/) (the `version` in
 
 ## [Unreleased]
 
+### Fixed
+- The directory's validation blocked the plugin for "secret in a shipped file": the redaction tests
+  held fake keys as text. They are now built from pieces at run time (`tests/fake_secrets.py`), the old
+  planning document was cleaned the same way, and a test keeps secret-shaped text out of every file.
+
 ## [0.5.0] - 2026-10-03
 
 ### Added

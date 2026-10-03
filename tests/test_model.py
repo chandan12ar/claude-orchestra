@@ -2,6 +2,7 @@ import unittest
 
 from orchestra.model import Agent, Edge, Extraction, Round, Run
 from orchestra import constants as C
+from tests import fake_secrets as fake
 
 
 def make_agent(**kw):
@@ -74,7 +75,7 @@ class TestRunSerialization(unittest.TestCase):
 
 class TestSerializationRedacts(unittest.TestCase):
     def test_brief_and_result_are_scrubbed(self):
-        token = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        token = fake.GITHUB_TOKEN
         a = make_agent(brief="use " + token, result="also " + token)
         d = a.to_detail_dict()
         self.assertNotIn("ABCDEFGHIJ", d["brief"])
@@ -82,7 +83,7 @@ class TestSerializationRedacts(unittest.TestCase):
 
     def test_edge_evidence_is_scrubbed(self):
         e = Edge(src="a1", dst="a2", kind="handoff", confidence="inferred",
-                 evidence={"snippet": "token ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"})
+                 evidence={"snippet": "token " + fake.GITHUB_TOKEN})
         self.assertNotIn("ABCDEFGHIJ", e.to_dict()["evidence"]["snippet"])
 
 
@@ -104,7 +105,7 @@ class TestLightDictIsActuallyLight(unittest.TestCase):
     def test_a_secret_cannot_survive_the_cut_half_redacted(self):
         # Cap runs after scrub, so the credential is already a marker by the
         # time it could be split.
-        token = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        token = fake.GITHUB_TOKEN
         a = make_agent(objective=Extraction("x" * 190 + " " + token, "fallback"))
         self.assertNotIn("ABCDEFGHIJ", a.to_light_dict()["objective"])
 
