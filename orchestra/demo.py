@@ -3,8 +3,8 @@
 ``python -m orchestra --demo`` builds a throwaway ``~/.claude`` tree in a temp
 directory, points the server at it and keeps the running agents moving, so every
 view has something to show: parallel waves, a nested agent, a handoff, a failure,
-a possible loop, a stalled agent, a write conflict, a permission prompt and a
-price table. Nothing here touches the real ``~/.claude``.
+a possible loop, a stalled agent, a write conflict, permission prompts (answered
+ones and one still waiting on you) and a price table. Nothing here touches the real ``~/.claude``.
 
 The scenario is fixed (and the numbers seeded) so screenshots and tests are
 reproducible; only the clock moves.
@@ -58,6 +58,8 @@ class _Agent:
     wave: str = ""
     quiet_for: int = 0        # stalled: seconds since its last activity
     loop: bool = False
+    asks: Tuple[int, ...] = ()   # a permission prompt just before each of these tool calls
+    waiting: int = 0          # > 0: sitting on a prompt raised this many seconds ago
 
     @property
     def agent_id(self) -> str:
@@ -111,7 +113,7 @@ def _scenario() -> List[_Agent]:
                   ("Bash", "npm run typecheck"), ("Edit", CWD + "/src/cart/service.ts"),
                   ("Bash", "npm run typecheck")],
                "Cart service is in src/cart with totals computed once, in one place.",
-               wave="build"),
+               wave="build", asks=(3,)),
         _Agent("payments", "Build the payment adapter", "general-purpose", "sonnet", 340, 610,
                "completed",
                _read("docs/DESIGN.md", "docs/providers.md")
@@ -119,14 +121,14 @@ def _scenario() -> List[_Agent]:
                   ("Write", CWD + "/src/payments/intents.ts"),
                   ("Bash", "npm run typecheck"), ("Edit", CWD + "/src/payments/adapter.ts")],
                "Payment adapter wraps Stripe PaymentIntents; webhooks are handled by the "
-               "nested webhook agent.", wave="build"),
+               "nested webhook agent.", wave="build", asks=(4,)),
         _Agent("webhooks", "Handle payment webhooks", "general-purpose", "haiku", 405, 540,
                "completed",
                _read("docs/providers.md", "src/payments/adapter.ts")
                + [("Write", CWD + "/src/payments/webhooks.ts"),
                   ("Bash", "npm run test -- webhooks")],
                "Webhook handler verifies signatures and is idempotent on event id.",
-               depth=2, parent="payments", wave="build"),
+               depth=2, parent="payments", wave="build", asks=(0,)),
         _Agent("ui", "Build the checkout UI", "general-purpose", "sonnet", 340, None, "running",
                _read("docs/DESIGN.md", "src/cart/page.tsx")
                + [("Write", CWD + "/src/ui/Checkout.tsx"), ("Write", CWD + "/src/ui/Summary.tsx"),
@@ -154,7 +156,7 @@ def _scenario() -> List[_Agent]:
                wave="review", quiet_for=330),
         _Agent("docs", "Update the developer docs", "general-purpose", "haiku", 700, None, "running",
                _read("docs/DESIGN.md", "README.md")
-               + [("Write", CWD + "/docs/checkout.md")], wave="wrapup"),
+               + [("Write", CWD + "/docs/checkout.md")], wave="wrapup", waiting=45),
     ]
 
 
@@ -214,19 +216,30 @@ def _tool_block(uid: str, name: str, target: str) -> Dict[str, Any]:
     return {"type": "tool_use", "id": uid, "name": name, "input": params}
 
 
+def _stop_offset(agent: _Agent, now_off: float) -> float:
+    if agent.status == "stalled":
+        return now_off - agent.quiet_for
+    if agent.waiting:
+        return now_off - agent.waiting
+    return agent.end if agent.end is not None else now_off
+
+
+def _call_offset(agent: _Agent, i: int, now_off: float) -> float:
+    """Seconds after the session began at which the agent's i-th tool call lands."""
+    span = max(_stop_offset(agent, now_off) - agent.start - 8, 1)
+    return agent.start + 4 + span * (i + 1) / (len(agent.tools) + 1)
+
+
 def _agent_entries(agent: _Agent, clock: _Clock, rng: random.Random,
                    now_off: float) -> List[Dict[str, Any]]:
     """The agent's own transcript: one assistant+result pair per tool call."""
     model_id = MODELS[agent.model]
-    stop = agent.end if agent.end is not None else now_off
-    if agent.status == "stalled":
-        stop = now_off - agent.quiet_for
+    stop = _stop_offset(agent, now_off)
     calls = agent.tools
-    span = max(stop - agent.start - 8, 1)
     entries: List[Dict[str, Any]] = []
     for i, (name, target) in enumerate(calls):
-        offset = agent.start + 4 + span * (i + 1) / (len(calls) + 1)
-        if agent.end is None and agent.status == "running" and offset > now_off - 2:
+        offset = _call_offset(agent, i, now_off)
+        if agent.end is None and agent.status == "running" and offset > stop - 2:
             break
         uid = "{}_{}".format(agent.key, i)
         entries.append({
@@ -372,29 +385,45 @@ def write_prices(path: str) -> None:
         json.dump(PRICES, fh, indent=2)
 
 
-def write_events(spool: Any, session_id: str, now: Optional[float] = None,
-                 start: bool = True) -> None:
-    """A pending permission prompt, as a hook would have recorded it."""
+def write_events(spool: Any, session_id: str, now: Optional[float] = None) -> None:
+    """The hook events of the run: its start and every permission prompt.
+
+    The orchestrator asked once before the build wave, three build agents asked
+    mid-task (two of them at the same time), and the docs agent is waiting now.
+    """
     from orchestra.events import NOTIFICATION, SESSION_START, Event
     now = time.time() if now is None else now
-    if start:
-        spool.append(Event(kind=SESSION_START, session_id=session_id, ts=now - SESSION_AGE_S,
-                           cwd=CWD, detail={"source": "startup", "model": MODELS["opus"]}))
-    spool.append(Event(kind=NOTIFICATION, session_id=session_id, ts=now - (40 if start else 0), cwd=CWD,
-                       detail={"notification_type": "permission_prompt",
-                               "message": "Claude needs your permission to use Bash"}))
+    clock = _Clock(now)
+    now_off = now - clock.t0
+
+    def prompt(offset: float, agent_id: str, tool: str) -> None:
+        spool.append(Event(kind=NOTIFICATION, session_id=session_id, ts=clock.at(offset), cwd=CWD,
+                           agent_id=agent_id,
+                           detail={"notification_type": "permission_prompt",
+                                   "message": "Claude needs your permission to use " + tool}))
+
+    spool.append(Event(kind=SESSION_START, session_id=session_id, ts=clock.t0,
+                       cwd=CWD, detail={"source": "startup", "model": MODELS["opus"]}))
+    prompt(331, "", "Agent")
+    for agent in _scenario():
+        for i in agent.asks:
+            before = _call_offset(agent, i - 1, now_off) if i else agent.start
+            prompt(before + 2.6, agent.agent_id, agent.tools[i][0])
+        if agent.waiting:
+            prompt(now_off - agent.waiting + 1, agent.agent_id, "Bash")
 
 
 class Simulator(threading.Thread):
-    """Keeps the running agents moving, so the live views have something to do."""
+    """Keeps the running agents moving, so the live views have something to do.
 
-    def __init__(self, paths: SessionPaths, agents: List[_Agent], period_s: float = 4.0,
-                 spool: Any = None) -> None:
+    An agent sitting on a prompt stays still: any activity would answer it.
+    """
+
+    def __init__(self, paths: SessionPaths, agents: List[_Agent], period_s: float = 4.0) -> None:
         super().__init__(daemon=True)
         self.paths = paths
         self.agents = agents
         self.period_s = period_s
-        self.spool = spool            # when given, the permission prompt is kept pending
         self.stop_event = threading.Event()
         self._rng = random.Random(11)
         self._step = 0
@@ -405,7 +434,7 @@ class Simulator(threading.Thread):
         self._step += 1
         moved = 0
         for agent in self.agents:
-            if agent.status != "running":
+            if agent.status != "running" or agent.waiting:
                 continue
             if agent.loop:
                 name, target = "Bash", "npm run e2e -- checkout.spec.ts"
@@ -433,10 +462,6 @@ class Simulator(threading.Thread):
                                      "content": [{"type": "text", "text": "Still waiting."}],
                                      "usage": {"input_tokens": 20, "output_tokens": 40,
                                                "cache_read_input_tokens": 4000}}}])
-        if self.spool is not None:
-            # A real prompt stays pending until the user acts, and agent activity
-            # after it would clear it, so it is re-asserted just after each tick.
-            write_events(self.spool, self.paths.session_id, now + 0.6, start=False)
         return moved
 
     def _next_call(self, agent: _Agent) -> Tuple[str, str]:

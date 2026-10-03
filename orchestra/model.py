@@ -75,6 +75,11 @@ class Agent:
     files_written: List[str] = field(default_factory=list)
     files_read: List[str] = field(default_factory=list)
     transcript_path: str = ""
+    # Time spent on prompts only the user could answer (orchestra.livestate.waits):
+    # answered waits in seconds, how many waits, and when the open one began.
+    waited_s: float = 0.0
+    wait_count: int = 0
+    wait_open_since: Optional[float] = None
 
     @property
     def started_at(self) -> Optional[float]:
@@ -149,6 +154,9 @@ class Agent:
             "tool_call_count": len(self.tool_calls),
             "activity": self._activity(),
             "last_tool": self._last_tool(),
+            "waited_s": self.waited_s,
+            "wait_count": self.wait_count,
+            "wait_open_since": self.wait_open_since,
         }
 
     def to_detail_dict(self) -> Dict[str, Any]:
@@ -244,6 +252,8 @@ class Run:
     # Run-level analytics (orchestra.insights.compute): parallelism, critical path,
     # tool mix, token efficiency, file hotspots. None until the builder fills it.
     insights: Optional[Dict[str, Any]] = None
+    # Blocking prompts as intervals (orchestra.livestate.Wait); summarised by insights.
+    waits: List[Any] = field(default_factory=list)
 
     def agent(self, agent_id: str) -> Optional[Agent]:
         for a in self.agents:

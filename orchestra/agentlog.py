@@ -1,5 +1,6 @@
 """Digesting a subagent's own transcript into the numbers the dashboard shows."""
 
+import bisect
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -109,6 +110,34 @@ class TokenTally:
 
 
 MAX_TOKEN_EVENTS = 4000
+MAX_ACTIVITY_TIMES = 50000
+
+
+class ActivityTimes:
+    """When a transcript was written to, so a prompt can find the first activity after it.
+
+    Kept sorted. Capped: past the cap the oldest times are dropped. At one entry every
+    couple of seconds that is more than a day of continuous work for one transcript.
+    """
+
+    def __init__(self) -> None:
+        self.times: List[float] = []
+
+    def add(self, at: float) -> None:
+        if not self.times or at >= self.times[-1]:
+            self.times.append(at)
+        else:
+            bisect.insort(self.times, at)
+        if len(self.times) > MAX_ACTIVITY_TIMES:
+            del self.times[:len(self.times) - MAX_ACTIVITY_TIMES]
+
+    def first_after(self, t: float) -> Optional[float]:
+        """The earliest activity strictly after t, or None."""
+        i = bisect.bisect_right(self.times, t)
+        return self.times[i] if i < len(self.times) else None
+
+    def clear(self) -> None:
+        self.times = []
 
 
 def _fresh_total(tokens: Dict[str, int]) -> int:
@@ -144,6 +173,8 @@ class AgentDigest:
     # (timestamp, fresh tokens added): when the tokens were spent, for the live
     # charts. Capped; past the cap new tokens fold into the last entry.
     token_events: List[Tuple[float, int]] = field(default_factory=list)
+    # Every timestamped entry: how a permission prompt learns when the agent moved again.
+    activity: ActivityTimes = field(default_factory=ActivityTimes)
     _open_tool_ids: set = field(default_factory=set)
     _usage_seen: Dict[str, Any] = field(default_factory=dict)
 
@@ -154,6 +185,8 @@ class AgentDigest:
             at = parse_timestamp(entry.get("timestamp"))
             if at and (self.last_activity_at is None or at > self.last_activity_at):
                 self.last_activity_at = at
+            if at:
+                self.activity.add(at)
             message = entry.get("message")
             if isinstance(message, dict):
                 model = message.get("model")

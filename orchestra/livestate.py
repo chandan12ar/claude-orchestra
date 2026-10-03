@@ -10,7 +10,7 @@ So: an attention item is pending iff no transcript activity followed it.
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from orchestra import events as E
 from orchestra.redact import scrub
@@ -84,6 +84,69 @@ def _attention_from(event: E.Event) -> Optional[Attention]:
                          error_type=event.detail.get("error_type", ""),
                          message=event.detail.get("message", ""))
     return None
+
+
+ANSWERED = "answered"        # the agent moved again after the prompt
+OPEN = "open"                # still waiting, and the session is live
+UNANSWERED = "unanswered"    # the session went quiet or ended with the prompt still up
+
+# Prompts that stop an agent until you act. "Claude is waiting for your input"
+# (idle) is not one: nothing is blocked, the turn is simply over.
+_BLOCKING = (PERMISSION, INPUT)
+
+
+@dataclass
+class Wait:
+    """One stretch of an agent sitting on a prompt only you could answer.
+
+    It ends at the agent's next transcript entry. After an approved command that
+    entry is the command's result, so the stretch also holds the command's run
+    time: the transcript records no separate time for it.
+    """
+    agent_id: str
+    kind: str
+    start: float
+    end: Optional[float] = None
+    state: str = OPEN
+    prompts: int = 1
+    message: str = ""
+
+    def seconds(self, now: float) -> float:
+        """Answered: the measured wait. Open: up to now. Unanswered: unknown, so 0."""
+        if self.state == ANSWERED and self.end is not None:
+            return max(0.0, self.end - self.start)
+        if self.state == OPEN:
+            return max(0.0, now - self.start)
+        return 0.0
+
+
+def waits(events: List[E.Event],
+          first_after: Callable[[str, float], Optional[float]],
+          session_live: bool) -> List[Wait]:
+    """Every blocking prompt as a wait interval, oldest first.
+
+    first_after(agent_id, t) gives the earliest transcript activity after t for that
+    agent ("" = the main session, which any activity answers). A prompt raised again
+    while the same agent is still waiting extends that wait instead of starting one.
+    """
+    out: List[Wait] = []
+    current: Dict[str, Wait] = {}
+    for event in sorted(events, key=lambda e: e.ts):
+        item = _attention_from(event)
+        if item is None or item.kind not in _BLOCKING:
+            continue
+        owner = item.agent_id
+        held = current.get(owner)
+        if held is not None and (held.end is None or item.since <= held.end):
+            held.prompts += 1
+            continue
+        end = first_after(owner, item.since + GRACE_S)
+        wait = Wait(agent_id=owner, kind=item.kind, start=item.since, end=end,
+                    state=ANSWERED if end is not None else (OPEN if session_live else UNANSWERED),
+                    message=scrub(item.message))
+        current[owner] = wait
+        out.append(wait)
+    return out
 
 
 def derive(events: List[E.Event], activity_at: Optional[float],

@@ -6,7 +6,18 @@ versions follow [SemVer](https://semver.org/) (the `version` in
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-03
+
 ### Added
+- **Waiting on you**: how long agents sat on permission and input prompts only you could answer.
+  A new Insights card shows your time (overlapping waits counted once), agent time lost (every
+  wait added), the number of waits, the longest, a per-agent ranking and the latest prompts with
+  their text. A wait still open counts up live, and the agent panel says how long that agent
+  waited on you. A wait ends at the agent's next transcript entry, so an approved command's own
+  run time is included (transcripts record no separate time for it). A prompt still up when the
+  session ended is listed as never answered and given no length. Backed by `livestate.waits`,
+  `insights.waits` and per-transcript activity times; no new hook.
+- The demo has answered prompts (two of them overlapping) and one agent waiting on you now.
 - README section "Example use cases" (Anthropic's directory policy asks for at least three working examples).
 
 ### Fixed

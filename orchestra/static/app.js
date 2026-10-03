@@ -920,6 +920,7 @@ function renderWorkfloor(run) {
 function tickAgentClocks() {
   tickTransport();
   tickPulse();
+  tickWaits();
   if (state.view !== "workfloor" || state.offline) return;
   const now = Date.now() / 1000;
   for (const card of document.querySelectorAll('.agent-card[data-live="1"]')) {
@@ -3598,6 +3599,65 @@ function insSlowest(ins) {
       label: fmtDuration(a.duration_s), color: statusVar(a.status) }))));
 }
 
+// A duration that is still growing: tickWaits() keeps its text current between polls.
+function liveSpan(base, since, now) {
+  return '<span class="wait-live" data-wait-base="' + Number(base || 0) + '" data-wait-since="' + Number(since) + '">' +
+    esc(fmtDuration((base || 0) + Math.max(0, now - since))) + "</span>";
+}
+
+function waitNow(run) {
+  const w = run && run.insights && run.insights.waits;
+  return state.offline && w ? w.now : Date.now() / 1000;
+}
+
+// How long agents sat on prompts only you could answer. Overlapping waits count once
+// in "your time" and add up in "agent time": three agents stuck together for five
+// minutes are five minutes of yours and fifteen of theirs.
+function insWaits(ins, run) {
+  const w = ins.waits;
+  const title = "Waiting on you";
+  if (!w) {
+    return insCard(title, "", insEmpty(run.live
+      ? "No agent has waited on a permission or input prompt in this run."
+      : "Prompts are known from the plugin's hooks, and none have reported for this session."));
+  }
+  const now = waitNow(run);
+  // While anything is waiting, your time grows by exactly one second per second.
+  const yours = w.open ? liveSpan(w.you_s, w.now, now) : esc(fmtDuration(w.you_s));
+  const metrics = '<div class="metrics">' +
+    '<div class="metric"><strong>' + yours + "</strong><span>of your time with an agent held up</span></div>" +
+    insMetric(fmtDuration(w.agent_s), "agent time lost, every wait added") +
+    insMetric(w.count, w.count === 1 ? "wait" : "waits") +
+    (w.longest ? insMetric(fmtDuration(w.longest.seconds), "longest: " + w.longest.label) : "") + "</div>";
+  const notes = [];
+  if (w.open) notes.push(w.open + (w.open === 1 ? " agent is" : " agents are") + " waiting on you now.");
+  if (w.unanswered) notes.push(w.unanswered + (w.unanswered === 1 ? " prompt was" : " prompts were") +
+    " still up when the session went quiet, so it has no length.");
+  const rows = insRank(w.by_agent.map((a) => ({
+    name: a.label, agent: a.agent_id || null, value: a.seconds + (a.open_since ? Math.max(0, now - w.now) : 0),
+    label: fmtDuration(a.seconds),
+    note: a.count + (a.count === 1 ? " wait" : " waits") + (a.open_since ? ", waiting now" : ""), color: "var(--waiting)" })));
+  const recent = '<ol class="wait-list">' + w.recent.map((r) =>
+    '<li class="wait-' + esc(r.state) + '"><span class="wait-when">' + esc(fmtClock(r.start)) + "</span>" +
+    '<span class="wait-who">' + esc(r.label) + (r.message ? "<small>" + esc(r.message) + "</small>" : "") + "</span>" +
+    '<span class="wait-len">' + (r.state === "open" ? "waiting " + liveSpan(0, r.start, now)
+      : r.state === "unanswered" ? "never answered" : esc(fmtDuration(r.seconds))) + "</span></li>").join("") + "</ol>";
+  return insCard(title,
+    "Time agents sat on a permission or input prompt. A wait ends when the agent moves again, so an approved command's own run time is included.",
+    metrics + (notes.length ? '<p class="card-note">' + esc(notes.join(" ")) + "</p>" : "") +
+    "<h4>By agent</h4>" + rows + "<h4>Latest prompts</h4>" + recent, "wide");
+}
+
+function tickWaits() {
+  if (state.offline) return;
+  const now = Date.now() / 1000;
+  for (const el of document.querySelectorAll("[data-wait-since]")) {
+    const since = parseFloat(el.dataset.waitSince);
+    if (isNaN(since)) continue;
+    el.textContent = fmtDuration((parseFloat(el.dataset.waitBase) || 0) + Math.max(0, now - since));
+  }
+}
+
 // Where the money went, from the cost block and per-agent costs already in the run.
 function insSpend(run) {
   const cost = run.cost;
@@ -3635,7 +3695,7 @@ function renderInsights(run) {
     return;
   }
   const width = Math.max(320, (box.clientWidth || 960) - 38);
-  box.innerHTML = insParallelism(ins, width) + insCritical(ins) + insTools(ins) +
+  box.innerHTML = insParallelism(ins, width) + insCritical(ins) + insWaits(ins, run) + insTools(ins) +
     insTokens(ins, run) + insSpend(run) + insSlowest(ins) + insFiles(ins);
   for (const el of box.querySelectorAll("[data-agent]")) {
     const open = () => openDrawer(el.getAttribute("data-agent"));
@@ -4226,6 +4286,16 @@ function closeDrawer() {
   }, DRAWER_TRANSITION_MS);
 }
 
+// The agent panel's "waited on you" line: answered waits, plus the one still open, live.
+function waitRow(agent, now) {
+  const count = agent.wait_count || 0;
+  if (!count) return "";
+  const parts = [];
+  if (agent.waited_s > 0 || !agent.wait_open_since) parts.push(esc(fmtDuration(agent.waited_s || 0)));
+  if (agent.wait_open_since) parts.push("waiting now for " + liveSpan(0, agent.wait_open_since, now));
+  return "<dt>waited on you</dt><dd>" + parts.join(", ") + " (" + count + (count === 1 ? " wait" : " waits") + ")</dd>";
+}
+
 async function openDrawer(agentId) {
   const drawer = $("drawer");
   const scrim = $("scrim");
@@ -4281,7 +4351,7 @@ async function openDrawer(agentId) {
     esc(agent.agent_id) + "</code></div></div>" +
     '<div class="drawer-body">' +
     "<dl>" + rows.map(([k, v]) =>
-      "<dt>" + esc(k) + "</dt><dd>" + esc(v) + "</dd>").join("") + "</dl>" +
+      "<dt>" + esc(k) + "</dt><dd>" + esc(v) + "</dd>").join("") + waitRow(agent, waitNow(state.run)) + "</dl>" +
     "<h3>Tool mix</h3>" + (renderToolMix(agent.tool_calls) || '<p class="source-note">no tool calls yet</p>') +
     "<h3>Objective</h3><pre>" + esc(agent.objective || "\u2014") + "</pre>" +
     '<div class="source-note">' + esc(agent.objective_source) + "</div>" +

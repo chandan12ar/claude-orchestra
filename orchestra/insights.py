@@ -33,6 +33,7 @@ TOP = 8
 PULSE_BUCKETS = 48        # points in each live chart
 PULSE_MARKERS = 40        # start / finish / failure marks kept for the event strip
 PULSE_RATE_S = 60         # "per minute" readouts compare this window with the one before it
+WAIT_RECENT = 12          # waits listed one by one, newest first
 
 
 def bucket_of(tool: str) -> str:
@@ -312,6 +313,75 @@ def _pulse(run: Run, now: float, par: Optional[Dict[str, Any]]) -> Optional[Dict
                      "tokens_last": tokens_last, "tokens_prev": tokens_prev}}
 
 
+def _union_s(spans: List[Tuple[float, float]]) -> float:
+    """Length of the union of intervals: overlapping waits count once."""
+    total = 0.0
+    cur_start = cur_end = None
+    for start, end in sorted(spans):
+        if cur_end is None or start > cur_end:
+            if cur_end is not None:
+                total += cur_end - cur_start
+            cur_start, cur_end = start, end
+        else:
+            cur_end = max(cur_end, end)
+    if cur_end is not None:
+        total += cur_end - cur_start
+    return total
+
+
+def _waits(run: Run, now: float) -> Optional[Dict[str, Any]]:
+    """How long agents sat on prompts only the user could answer.
+
+    you_s    wall time at least one agent was waiting (overlaps counted once)
+    agent_s  every agent's wait added together
+    Unanswered prompts (the session ended or went quiet with one still up) are
+    counted but have no length: nothing says how long they would have taken.
+    """
+    if not run.waits:
+        return None
+    names = {a.agent_id: scrub(a.description)[:60] for a in run.agents}
+
+    def label(agent_id: str) -> str:
+        return names.get(agent_id) or ("Main session" if not agent_id else agent_id[:12])
+
+    spans: List[Tuple[float, float]] = []
+    per_agent: Dict[str, Dict[str, Any]] = {}
+    rows: List[Dict[str, Any]] = []
+    longest = None
+    for wait in run.waits:
+        seconds = wait.seconds(now)
+        if wait.state != "unanswered":
+            spans.append((wait.start, wait.start + seconds))
+        row = {"agent_id": wait.agent_id, "label": label(wait.agent_id), "kind": wait.kind,
+               "state": wait.state, "start": wait.start, "end": wait.end,
+               "seconds": seconds, "prompts": wait.prompts,
+               "message": scrub(wait.message)[:120]}
+        rows.append(row)
+        entry = per_agent.setdefault(wait.agent_id, {
+            "agent_id": wait.agent_id, "label": row["label"], "seconds": 0.0, "count": 0,
+            "open_since": None, "unanswered": 0})
+        entry["count"] += 1
+        entry["seconds"] += seconds
+        if wait.state == "open":
+            entry["open_since"] = wait.start
+        elif wait.state == "unanswered":
+            entry["unanswered"] += 1
+        if wait.state != "unanswered" and (longest is None or seconds > longest["seconds"]):
+            longest = row
+    agents = sorted(per_agent.values(), key=lambda e: (-e["seconds"], e["label"]))
+    return {"you_s": _union_s(spans),
+            "agent_s": sum(e - s for s, e in spans),
+            "count": sum(1 for r in rows if r["state"] != "unanswered"),
+            "prompts": sum(w.prompts for w in run.waits),
+            "open": sum(1 for r in rows if r["state"] == "open"),
+            "unanswered": sum(1 for r in rows if r["state"] == "unanswered"),
+            "longest": longest,
+            "by_agent": agents[:TOP],
+            "recent": rows[::-1][:WAIT_RECENT],
+            "now": now,
+            "live": bool(run.session_live)}
+
+
 def compute(run: Run, now: float, table: Any = None) -> Dict[str, Any]:
     """The Insights payload for a run. `table` is the optional PriceTable."""
     par = _parallelism(run, now)
@@ -321,4 +391,5 @@ def compute(run: Run, now: float, table: Any = None) -> Dict[str, Any]:
             "tools": _tools(run, now),
             "tokens": _tokens(run, table),
             "files": _files(run),
-            "slowest": _slowest(run, now)}
+            "slowest": _slowest(run, now),
+            "waits": _waits(run, now)}
