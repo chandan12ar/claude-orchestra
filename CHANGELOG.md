@@ -6,6 +6,8 @@ versions follow [SemVer](https://semver.org/) (the `version` in
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-03
+
 ### Changed
 - The always-on-top pill has a new look: a small cue-light mascot whose face and motion show the
   state (asleep when quiet, bobbing with an orbiting ring when agents run, hopping with ripples when

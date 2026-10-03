@@ -1,6 +1,6 @@
 {
   "name": "cuelight",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Know the moment your Claude Code agents need you: a local, read-only dashboard of subagent runs with live attention, critical path, evidence-backed handoffs, search and cost.",
   "author": {"name": "Chandan"},
   "keywords": ["cuelight", "subagents", "observability", "dashboard", "orchestration", "attention"]
