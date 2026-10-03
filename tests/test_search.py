@@ -90,3 +90,18 @@ class TestEndpoint(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
             self.urlopen(self.base + "/api/search?q=PLAN.md", timeout=5)
         self.assertEqual(ctx.exception.code, 403)
+
+
+class TestRepeatedCalls(unittest.TestCase):
+    def test_identical_calls_by_one_agent_collapse_into_one_counted_row(self):
+        looper = agent("a", "e2e", [("Bash", "npm run e2e")] * 9 + [("Read", "/p/spec.ts")])
+        out = search.search(Run(session_id="s", agents=[looper]), "e2e")
+        rows = [t for t in out["tools"] if t["tool"] == "Bash"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["count"], 9)
+
+    def test_the_same_call_by_different_agents_stays_separate(self):
+        a1 = agent("a1", "one", [("Bash", "npm test")])
+        a2 = agent("a2", "two", [("Bash", "npm test")])
+        out = search.search(Run(session_id="s", agents=[a1, a2]), "npm test")
+        self.assertEqual(sorted(t["agent_id"] for t in out["tools"]), ["a1", "a2"])

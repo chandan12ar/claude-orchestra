@@ -45,7 +45,11 @@ def search(run: Run, query: str) -> Dict[str, Any]:
             else:
                 out["truncated"] = True
 
+    # An agent that repeats one call (a loop, or polling) would otherwise fill the
+    # results with copies: identical calls by one agent collapse into one row
+    # carrying a count and the time of the latest.
     scanned = 0
+    merged: Dict[Any, Dict[str, Any]] = {}
     for agent in run.agents:
         for call in reversed(agent.tool_calls):          # newest first
             scanned += 1
@@ -53,15 +57,19 @@ def search(run: Run, query: str) -> Dict[str, Any]:
                 out["truncated"] = True
                 break
             target = scrub(call.target)
-            if _hit(terms, call.name, target, scrub(agent.description)):
-                if len(out["tools"]) < LIMITS["tools"]:
-                    out["tools"].append({"agent_id": agent.agent_id,
-                                         "description": scrub(agent.description),
-                                         "tool": call.name, "target": target,
-                                         "timestamp": call.timestamp})
-                else:
-                    out["truncated"] = True
-    out["tools"].sort(key=lambda t: -(t["timestamp"] or 0))
+            if not _hit(terms, call.name, target, scrub(agent.description)):
+                continue
+            key = (agent.agent_id, call.name, target)
+            if key in merged:
+                merged[key]["count"] += 1
+                continue
+            merged[key] = {"agent_id": agent.agent_id, "description": scrub(agent.description),
+                           "tool": call.name, "target": target, "timestamp": call.timestamp,
+                           "count": 1}
+    rows = sorted(merged.values(), key=lambda t: -(t["timestamp"] or 0))
+    if len(rows) > LIMITS["tools"]:
+        out["truncated"] = True
+    out["tools"] = rows[:LIMITS["tools"]]
 
     files: Dict[str, Dict[str, Any]] = {}
     for agent in run.agents:

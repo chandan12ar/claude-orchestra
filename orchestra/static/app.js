@@ -2276,6 +2276,357 @@ async function loadSessions() {
   } catch (err) { /* picker is optional; the run view still works */ }
 }
 
+// ------------------------------------------------------- command palette
+//
+// One box for "take me there": agents and commands answer instantly from the run
+// already on the page; tool calls and files come from /api/search (or, in a static
+// report, from the details baked into it). Keyboard first: Ctrl/Cmd+K or /.
+
+const PALETTE_VIEWS = [
+  ["timeline", "Timeline", "1"], ["graph", "Graph", "2"], ["insights", "Insights", "3"],
+  ["activity", "Activity", "4"], ["workfloor", "Work Floor", "5"], ["fleet", "Fleet", "6"],
+  ["history", "History", "7"],
+];
+const palette = { open: false, query: "", items: [], index: 0, remote: null, seq: 0, timer: null, opener: null };
+const PALETTE_SEARCH_DELAY_MS = 160;
+
+function isMac() {
+  return typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || "");
+}
+
+function viewAvailable(view) {
+  return !(state.offline && (view === "fleet" || view === "history"));
+}
+
+function matchTerms(query) {
+  return String(query || "").toLowerCase().split(/\s+/).filter(Boolean).slice(0, 6);
+}
+
+function matchesAll(terms, text) {
+  const haystack = String(text).toLowerCase();
+  return terms.every((t) => haystack.indexOf(t) >= 0);
+}
+
+// Escaped first, marked second: a hostile agent name can never become markup.
+function highlight(text, terms) {
+  if (!terms.length) return esc(text);
+  const pattern = new RegExp("(" + terms.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")", "ig");
+  return String(text).split(pattern).map((part, i) => (i % 2 ? "<mark>" + esc(part) + "</mark>" : esc(part))).join("");
+}
+
+function baseName(path) {
+  return String(path).replace(/[\\/]+$/, "").replace(/^.*[\\/]/, "") || String(path);
+}
+
+function paletteCommands() {
+  const cmds = [];
+  for (const [view, label, key] of PALETTE_VIEWS) {
+    if (viewAvailable(view)) {
+      cmds.push({ group: "Go to", title: label, hint: key, run: () => setView(view) });
+    }
+  }
+  const live = $("live-toggle");
+  if (live && !live.hidden) {
+    cmds.push({ group: "Actions", title: state.live ? "Pause live updates" : "Resume live updates", hint: "L",
+      run: () => live.click() });
+  }
+  cmds.push({ group: "Actions", title: "Replay the run", hint: "R", run: () => toggleReplay() });
+  cmds.push({ group: "Actions", title: "Copy run summary", run: () => copySummary() });
+  if (!state.offline) {
+    cmds.push({ group: "Actions", title: "Export agents as CSV", run: () => downloadExport("csv") });
+    cmds.push({ group: "Actions", title: "Export everything as JSON", run: () => downloadExport("json") });
+  }
+  const sound = $("sound-toggle");
+  if (sound && !sound.hidden) cmds.push({ group: "Actions", title: "Toggle sound", run: () => sound.click() });
+  cmds.push({ group: "Actions", title: "Change theme", hint: "T", run: () => cycleTheme() });
+  cmds.push({ group: "Actions", title: "Keyboard shortcuts", hint: "?", run: () => openHelp() });
+  return cmds;
+}
+
+function agentItem(agent) {
+  const bits = [agent.agent_type, fmtModelShort(agent.model), agent.status].filter(Boolean);
+  return { title: agent.description || agent.agent_id, sub: bits.join(" · "), dot: statusVar(agent.status),
+    hint: agent.duration_s !== null && agent.duration_s !== undefined ? fmtDuration(agent.duration_s) : "",
+    run: () => openDrawer(agent.agent_id) };
+}
+
+function buildPaletteItems() {
+  const terms = matchTerms(palette.query);
+  const run = state.run;
+  const agents = run ? run.agents : [];
+  const items = [];
+  const add = (group, list) => list.forEach((item) => { item.group = group; items.push(item); });
+  const commands = paletteCommands().filter((c) => !terms.length || matchesAll(terms, c.group + " " + c.title));
+  if (!terms.length) {
+    add("Go to", commands.filter((c) => c.group === "Go to"));
+    const needs = agents.filter((a) => ["failed", "stalled", "waiting", "orphaned"].indexOf(a.status) >= 0 || a.loop);
+    add("Needs attention", needs.slice(0, 6).map(agentItem));
+    add("Actions", commands.filter((c) => c.group === "Actions"));
+    return items;
+  }
+  add("Agents", agents.filter((a) => matchesAll(terms, [a.description, a.agent_id, a.agent_type, a.model, a.status,
+    a.objective].join(" "))).slice(0, 8).map(agentItem));
+  const remote = palette.remote && palette.remote.query === palette.query.trim() ? palette.remote.data : null;
+  if (remote) {
+    add("Tool calls", remote.tools.slice(0, 8).map((t) => ({
+      title: t.tool + "  " + baseName(t.target), sub: t.target || t.description,
+      hint: (t.count > 1 ? "×" + t.count + "  " : "") + t.description,
+      run: () => openDrawer(t.agent_id) })));
+    add("Files", remote.files.slice(0, 6).map((f) => {
+      const first = (f.writers[0] || f.readers[0]);
+      const parts = [];
+      if (f.writers.length) parts.push(f.writers.length + (f.writers.length === 1 ? " writer" : " writers"));
+      if (f.readers.length) parts.push(f.readers.length + (f.readers.length === 1 ? " reader" : " readers"));
+      return { title: baseName(f.path), sub: f.path, hint: parts.join(", "), run: () => openDrawer(first) };
+    }));
+  }
+  add("Commands", commands.slice(0, 6));
+  return items;
+}
+
+function renderPalette() {
+  const list = $("palette-list");
+  const input = $("palette-input");
+  if (!list) return;
+  const terms = matchTerms(palette.query);
+  palette.items = buildPaletteItems();
+  palette.index = Math.min(palette.index, Math.max(0, palette.items.length - 1));
+  if (!palette.items.length) {
+    const searching = palette.query.trim().length >= 2 && !palette.remote && !state.offline;
+    list.innerHTML = '<div class="palette-empty">' + (searching ? "Searching…"
+      : palette.query.trim() ? "Nothing matches “" + esc(palette.query.trim()) + "”." : "Nothing to show yet.") + "</div>";
+    if (input) input.removeAttribute("aria-activedescendant");
+    return;
+  }
+  let html = "";
+  let group = "";
+  palette.items.forEach((item, i) => {
+    if (item.group !== group) {
+      group = item.group;
+      html += '<div class="pal-group" role="presentation">' + esc(group) + "</div>";
+    }
+    html += '<button type="button" class="pal-item" role="option" id="pal-' + i + '" data-i="' + i +
+      '" aria-selected="' + (i === palette.index) + '" tabindex="-1">' +
+      (item.dot ? '<span class="pal-dot" style="background:' + item.dot + '"></span>' : "") +
+      '<span class="pal-main"><span class="pal-title">' + highlight(item.title, terms) + "</span>" +
+      (item.sub ? '<span class="pal-sub">' + highlight(item.sub, terms) + "</span>" : "") + "</span>" +
+      (item.hint ? '<span class="pal-hint">' + esc(item.hint) + "</span>" : "") + "</button>";
+  });
+  list.innerHTML = html;
+  if (input) input.setAttribute("aria-activedescendant", "pal-" + palette.index);
+}
+
+function setPaletteIndex(next, scroll) {
+  if (!palette.items.length) return;
+  const count = palette.items.length;
+  palette.index = (next + count) % count;
+  const list = $("palette-list");
+  for (const el of list.querySelectorAll(".pal-item")) {
+    const on = Number(el.getAttribute("data-i")) === palette.index;
+    el.setAttribute("aria-selected", String(on));
+    if (on && scroll && el.scrollIntoView) el.scrollIntoView({ block: "nearest" });
+  }
+  const input = $("palette-input");
+  if (input) input.setAttribute("aria-activedescendant", "pal-" + palette.index);
+}
+
+function runPaletteItem(index) {
+  const item = palette.items[index];
+  if (!item) return;
+  closePalette(true);
+  item.run();
+}
+
+// A static report has no server to ask, so it searches the details baked into it.
+function localSearch(query) {
+  const terms = matchTerms(query);
+  const out = { query: query, agents: [], tools: [], files: [], truncated: false };
+  const details = (typeof window !== "undefined" && window.ORCHESTRA_DETAILS) || {};
+  const files = {};
+  for (const id of Object.keys(details)) {
+    const agent = details[id];
+    for (const call of agent.tool_calls || []) {
+      if (matchesAll(terms, call.name + " " + call.target + " " + agent.description) && out.tools.length < 60) {
+        out.tools.push({ agent_id: id, description: agent.description, tool: call.name,
+          target: call.target, timestamp: call.timestamp, count: 1 });
+      }
+    }
+    for (const [role, paths] of [["writers", agent.files_written || []], ["readers", agent.files_read || []]]) {
+      for (const path of paths) {
+        if (!matchesAll(terms, path)) continue;
+        const slot = files[path] || (files[path] = { path: path, writers: [], readers: [] });
+        slot[role].push(id);
+      }
+    }
+  }
+  out.tools.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+  out.files = Object.keys(files).map((p) => files[p]).slice(0, 15);
+  return out;
+}
+
+function schedulePaletteSearch() {
+  if (palette.timer) clearTimeout(palette.timer);
+  const query = palette.query.trim();
+  if (query.length < 2) { palette.remote = null; return; }
+  palette.timer = setTimeout(async () => {
+    const seq = ++palette.seq;
+    let data = null;
+    try {
+      data = state.offline ? localSearch(query) : await api("/api/search?q=" + encodeURIComponent(query));
+    } catch (err) { data = null; }
+    if (seq !== palette.seq || !palette.open || !data) return;
+    palette.remote = { query: query, data: data };
+    renderPalette();
+  }, PALETTE_SEARCH_DELAY_MS);
+}
+
+function openPalette(prefill) {
+  const root = $("palette");
+  if (!root || palette.open) return;
+  closeHelp();
+  palette.open = true;
+  palette.opener = document.activeElement;
+  palette.query = prefill || "";
+  palette.index = 0;
+  palette.remote = null;
+  root.hidden = false;
+  const input = $("palette-input");
+  input.value = palette.query;
+  renderPalette();
+  input.focus();
+}
+
+function closePalette(keepFocus) {
+  if (!palette.open) return;
+  palette.open = false;
+  palette.seq += 1;
+  if (palette.timer) clearTimeout(palette.timer);
+  $("palette").hidden = true;
+  const back = palette.opener;
+  palette.opener = null;
+  if (!keepFocus && back && back.focus) back.focus();
+}
+
+const SHORTCUTS = [
+  [["Ctrl K", "/"], "Search agents, tool calls, files and commands"],
+  [["1", "–", "7"], "Switch view"],
+  [["L"], "Pause or resume live updates"],
+  [["R"], "Replay the run"],
+  [["F"], "Filter agents"],
+  [["T"], "Change theme"],
+  [["?"], "Show this list"],
+  [["Esc"], "Close a dialog or the agent panel"],
+];
+
+function helpOpen() {
+  const root = $("help");
+  return !!root && !root.hidden;
+}
+
+function openHelp() {
+  const root = $("help");
+  if (!root) return;
+  closePalette(true);
+  const list = $("help-list");
+  list.innerHTML = SHORTCUTS.map(([keys, label]) =>
+    "<dt>" + keys.map((k) => "<kbd>" + esc(isMac() ? k.replace("Ctrl", "⌘") : k) + "</kbd>").join("") +
+    "</dt><dd>" + esc(label) + "</dd>").join("");
+  palette.opener = document.activeElement;
+  root.hidden = false;
+}
+
+function closeHelp() {
+  const root = $("help");
+  if (!root || root.hidden) return;
+  root.hidden = true;
+  const back = palette.opener;
+  palette.opener = null;
+  if (back && back.focus) back.focus();
+}
+
+function isTyping(target) {
+  const tag = target && target.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || !!(target && target.isContentEditable);
+}
+
+function onGlobalKey(event) {
+  if (event.key === "Escape") {
+    if (palette.open) { closePalette(); return; }
+    if (helpOpen()) { closeHelp(); return; }
+  }
+  if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key && event.key.toLowerCase() === "k") {
+    event.preventDefault();
+    if (palette.open) closePalette(); else openPalette();
+    return;
+  }
+  if (event.ctrlKey || event.metaKey || event.altKey) return;
+  if (palette.open || helpOpen() || isTyping(event.target)) return;
+  const key = event.key;
+  if (key === "/") { event.preventDefault(); openPalette(); return; }
+  if (key === "?") { event.preventDefault(); openHelp(); return; }
+  if (key === "t" || key === "T") { cycleTheme(); return; }
+  if (key === "r" || key === "R") { toggleReplay(); return; }
+  if (key === "f" || key === "F") {
+    const filter = $("filter-text");
+    if (filter) { event.preventDefault(); filter.focus(); }
+    return;
+  }
+  if (key === "l" || key === "L") {
+    const live = $("live-toggle");
+    if (live && !live.hidden) live.click();
+    return;
+  }
+  const index = "1234567".indexOf(key);
+  if (index >= 0 && key.length === 1 && viewAvailable(PALETTE_VIEWS[index][0])) setView(PALETTE_VIEWS[index][0]);
+}
+
+function setupPalette() {
+  const input = $("palette-input");
+  const root = $("palette");
+  const list = $("palette-list");
+  const trigger = $("palette-open");
+  if (trigger) {
+    trigger.onclick = () => openPalette();
+    const hint = trigger.querySelector ? trigger.querySelector("kbd") : null;
+    if (hint) hint.textContent = isMac() ? "⌘ K" : "Ctrl K";
+  }
+  const help = $("help-open");
+  if (help) help.onclick = () => openHelp();
+  const helpRoot = $("help");
+  if (helpRoot) helpRoot.onmousedown = (event) => { if (event.target === helpRoot) closeHelp(); };
+  if (root) root.onmousedown = (event) => { if (event.target === root) closePalette(); };
+  if (input) {
+    input.oninput = () => {
+      palette.query = input.value;
+      palette.index = 0;
+      renderPalette();
+      schedulePaletteSearch();
+    };
+    input.onkeydown = (event) => {
+      const key = event.key;
+      if (key === "ArrowDown") { event.preventDefault(); setPaletteIndex(palette.index + 1, true); }
+      else if (key === "ArrowUp") { event.preventDefault(); setPaletteIndex(palette.index - 1, true); }
+      else if (key === "Home") { event.preventDefault(); setPaletteIndex(0, true); }
+      else if (key === "End") { event.preventDefault(); setPaletteIndex(palette.items.length - 1, true); }
+      else if (key === "Enter") { event.preventDefault(); runPaletteItem(palette.index); }
+      else if (key === "Tab") { event.preventDefault(); }       // a one-field dialog: focus stays put
+      else return;
+      event.stopPropagation();
+    };
+  }
+  if (list) {
+    list.onclick = (event) => {
+      const el = event.target.closest ? event.target.closest(".pal-item") : null;
+      if (el) runPaletteItem(Number(el.getAttribute("data-i")));
+    };
+    list.onmousemove = (event) => {
+      const el = event.target.closest ? event.target.closest(".pal-item") : null;
+      if (el && Number(el.getAttribute("data-i")) !== palette.index) setPaletteIndex(Number(el.getAttribute("data-i")), false);
+    };
+  }
+  document.addEventListener("keydown", onGlobalKey);
+}
+
 // -------------------------------------------------------------- theme + toast
 
 function themeMode() {
@@ -2323,6 +2674,7 @@ function toast(message) {
 
 function init() {
   applyTheme(themeMode());
+  setupPalette();
   const themeBtn = $("theme-toggle");
   if (themeBtn) themeBtn.onclick = cycleTheme;
   $("live-toggle").onclick = (event) => {
@@ -3051,5 +3403,6 @@ async function openDrawer(agentId) {
 }
 
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") closeDrawer();
+  // Escape closes the topmost thing only: a dialog first, then the agent panel.
+  if (event.key === "Escape" && !palette.open && !helpOpen()) closeDrawer();
 });
