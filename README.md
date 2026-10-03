@@ -84,7 +84,9 @@ cells a spreadsheet would execute as formulas are neutralised.
    before you merge its work; the Insights card shows who changed the most and which files changed most.
 9. **Know what a run delivered.** The Insights card lists the commits and pull requests the run made, how
    many test runs passed, and what each commit and pull request cost.
-10. **See what your approvals cost.** The Insights card "Waiting on you" shows how long agents sat on your
+10. **Check every agent had your rules.** The Insights card shows which agents loaded your project's
+    CLAUDE.md and rules files, and names any that ran without them.
+11. **See what your approvals cost.** The Insights card "Waiting on you" shows how long agents sat on your
    permission prompts, which agent waited longest, and how much agent time was lost while several waited
    at once, so you can decide which tools to pre-approve.
 
@@ -115,6 +117,13 @@ You can try every one of these without a real run: `python -m orchestra --demo`.
   with `ORCHESTRA_VERIFY_PATTERN`.
 
   ![The check card, dark theme: 3 of 6 agents checked, one failing, two unchecked, with the last file edited and the last command for each](docs/evidence/screenshots/24-checks-dark.png)
+
+- **What each agent was told** — the CLAUDE.md, rules and memory files and the
+  skills each agent had, and which agents ran without the project instructions the
+  main session had. From what Claude Code records in every transcript, so it works on
+  past sessions too; only paths, types and sizes are kept, never the content.
+
+  ![Instruction coverage, dark theme: 12 of 13 agents loaded the project instructions; an Explore agent did not](docs/evidence/screenshots/31-told-dark.png)
 
 - **What the run produced** — commits, pushes, pull requests and test runs from the
   main session and every agent, with cost (or tokens) per commit and per pull request,

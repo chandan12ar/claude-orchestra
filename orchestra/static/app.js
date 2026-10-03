@@ -3753,6 +3753,52 @@ function insOutcomes(ins) {
     '<div class="metrics">' + metrics.join("") + "</div>" + prs + commits, "wide");
 }
 
+// What each agent was told: the instruction files and skills it had, and who ran without
+// the project rules the main session had.
+function insContext(ins) {
+  const c = ins.context;
+  if (!c) return "";
+  const metrics = [];
+  if (c.covered !== null && c.covered !== undefined) {
+    metrics.push(insMetric(c.covered + " of " + c.agents, "agents loaded your project instructions"));
+  }
+  metrics.push(insMetric(c.files.length, c.files.length === 1 ? "instruction file" : "instruction files"));
+  if (c.skills) metrics.push(insMetric(c.skills, "skills offered"));
+  const missing = c.missing.length ? "<h4>Ran without your project instructions</h4>" + '<ol class="check-list">' +
+    c.missing.map((m) => '<li class="check-unchecked" data-agent="' + esc(m.agent_id) + '" role="button" tabindex="0">' +
+      '<span class="check-state">' + esc(m.agent_type || "agent") + "</span>" +
+      '<span class="check-who">' + esc(m.label || m.agent_id) + "<small>" + esc("did not load " +
+        m.missing.map(fileLabel).join(", ")) + "</small></span></li>").join("") + "</ol>" : "";
+  const files = "<h4>Instruction files</h4>" + '<ul class="out-list">' + c.files.map((f) =>
+    '<li><code>' + esc(f.type || "?") + "</code><b title=\"" + esc(f.path) + '">' + esc(fileLabel(f.path)) + "</b>" +
+    "<span>" + esc((f.main ? "main session" + (f.agents ? " + " : "") : "") +
+      (f.agents ? f.agents + (f.agents === 1 ? " agent" : " agents") : "") +
+      (f.chars ? " · " + fmtCount(f.chars) + " characters" : "")) + "</span></li>").join("") + "</ul>";
+  const required = c.required.length ? "Your project instructions are " + c.required.map(fileLabel).join(" and ") + ". " : "";
+  return insCard("What each agent was told",
+    required + "The CLAUDE.md, rules and memory files each agent loaded, from what Claude Code records. " +
+    "Some agent types may be meant to run without project instructions; this shows what happened, not whether it was wrong.",
+    '<div class="metrics">' + metrics.join("") + "</div>" + missing + files, "wide");
+}
+
+// "CLAUDE.md in claude-SA/.claude": a file name with the folder it sits in.
+function fileLabel(path) {
+  const parts = String(path || "").split(/[\\/]/).filter(Boolean);
+  if (parts.length < 2) return parts.join("");
+  return parts[parts.length - 1] + " in " + parts.slice(Math.max(0, parts.length - 3), -1).join("/");
+}
+
+// The agent panel's "instructions" line.
+function contextRow(ctx, agentId, run) {
+  if (!ctx || (!ctx.files.length && !ctx.skills)) return "";
+  const parts = ctx.files.map((f) => fileLabel(f.path) + " (" + (f.type || "?") + ")");
+  if (ctx.skills) parts.push(ctx.skills + " skills offered");
+  const cov = run && run.insights && run.insights.context;
+  const gap = cov ? cov.missing.find((m) => m.agent_id === agentId) : null;
+  return "<dt>instructions</dt><dd>" + esc(parts.join(", ") || "none recorded") +
+    (gap ? '<br><span class="warn-text">' + esc("Did not load " + gap.missing.map(fileLabel).join(", ")) + "</span>" : "") + "</dd>";
+}
+
 // The agent panel's "produced" line.
 function producedRow(o) {
   if (!o) return "";
@@ -3812,7 +3858,7 @@ function renderInsights(run) {
     return;
   }
   const width = Math.max(320, (box.clientWidth || 960) - 38);
-  box.innerHTML = insParallelism(ins, width) + insCritical(ins) + insOutcomes(ins) + insChecks(ins) + insWaits(ins, run) + insChanges(ins) + insTools(ins) +
+  box.innerHTML = insParallelism(ins, width) + insCritical(ins) + insOutcomes(ins) + insChecks(ins) + insWaits(ins, run) + insChanges(ins) + insContext(ins) + insTools(ins) +
     insTokens(ins, run) + insSpend(run) + insSlowest(ins) + insFiles(ins);
   for (const el of box.querySelectorAll("[data-agent]")) {
     const open = () => openDrawer(el.getAttribute("data-agent"));
@@ -4511,7 +4557,8 @@ async function openDrawer(agentId) {
     "<dl>" + rows.map(([k, v]) =>
       "<dt>" + esc(k) + "</dt><dd>" + esc(v) + "</dd>").join("") + waitRow(agent, waitNow(state.run)) +
       (agent.verification ? "<dt>checked its work</dt><dd>" + esc((agent.verification.state === "checked" ? "yes, " : "") +
-        checkText(agent.verification)) + "</dd>" : "") + producedRow(agent.outcomes) + "</dl>" +
+        checkText(agent.verification)) + "</dd>" : "") + producedRow(agent.outcomes) +
+      contextRow(agent.context, agent.agent_id, state.run) + "</dl>" +
     "<h3>Tool mix</h3>" + (renderToolMix(agent.tool_calls) || '<p class="source-note">no tool calls yet</p>') +
     "<h3>Objective</h3><pre>" + esc(agent.objective || "\u2014") + "</pre>" +
     '<div class="source-note">' + esc(agent.objective_source) + "</div>" +

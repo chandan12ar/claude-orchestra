@@ -99,6 +99,8 @@ const shots = [
       h.scrollIntoView({ block: 'start' }); await new Promise(r => setTimeout(r, 300)); })()`],
   ["28-produced-light", DEMO + "#view=insights", 1440, 560, "light", cardShot("What the run produced")],
   ["29-produced-dark", DEMO + "#view=insights", 1440, 560, "dark", cardShot("What the run produced")],
+  ["30-told-light", DEMO + "#view=insights", 1440, 600, "light", cardShot("What each agent was told")],
+  ["31-told-dark", DEMO + "#view=insights", 1440, 600, "dark", cardShot("What each agent was told")],
   ["14-phone-timeline-light", DEMO, 390, 844, "light"],
   ["15-phone-insights-dark", DEMO + "#view=insights", 390, 1500, "dark"],
   ...(REPORT ? [

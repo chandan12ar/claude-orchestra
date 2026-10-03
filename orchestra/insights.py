@@ -17,6 +17,7 @@ from orchestra.redact import scrub
 from orchestra import verify
 from orchestra.edges import normalize_path
 from orchestra import outcomes
+from orchestra import context
 
 # Mirrors the dashboard's tool taxonomy (app.js TOOL_BUCKETS), so a colour means the
 # same thing in the drawer, the ticker and here.
@@ -445,4 +446,5 @@ def compute(run: Run, now: float, table: Any = None) -> Dict[str, Any]:
             "waits": _waits(run, now),
             "checks": verify.summary(run.agents) if run.agents else None,
             "changes": _changes(run),
-            "outcomes": _outcomes(run)}
+            "outcomes": _outcomes(run),
+            "context": context.coverage(run.main_context, run.agents)}

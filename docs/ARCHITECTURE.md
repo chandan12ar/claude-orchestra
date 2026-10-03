@@ -922,6 +922,23 @@ pure functions in `app.js`, tested under node.
   cost and fresh tokens per commit and per pull request divide the whole run's figures. Only `https://`
   URLs are kept, and the page links them with `rel="noopener noreferrer"`.
 
+### What each agent was told (`context.py`)
+- Every transcript, subagents' included, carries attachment entries: `instructions` when a context
+  starts (`files`: `path`, `type` such as User, Project, Local or AutoMem, `content`), `nested_memory`
+  when a CLAUDE.md is loaded because the agent touched a file under it (`path`, and `content` holding
+  the same dict, sometimes as its Python repr), and `skill_listing` (`names`, `skillCount`). Checked on
+  real transcripts. This was planned as an `InstructionsLoaded` hook (Claude Code 2.1.288 added
+  `agent_id` to it); the transcripts already hold the same facts, need no install step and cover past
+  sessions, so no hook was added.
+- `ContextLog` keeps path, type, size, time and how each file arrived; never the content. Paths are
+  keyed by `edges.normalize_path`, so worktree copies are one file.
+- `context.coverage`: the main session's Project and Local files are "your project instructions";
+  each agent missing any of them is listed with its agent type (some types may be meant to run without
+  them, so the card states what happened, not a verdict). User and AutoMem files are not required.
+- Regression found in a real browser before release: the main session's log was reset on every
+  refresh. `test_what_the_main_session_recorded_survives_later_reads` refreshes again after the
+  transcript grows, for the instruction files and the outcomes alike.
+
 ### Graph and Work Floor
 - **Graph layout** (`layoutGraph`) is a pure function split into `graphRankColumns`
   (longest path over exact edges; columns indexed, never raw rank), `graphOrderColumns`
