@@ -60,6 +60,7 @@ const state = {
   soundPrefs: null,      // per-event mute + quiet hours; see normalizeSoundPrefs
   audio: null,
   pill: null,            // the open Picture-in-Picture window, if any
+  pillUi: null,          // the elements built inside it
   stream: null,          // the open EventSource, if any
   streamLive: false,     // true only while that stream is connected
   refreshTimer: null,    // pending debounced refresh after a push
@@ -2029,7 +2030,7 @@ function renderCompare() {
 // what to say; the surfaces only draw it.
 
 const PILL_COLORS = { permission: "#7950f2", input: "#7950f2", error: "#e03131",
-  running: "#1c7ed6", idle: "#868e96" };
+  running: "#1c7ed6", idle: "#8790ad" };
 
 function pillModel(run, fleet) {
   const live = fleet ? fleet.sessions.filter((s) => s.session_live) : [];
@@ -2067,6 +2068,93 @@ function tabTitle(model) {
   return "Cuelight";
 }
 
+// Blend two #rrggbb colours; t is how much of `to` to mix in.
+function mixHex(from, to, t) {
+  const n = (hex, i) => parseInt(hex.substr(1 + i * 2, 2), 16);
+  let out = "#";
+  for (let i = 0; i < 3; i++) {
+    const v = Math.round(n(from, i) * (1 - t) + n(to, i) * t);
+    out += (v < 16 ? "0" : "") + v.toString(16);
+  }
+  return out;
+}
+
+// The same cue-light face as the pill, drawn on a canvas at 64x64 so it still
+// reads at 16px: bold eyes, one clear mouth, and the count in a red badge.
+function drawCue(ctx, model) {
+  const colour = PILL_COLORS[model.kind] || PILL_COLORS.idle;
+  const ink = "#161827";
+  ctx.fillStyle = "#3a3e5c";
+  ctx.beginPath();
+  if (typeof ctx.roundRect === "function") ctx.roundRect(12, 50, 40, 12, 6); else ctx.rect(12, 50, 40, 12);
+  ctx.fill();
+  let fill = colour;
+  if (typeof ctx.createRadialGradient === "function") {
+    fill = ctx.createRadialGradient(24, 18, 3, 32, 30, 30);
+    fill.addColorStop(0, mixHex(colour, "#ffffff", 0.46));
+    fill.addColorStop(1, mixHex(colour, "#000000", 0.2));
+  }
+  ctx.fillStyle = fill;
+  ctx.beginPath();
+  ctx.arc(32, 30, 25, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = ink;
+  ctx.fillStyle = ink;
+  ctx.lineWidth = 3.4;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  const eye = (x) => {
+    ctx.beginPath();
+    if (typeof ctx.ellipse === "function") ctx.ellipse(x, 28, 3.8, 5.4, 0, 0, Math.PI * 2);
+    else ctx.arc(x, 28, 4.5, 0, Math.PI * 2);
+    ctx.fill();
+  };
+  if (model.kind === "idle") {            // asleep: two downward arcs
+    for (const x of [22, 42]) {
+      ctx.beginPath();
+      ctx.moveTo(x - 5, 27);
+      ctx.quadraticCurveTo(x, 33, x + 5, 27);
+      ctx.stroke();
+    }
+  } else {
+    eye(22);
+    eye(42);
+  }
+  ctx.beginPath();
+  if (model.kind === "permission" || model.kind === "input") {          // "oh": a round mouth
+    if (typeof ctx.ellipse === "function") ctx.ellipse(32, 41, 3.6, 4.4, 0, 0, Math.PI * 2);
+    else ctx.arc(32, 41, 4, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (model.kind === "error") {                                  // frown
+    ctx.moveTo(25, 45);
+    ctx.quadraticCurveTo(32, 37, 39, 45);
+    ctx.stroke();
+  } else if (model.kind === "running") {                                // open smile
+    ctx.moveTo(24, 38);
+    ctx.quadraticCurveTo(32, 50, 40, 38);
+    ctx.closePath();
+    ctx.fill();
+  } else {                                                              // small smile
+    ctx.moveTo(26, 40);
+    ctx.quadraticCurveTo(32, 45, 38, 40);
+    ctx.stroke();
+  }
+  if (model.count > 0) {
+    ctx.beginPath();
+    ctx.arc(51, 50, 12, 0, Math.PI * 2);
+    ctx.fillStyle = "#d6303a";
+    ctx.fill();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "#fff";
+    ctx.stroke();
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 17px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(model.count > 9 ? "9+" : String(model.count), 51, 51);
+  }
+}
+
 function drawFavicon(model) {
   if (typeof document.createElement !== "function") return null;
   const canvas = document.createElement("canvas");
@@ -2074,18 +2162,10 @@ function drawFavicon(model) {
   canvas.width = canvas.height = 64;
   const ctx = canvas.getContext("2d");
   if (!ctx) return null;
-  ctx.beginPath();
-  ctx.arc(32, 32, 28, 0, Math.PI * 2);
-  ctx.fillStyle = PILL_COLORS[model.kind] || PILL_COLORS.idle;
-  ctx.fill();
-  if (model.count > 0) {
-    ctx.fillStyle = "#fff";
-    ctx.font = "bold 38px sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(model.count > 9 ? "9+" : String(model.count), 32, 35);
-  }
-  try { return canvas.toDataURL("image/png"); } catch (err) { return null; }
+  try {
+    drawCue(ctx, model);
+    return canvas.toDataURL("image/png");
+  } catch (err) { return null; }
 }
 
 function updateTabChrome(model) {
@@ -2109,61 +2189,196 @@ function updateTabChrome(model) {
 }
 
 const PILL_CSS = `
-:root { color-scheme: light dark; --bg:#fbfbfa; --ink:#1a1a19; --muted:#6b6b66; --line:#e3e3df; }
-@media (prefers-color-scheme: dark) { :root { --bg:#17171a; --ink:#e8e8e6; --muted:#9a9a95; --line:#32323a; } }
+@property --c { syntax: "<color>"; inherits: true; initial-value: #8790ad; }
+:root { color-scheme: light dark; --bg:#f6f6fb; --ink:#181a2a; --muted:#585c72; --seg:#d9dbe8;
+  --base:#3a3e5c; --eye:#161827; --run:#1c7ed6; --done:#2f9e44; --bad:#e03131; --stall:#b36a08; --wait:#7950f2; }
+@media (prefers-color-scheme: dark) { :root { --bg:#1a1c2b; --ink:#eceef8; --muted:#a4a8c0; --seg:#32354d;
+  --base:#0e0f19; --eye:#10111c; --run:#4da3ff; --done:#4cc16a; --bad:#ff6b6b; --stall:#f5b13d; --wait:#9d7bff; } }
 * { box-sizing: border-box; }
-body { margin:0; background:var(--bg); color:var(--ink); font:13px system-ui,"Segoe UI",Roboto,sans-serif; }
-.pill { display:flex; align-items:center; gap:10px; padding:10px 12px; height:100vh;
-  border-left:5px solid var(--c, #868e96); }
-.dot { width:12px; height:12px; border-radius:50%; background:var(--c, #868e96); flex:none; }
-.pill[data-kind="running"] .dot, .pill[data-kind="permission"] .dot,
-.pill[data-kind="input"] .dot, .pill[data-kind="error"] .dot { animation: pulse 1.4s ease-in-out infinite; }
-@keyframes pulse { 0%,100% { box-shadow:0 0 0 0 color-mix(in srgb, var(--c) 55%, transparent); }
-  50% { box-shadow:0 0 0 6px transparent; } }
-@media (prefers-reduced-motion: reduce) { .dot { animation:none !important; } }
+html, body { height: 100%; }
+body { margin:0; overflow:hidden; background:var(--bg); color:var(--ink);
+  font:13px/1.3 system-ui,"Segoe UI",Roboto,sans-serif; }
+.pill { position:relative; display:flex; align-items:center; gap:14px; height:100%; padding:12px 18px 12px 16px;
+  background:radial-gradient(120% 150% at 0% 50%, color-mix(in srgb, var(--c) 24%, var(--bg)), var(--bg) 64%);
+  transition:--c .5s ease; }
+.pill::after { content:""; position:absolute; inset:0; pointer-events:none;
+  box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--c) 30%, transparent); }
+
+.cue { position:relative; flex:none; width:72px; height:72px; }
+.cue svg { display:block; width:72px; height:72px; overflow:visible; }
+.badge { position:absolute; top:-4px; right:-8px; min-width:20px; height:20px; padding:0 5px; border-radius:10px;
+  background:#d6303a; color:#fff; font:700 11px/20px system-ui,"Segoe UI",sans-serif; text-align:center;
+  box-shadow:0 0 0 2px var(--bg); }
+.badge[hidden] { display:none; }
+
+.base { fill:var(--base); }
+.body { transform-origin:32px 47px; filter:drop-shadow(0 2px 6px color-mix(in srgb, var(--c) 45%, transparent)); }
+.glint { fill:#fff; opacity:.38; }
+.cheek { fill:#fff; opacity:.22; }
+.eye { fill:var(--eye); }
+.spark { fill:#fff; }
+.eyes-open { transform-origin:32px 28px; animation:blink 5.5s infinite; }
+.line { fill:none; stroke:var(--eye); stroke-width:2.2; stroke-linecap:round; stroke-linejoin:round; }
+.fill { fill:var(--eye); stroke:none; }
+.halo { fill:none; stroke:var(--c); stroke-width:2; transform-origin:32px 29px; opacity:0; }
+.orbit { fill:none; stroke:var(--c); stroke-width:2.6; stroke-linecap:round; stroke-dasharray:30 140;
+  transform-origin:32px 29px; }
+.zz { fill:var(--muted); font:700 11px system-ui,"Segoe UI",sans-serif; }
+
+.halo, .orbit, .zz, .eyes-sleep, .m-idle, .m-run, .m-ask, .m-err, .brows-ask, .brows-err { display:none; }
+.pill[data-kind="idle"] .eyes-open { display:none; }
+.pill[data-kind="idle"] .eyes-sleep, .pill[data-kind="idle"] .m-idle, .pill[data-kind="idle"] .zz { display:inline; }
+.pill[data-kind="running"] .m-run, .pill[data-kind="running"] .orbit { display:inline; }
+.pill[data-kind="permission"] .m-ask, .pill[data-kind="input"] .m-ask,
+.pill[data-kind="permission"] .brows-ask, .pill[data-kind="input"] .brows-ask,
+.pill[data-kind="permission"] .halo, .pill[data-kind="input"] .halo { display:inline; }
+.pill[data-kind="error"] .m-err, .pill[data-kind="error"] .brows-err, .pill[data-kind="error"] .halo { display:inline; }
+
+.pill[data-kind="idle"] .body { animation:breathe 4.4s ease-in-out infinite; }
+.pill[data-kind="running"] .body { animation:bob 1.7s ease-in-out infinite; }
+.pill[data-kind="permission"] .body, .pill[data-kind="input"] .body { animation:hop 2s ease-in-out infinite; }
+.pill[data-kind="error"] .body { animation:shake 2.6s ease-in-out infinite; }
+.pill[data-kind="running"] .orbit { animation:spin 2.2s linear infinite; }
+.halo { animation:ring 2s ease-out infinite; } .halo.h2 { animation-delay:1s; }
+.pill[data-kind="idle"] .zz { animation:zzz 3.6s ease-in-out infinite; }
+
+@keyframes breathe { 0%,100% { transform:scale(1,1); } 50% { transform:scale(1.035,.965); } }
+@keyframes bob { 0%,100% { transform:translateY(0); } 50% { transform:translateY(-2.5px); } }
+@keyframes hop { 0%,60%,100% { transform:translateY(0) scale(1,1); }
+  14% { transform:translateY(0) scale(1.08,.9); } 30% { transform:translateY(-9px) scale(.96,1.05); }
+  46% { transform:translateY(0) scale(1.05,.94); } }
+@keyframes shake { 0%,60%,100% { transform:translateX(0); } 10%,30%,50% { transform:translateX(-2.5px); }
+  20%,40% { transform:translateX(2.5px); } }
+@keyframes ring { 0% { transform:scale(1); opacity:.6; } 100% { transform:scale(1.5); opacity:0; } }
+@keyframes spin { to { transform:rotate(360deg); } }
+@keyframes blink { 0%,92%,100% { transform:scaleY(1); } 95.5% { transform:scaleY(.1); } }
+@keyframes zzz { 0% { transform:translate(0,6px); opacity:0; } 30% { opacity:.9; }
+  100% { transform:translate(5px,-8px); opacity:0; } }
+@keyframes seg { 50% { opacity:.45; } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation:none !important; transition:none !important; }
+  .halo, .zz { display:none !important; }
+}
+
 .txt { min-width:0; flex:1; }
-.head { font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.sub { color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.agents { display:flex; flex-wrap:wrap; gap:3px; max-width:84px; justify-content:flex-end; }
-.agents i { width:8px; height:8px; border-radius:2px; background:var(--muted); display:block; }
-.agents i[data-s="running"] { background:#1c7ed6; } .agents i[data-s="completed"] { background:#2f9e44; }
-.agents i[data-s="failed"], .agents i[data-s="orphaned"] { background:#e03131; }
-.agents i[data-s="stalled"] { background:#e8950c; } .agents i[data-s="waiting"] { background:#7950f2; }
+.head { font-size:15px; font-weight:700; letter-spacing:-.005em; white-space:nowrap; overflow:hidden;
+  text-overflow:ellipsis; }
+.sub { margin-top:2px; color:var(--muted); font-size:12px; white-space:nowrap; overflow:hidden;
+  text-overflow:ellipsis; }
+.segs { display:flex; gap:3px; margin-top:9px; }
+.segs:empty { display:none; }
+.segs i { display:block; flex:1 1 0; max-width:18px; height:5px; border-radius:3px; background:var(--seg); }
+.segs i[data-s="running"] { background:var(--run); animation:seg 1.5s ease-in-out infinite; }
+.segs i[data-s="completed"] { background:var(--done); }
+.segs i[data-s="failed"], .segs i[data-s="orphaned"] { background:var(--bad); }
+.segs i[data-s="stalled"] { background:var(--stall); }
+.segs i[data-s="waiting"] { background:var(--wait); }
 `;
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+// The mascot: a stage cue light. Its face and motion carry the state, so the
+// pill can be read from across the screen; the words only add the detail.
+function buildPillAvatar(doc) {
+  const node = (name, attrs, parent) => {
+    const el = doc.createElementNS(SVG_NS, name);
+    for (const key in attrs) el.setAttribute(key, attrs[key]);
+    if (parent) parent.appendChild(el);
+    return el;
+  };
+  const svg = node("svg", { viewBox: "0 0 64 64", "aria-hidden": "true", focusable: "false" });
+  const defs = node("defs", {}, svg);
+  const glass = node("radialGradient", { id: "cue-glass", cx: ".35", cy: ".3", r: ".85" }, defs);
+  node("stop", { offset: "0", style: "stop-color:color-mix(in srgb, var(--c) 46%, #fff)" }, glass);
+  node("stop", { offset: "1", style: "stop-color:color-mix(in srgb, var(--c) 80%, #000)" }, glass);
+  node("circle", { "class": "halo", cx: 32, cy: 29, r: 20 }, svg);
+  node("circle", { "class": "halo h2", cx: 32, cy: 29, r: 20 }, svg);
+  node("circle", { "class": "orbit", cx: 32, cy: 29, r: 27 }, svg);
+  node("rect", { "class": "base", x: 17, y: 46.5, width: 30, height: 9.5, rx: 4.75 }, svg);
+  const body = node("g", { "class": "body" }, svg);
+  node("circle", { cx: 32, cy: 29, r: 20, fill: "url(#cue-glass)" }, body);
+  node("ellipse", { "class": "glint", cx: 24.5, cy: 17.5, rx: 6.5, ry: 3.2, transform: "rotate(-28 24.5 17.5)" }, body);
+  node("ellipse", { "class": "cheek", cx: 20.5, cy: 35, rx: 3.4, ry: 2.2 }, body);
+  node("ellipse", { "class": "cheek", cx: 43.5, cy: 35, rx: 3.4, ry: 2.2 }, body);
+  const open = node("g", { "class": "eyes-open" }, body);
+  node("ellipse", { "class": "eye", cx: 25.5, cy: 28, rx: 2.5, ry: 3.5 }, open);
+  node("ellipse", { "class": "eye", cx: 38.5, cy: 28, rx: 2.5, ry: 3.5 }, open);
+  node("circle", { "class": "spark", cx: 26.3, cy: 26.4, r: 0.95 }, open);
+  node("circle", { "class": "spark", cx: 39.3, cy: 26.4, r: 0.95 }, open);
+  const sleep = node("g", { "class": "eyes-sleep" }, body);
+  node("path", { "class": "line", d: "M22 27 Q25.5 31 29 27" }, sleep);
+  node("path", { "class": "line", d: "M35 27 Q38.5 31 42 27" }, sleep);
+  const ask = node("g", { "class": "brows-ask" }, body);
+  node("path", { "class": "line", d: "M22 21 Q25.5 18.5 29 20.5" }, ask);
+  node("path", { "class": "line", d: "M35 20.5 Q38.5 18.5 42 21" }, ask);
+  const worry = node("g", { "class": "brows-err" }, body);
+  node("path", { "class": "line", d: "M21.5 23 L29 20" }, worry);
+  node("path", { "class": "line", d: "M35 20 L42.5 23" }, worry);
+  node("path", { "class": "line m-idle", d: "M28 37 Q32 40 36 37" }, body);
+  node("path", { "class": "fill m-run", d: "M27.5 36 Q32 43.5 36.5 36 Z" }, body);
+  node("ellipse", { "class": "fill m-ask", cx: 32, cy: 38, rx: 2.6, ry: 3.1 }, body);
+  node("path", { "class": "line m-err", d: "M27.5 40 Q32 35 36.5 40" }, body);
+  node("text", { "class": "zz", x: 47, y: 14 }, svg).textContent = "z";
+  return svg;
+}
+
+function buildPill(doc) {
+  const make = (tag, cls) => {
+    const el = doc.createElement(tag);
+    if (cls) el.className = cls;
+    return el;
+  };
+  const pill = make("div", "pill");
+  const cue = make("div", "cue");
+  cue.appendChild(buildPillAvatar(doc));
+  const badge = make("span", "badge");
+  badge.hidden = true;
+  cue.appendChild(badge);
+  pill.appendChild(cue);
+  const txt = make("div", "txt");
+  txt.setAttribute("role", "status");
+  const head = make("div", "head");
+  const sub = make("div", "sub");
+  const segs = make("div", "segs");
+  txt.appendChild(head);
+  txt.appendChild(sub);
+  txt.appendChild(segs);
+  pill.appendChild(txt);
+  let root = doc.getElementById("pill-root");
+  if (!root) {
+    root = make("div");
+    root.id = "pill-root";
+    root.style.height = "100%";
+    doc.body.appendChild(root);
+  }
+  root.textContent = "";
+  root.appendChild(pill);
+  return { doc: doc, pill: pill, badge: badge, head: head, sub: sub, segs: segs, sig: null };
+}
 
 function renderPill(model) {
   const win = state.pill;
   if (!win || win.closed) return;
   const doc = win.document;
-  let root = doc.getElementById("pill-root");
-  if (!root) {
-    root = doc.createElement("div");
-    root.id = "pill-root";
-    doc.body.appendChild(root);
-  }
-  root.textContent = "";
-  const make = (tag, cls, text) => {
-    const el = doc.createElement(tag);
-    if (cls) el.className = cls;
-    if (text !== undefined) el.textContent = text;
-    return el;
-  };
-  const pill = make("div", "pill");
-  pill.setAttribute("data-kind", model.kind);
-  pill.style.setProperty("--c", PILL_COLORS[model.kind] || PILL_COLORS.idle);
-  pill.appendChild(make("span", "dot"));
-  const txt = make("div", "txt");
-  txt.appendChild(make("div", "head", model.headline));
-  txt.appendChild(make("div", "sub", model.detail));
-  pill.appendChild(txt);
-  const agents = make("div", "agents");
+  // The window is built once and then only updated, so the mascot's animations
+  // are not restarted by every poll.
+  if (!state.pillUi || state.pillUi.doc !== doc) state.pillUi = buildPill(doc);
+  const ui = state.pillUi;
+  const sig = JSON.stringify(model);
+  if (sig === ui.sig) return;
+  ui.sig = sig;
+  ui.pill.setAttribute("data-kind", model.kind);
+  ui.pill.style.setProperty("--c", PILL_COLORS[model.kind] || PILL_COLORS.idle);
+  ui.head.textContent = model.headline;
+  ui.sub.textContent = model.detail;
+  ui.badge.hidden = model.count < 2;
+  ui.badge.textContent = model.count < 2 ? "" : String(model.count);
+  ui.segs.textContent = "";
   for (const status of model.agents) {
-    const cell = make("i");
+    const cell = doc.createElement("i");
     cell.setAttribute("data-s", status);
-    agents.appendChild(cell);
+    ui.segs.appendChild(cell);
   }
-  pill.appendChild(agents);
-  root.appendChild(pill);
 }
 
 function updatePillButton() {
@@ -2177,13 +2392,13 @@ async function togglePill() {
   if (typeof window.documentPictureInPicture === "undefined") return;
   let win;
   try {
-    win = await window.documentPictureInPicture.requestWindow({ width: 340, height: 96 });
+    win = await window.documentPictureInPicture.requestWindow({ width: 360, height: 104 });
   } catch (err) { return; }   // refused (no user gesture, or the user declined)
   const style = win.document.createElement("style");
   style.textContent = PILL_CSS;
   win.document.head.appendChild(style);
   win.document.title = "Cuelight";
-  win.addEventListener("pagehide", () => { state.pill = null; updatePillButton(); });
+  win.addEventListener("pagehide", () => { state.pill = null; state.pillUi = null; updatePillButton(); });
   state.pill = win;
   updatePillButton();
   updateChrome();

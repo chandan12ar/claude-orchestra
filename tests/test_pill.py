@@ -129,6 +129,51 @@ class TestTabTitle(unittest.TestCase):
         self.assertEqual(self.title("idle", 0), "Cuelight")
 
 
+RECORDER = """
+const calls = [];
+const ctx = new Proxy({}, {
+  get: (t, k) => (k in t ? t[k] : (...a) => {
+    calls.push(k + ':' + a.join(','));
+    return k === 'createRadialGradient' ? { addColorStop() {} } : undefined;
+  }),
+  set: (t, k, v) => { t[k] = v; if (k === 'fillStyle') calls.push('fill=' + v); return true; },
+});
+"""
+
+
+def draw(kind, count):
+    js = read("app.js")
+    prelude = "\n".join([extract_const(js, "PILL_COLORS"), extract_function(js, "mixHex"),
+                         extract_function(js, "drawCue"), RECORDER])
+    program = prelude + ("\ndrawCue(ctx, {kind: '%s', count: %d});"
+                         "\nconsole.log(JSON.stringify(calls));" % (kind, count))
+    path = os.path.join(tempfile.mkdtemp(), "f.js")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(program)
+    proc = subprocess.run([NODE, path], capture_output=True, encoding="utf-8", timeout=30)
+    if proc.returncode != 0:
+        raise AssertionError(proc.stderr[-1500:])
+    return json.loads(proc.stdout)
+
+
+@unittest.skipIf(NODE is None, "node is not on PATH")
+class TestTabIconFace(unittest.TestCase):
+    def test_every_state_draws_without_throwing(self):
+        for kind in ("idle", "running", "permission", "input", "error"):
+            self.assertTrue(draw(kind, 0), kind)
+
+    def test_count_badge_only_when_something_waits(self):
+        self.assertFalse([c for c in draw("idle", 0) if c.startswith("fillText")])
+        self.assertTrue([c for c in draw("permission", 2) if c == "fillText:2,51,51"])
+
+    def test_big_counts_are_capped(self):
+        self.assertIn("fillText:9+,51,51", draw("error", 12))
+
+    def test_the_face_changes_with_the_state(self):
+        self.assertNotEqual(draw("idle", 0), draw("error", 0))
+        self.assertNotEqual(draw("running", 0), draw("permission", 0))
+
+
 class TestPillWiring(unittest.TestCase):
     def test_button_exists_in_page_and_report_shell_and_starts_hidden(self):
         from orchestra import report
@@ -153,6 +198,53 @@ class TestPillWiring(unittest.TestCase):
 
     def test_pill_respects_reduced_motion(self):
         self.assertIn("prefers-reduced-motion", read("app.js")[read("app.js").index("const PILL_CSS"):])
+
+    def test_every_state_has_a_face_and_a_motion(self):
+        css = read("app.js")[read("app.js").index("const PILL_CSS"):]
+        for kind in ("idle", "running", "permission", "input", "error"):
+            self.assertIn('.pill[data-kind="%s"] .body' % kind, css)
+        for part in ("m-idle", "m-run", "m-ask", "m-err", "eyes-sleep", "brows-err"):
+            self.assertIn(part, css)
+
+    def test_motion_is_switched_off_for_reduced_motion(self):
+        css = read("app.js")[read("app.js").index("const PILL_CSS"):]
+        block = css[css.index("prefers-reduced-motion"):]
+        self.assertIn("animation:none !important", block)
+
+    def test_window_is_built_once_and_then_only_updated(self):
+        # Rebuilding on every poll would restart the mascot's animations.
+        js = read("app.js")
+        body = extract_function(js, "renderPill")
+        self.assertIn("state.pillUi", body)
+        self.assertIn("ui.sig", body)
+        self.assertNotIn('root.textContent = ""', body)
+        self.assertIn("state.pillUi = null", js[js.index("async function togglePill"):])
+
+    def test_avatar_is_drawn_with_dom_calls_not_markup_strings(self):
+        self.assertNotIn("innerHTML", extract_function(read("app.js"), "buildPillAvatar"))
+
+    def test_pill_text_colours_are_readable_on_both_backgrounds(self):
+        css = read("app.js")[read("app.js").index("const PILL_CSS"):]
+
+        def lum(hex_colour):
+            rgb = [int(hex_colour[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+            lin = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in rgb]
+            return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+
+        def ratio(a, b):
+            hi, lo = sorted((lum(a), lum(b)), reverse=True)
+            return (hi + 0.05) / (lo + 0.05)
+
+        def token(name, section):
+            return re.search(name + r":(#[0-9a-f]{6})", section).group(1)
+
+        light = css[css.index(":root"):css.index("@media")]
+        dark = css[css.index("@media (prefers-color-scheme: dark)"):css.index("* {")]
+        for section in (light, dark):
+            self.assertGreaterEqual(ratio(token("--ink", section), token("--bg", section)), 7)
+            self.assertGreaterEqual(ratio(token("--muted", section), token("--bg", section)), 4.5)
+            for seg in ("--run", "--done", "--bad", "--stall", "--wait"):
+                self.assertGreaterEqual(ratio(token(seg, section), token("--bg", section)), 3, seg)
 
     def test_chrome_updates_on_every_render_and_fleet_poll(self):
         js = read("app.js")
