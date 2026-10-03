@@ -54,6 +54,15 @@ cells a spreadsheet would execute as formulas are neutralised.
 
 ## What you get
 
+- **Pulse** — a live strip above every view, like a ticker for the run: agents running,
+  tool calls per minute, fresh tokens spent, and what needs you, each with a chart that
+  moves as the run does, a change arrow against the previous minute, and a tape of what
+  just started, finished, failed or went quiet. Every line is a real series from the
+  transcripts (nothing smoothed or estimated, the y-axis always starts at zero), and
+  hovering a chart reads the exact value.
+
+  ![The Pulse strip, dark theme: running agents, tool calls per minute, fresh tokens, what needs you, and the event tape](docs/evidence/screenshots/19-pulse-dark.png)
+
 - **Insights** — the questions a run raises once it is over (or half over):
   how parallel it really was, **the critical path** (the chain of agents that set
   its length; speeding up anything else will not finish it sooner), which tools

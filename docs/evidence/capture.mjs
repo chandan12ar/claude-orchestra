@@ -8,7 +8,7 @@
 // and closes only that process, so it never touches a browser you have open.
 //
 // Optional: DEMO_URL (default http://127.0.0.1:8766/?k=demo&session=demo-checkout-v2),
-// REPORT_URL and BIG_REPORT_URL (file:// URLs of two static reports; those shots are
+// ONLY (comma-separated shot names; default: all), REPORT_URL and BIG_REPORT_URL (file:// URLs of two static reports; those shots are
 // skipped when unset).
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -58,6 +58,14 @@ const shots = [
   ["11-shortcuts-help-light", DEMO, 1440, 900, "light", press({ key: "?" })],
   ["12-agent-drawer-dark", DEMO + "#agent=" + agentId("unit"), 1440, 900, "dark"],
   ["13-fleet-light", DEMO + "#view=fleet", 1440, 700, "light"],
+  ["19-pulse-dark", DEMO, 1440, 560, "dark",
+    `(async () => { const h = document.querySelector('header').getBoundingClientRect().height;
+      window.scrollTo(0, document.getElementById('pulse').offsetTop - h - 12);
+      await new Promise(r => setTimeout(r, 300)); })()`],
+  ["20-pulse-light", DEMO, 1440, 560, "light",
+    `(async () => { const h = document.querySelector('header').getBoundingClientRect().height;
+      window.scrollTo(0, document.getElementById('pulse').offsetTop - h - 12);
+      await new Promise(r => setTimeout(r, 300)); })()`],
   ["14-phone-timeline-light", DEMO, 390, 844, "light"],
   ["15-phone-insights-dark", DEMO + "#view=insights", 390, 1500, "dark"],
   ...(REPORT ? [
@@ -87,7 +95,10 @@ try {
   const send = (method, params = {}) => new Promise((res) => { const i = ++id; pending.set(i, res); ws.send(JSON.stringify({ id: i, method, params })); });
   await send("Page.enable");
 
+  // ONLY=01-timeline-light,19-pulse-dark regenerates just those shots.
+  const only = process.env.ONLY ? process.env.ONLY.split(",") : null;
   for (const [name, url, w, h, scheme, script] of shots) {
+    if (only && !only.includes(name)) continue;
     await send("Emulation.setDeviceMetricsOverride", { width: w, height: h, deviceScaleFactor: 1, mobile: w < 600 });
     await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: scheme }] });
     await send("Page.navigate", { url: "about:blank" });

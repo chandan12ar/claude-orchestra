@@ -835,6 +835,22 @@ pure functions in `app.js`, tested under node.
   prompt after each tick. Nothing is written outside the temp directory, which is
   removed on exit.
 
+### Pulse (`insights.pulse`, `agentlog.token_events`)
+- The live strip's series are part of the Insights payload, so a static report has them too.
+  `AgentDigest` now records `(timestamp, fresh tokens added)` per API message (once per
+  `message.id`, like the totals; capped at 4,000 events per agent, past which new tokens
+  fold into the last entry). `insights._pulse` buckets tool calls and cumulative fresh
+  tokens into 48 slices of one shared window (first agent start to *now* while the session
+  is live, so the right edge moves), reuses the parallelism step series for "agents
+  running", derives per-minute rates from the last 60 s against the 60 s before, and keeps
+  the latest 40 start/finish/failure/stall markers.
+- Front end (`pulseModel`, `renderPulse`): pure geometry functions turn each series into
+  an SVG path with a zero baseline (a flat or empty series cannot divide by zero, and a
+  small wobble never looks like a crash). The strip is built once and then updated in
+  place on every poll, so the live dot keeps pulsing; ages on the tape tick locally every
+  500 ms. It hides itself during a replay (the insights are for the live run). Colour
+  stays on the data: only the running series and the problem pills use status colours.
+
 ### Graph and Work Floor
 - **Graph layout** (`layoutGraph`) is a pure function split into `graphRankColumns`
   (longest path over exact edges; columns indexed, never raw rank), `graphOrderColumns`
