@@ -33,6 +33,8 @@ class TestNoNetworkEgress(unittest.TestCase):
 class TestLocalReferencesResolve(unittest.TestCase):
     def test_every_referenced_file_exists(self):
         for ref in LOCAL_REF.findall(read("index.html")):
+            if ref.startswith("data:"):     # inline (the favicon), not a file
+                continue
             self.assertTrue(os.path.isfile(os.path.join(STATIC, ref)),
                             "missing asset: {}".format(ref))
 
