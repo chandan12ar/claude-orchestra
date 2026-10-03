@@ -143,3 +143,12 @@ is wrong. Dollar signs are now avoided/escaped in commit messages.
 Everything planned is built and pushed; CI is green through 1960490. Do, in order:
 (1) Open item 1 with a real Claude Code session, (2) open a PR from
 `feature/live-events` and merge, bumping `plugin.json` to 0.2.0.
+
+### CI blocked by GitHub billing (2026-10-03, from 6a77988 on)
+Every job on 6a77988 and later "was not started because recent account payments have
+failed or your spending limit needs to be increased" (job annotation; zero steps ran).
+This is an account/billing problem, NOT a test failure: 81cf685 and e96913c were green,
+and the full local suite passes on every later commit (665 tests at 438d5fa). The
+cross-OS result for commits after e96913c is therefore UNVERIFIED until billing is fixed
+and the runs are re-run (`gh run rerun <id>`). The Windows-specific risk is low for the
+latest changes but not zero (new node-based tests use explicit utf-8).
