@@ -66,6 +66,7 @@ class RunBuilder:
         main_entries = self._reader.read_new(self.paths.session_jsonl)
         if self._reader.consume_reset(self.paths.session_jsonl):
             self._main_tally.reset()          # re-read from byte 0: don't double count
+            self._parent = ParentIndex()      # and don't keep launches the new file lacks
         self._main_tally.ingest(main_entries)
         self._parent.ingest(main_entries)
         self._note_main_activity(main_entries)

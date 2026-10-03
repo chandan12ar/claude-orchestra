@@ -65,8 +65,7 @@ plugin rename.
    plugin name. Decide before the user base grows (owner deferred it).
 5. **Pill browser support**: Document Picture-in-Picture is Chromium-only (a search
    result said Firefox 151; not verified). The tab-title/favicon badge works everywhere.
-6. **Small gaps**: sounds have no per-event mute or quiet hours; the main-transcript reader in `ParentIndex` has no
-   truncation reset (only the new token tally does); history is recorded only for
+6. **Small gaps**: sounds have no per-event mute or quiet hours; history is recorded only for
    sessions that are viewed or scanned by the fleet, not every session.
 7. **Still deferred by decision**: dashboard approve/deny (needs the
    `PermissionRequest` spike first: does it run before/alongside the terminal
