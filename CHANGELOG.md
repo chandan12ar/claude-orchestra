@@ -6,6 +6,9 @@ versions follow [SemVer](https://semver.org/) (the `version` in
 
 ## [Unreleased]
 
+### Added
+- README section "Example use cases" (Anthropic's directory policy asks for at least three working examples).
+
 ### Fixed
 - The directory's validation blocked the plugin for "secret in a shipped file": the redaction tests
   held fake keys as text. They are now built from pieces at run time (`tests/fake_secrets.py`), the old
