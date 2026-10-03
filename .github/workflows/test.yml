@@ -1,0 +1,54 @@
+name: tests
+
+on:
+  push:
+    branches: [main, master, "feature/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: py${{ matrix.python }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.9", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      # tests/test_report_renders.py runs the generated report under Node.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Run the suite (standard library only, no pip install)
+        run: python -m unittest discover -s tests -t . -v
+
+  plugin-manifest:
+    # Claude Code's own validator. Pointing it at the repo root only checks the
+    # MARKETPLACE manifest; the plugin manifest (and with it hooks/hooks.json and
+    # the command files) has to be named explicitly. Verified, in a clean
+    # environment, that this catches a missing "hooks" wrapper, an unknown handler
+    # type and malformed JSON, so a hooks.json Claude Code would silently refuse to
+    # load fails CI instead. Do NOT add `claude plugin validate commands`: with the
+    # same CLI version it passed locally but failed here ("No manifest found in
+    # directory"), so it is not a dependable invocation.
+    name: claude plugin validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm install -g @anthropic-ai/claude-code
+      - name: Marketplace manifest
+        run: claude plugin validate .claude-plugin/marketplace.json
+      - name: Plugin manifest, hooks and commands
+        # Not --strict: CLAUDE.md at the plugin root (it carries this project's
+        # working context) draws an informational "not loaded as context" warning.
+        run: claude plugin validate .claude-plugin/plugin.json

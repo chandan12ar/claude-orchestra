@@ -134,6 +134,38 @@ class TestBuilderReuse(unittest.TestCase):
         self.assertIs(service._builders["s1"], first)
 
 
+class TestBuilderEviction(unittest.TestCase):
+    def _service(self, sessions, max_builders, default="s0"):
+        root = tempfile.mkdtemp()
+        for name in sessions:
+            build_session(root, name)
+        return OrchestraService(root=root, token=TOKEN, default_session=default,
+                                max_builders=max_builders,
+                                now_fn=lambda: parse_timestamp(ts(150)))
+
+    def test_least_recently_used_builder_is_evicted(self):
+        service = self._service(["s0", "s1", "s2", "s3"], max_builders=3)
+        for name in ("s0", "s1", "s2"):
+            service.run_summary(name)
+        service.run_summary("s0")            # s1 is now the oldest
+        service.run_summary("s3")
+        self.assertEqual(set(service._builders), {"s0", "s2", "s3"})
+
+    def test_default_session_is_never_evicted(self):
+        service = self._service(["s0", "s1", "s2", "s3"], max_builders=2)
+        for name in ("s0", "s1", "s2", "s3"):
+            service.run_summary(name)
+        self.assertIn("s0", service._builders)
+        self.assertLessEqual(len(service._builders), 2)
+
+    def test_an_evicted_session_is_rebuilt_with_the_same_answer(self):
+        service = self._service(["s0", "s1", "s2"], max_builders=1)
+        before = service.run_summary("s1")["totals"]
+        service.run_summary("s2")
+        self.assertNotIn("s1", service._builders)
+        self.assertEqual(service.run_summary("s1")["totals"], before)
+
+
 class TestHostnameParsing(unittest.TestCase):
     """Hand-rolled colon splitting got this wrong in both directions."""
 

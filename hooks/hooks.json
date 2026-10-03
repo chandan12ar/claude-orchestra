@@ -1,0 +1,32 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {"hooks": [{"type": "command", "async": true, "timeout": 10,
+                  "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/orchestra/hook.py\" || python \"${CLAUDE_PLUGIN_ROOT}/orchestra/hook.py\" || true"}]}
+    ],
+    "SessionEnd": [
+      {"hooks": [{"type": "command", "async": true, "timeout": 10,
+                  "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/orchestra/hook.py\" || python \"${CLAUDE_PLUGIN_ROOT}/orchestra/hook.py\" || true"}]}
+    ],
+    "SubagentStart": [
+      {"hooks": [{"type": "command", "async": true, "timeout": 10,
+                  "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/orchestra/hook.py\" || python \"${CLAUDE_PLUGIN_ROOT}/orchestra/hook.py\" || true"}]}
+    ],
+    "SubagentStop": [
+      {"hooks": [{"type": "command", "async": true, "timeout": 10,
+                  "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/orchestra/hook.py\" || python \"${CLAUDE_PLUGIN_ROOT}/orchestra/hook.py\" || true"}]}
+    ],
+    "Notification": [
+      {"hooks": [{"type": "command", "async": true, "timeout": 10,
+                  "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/orchestra/hook.py\" || python \"${CLAUDE_PLUGIN_ROOT}/orchestra/hook.py\" || true"}]}
+    ],
+    "StopFailure": [
+      {"hooks": [{"type": "command", "async": true, "timeout": 10,
+                  "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/orchestra/hook.py\" || python \"${CLAUDE_PLUGIN_ROOT}/orchestra/hook.py\" || true"}]}
+    ],
+    "Stop": [
+      {"hooks": [{"type": "command", "async": true, "timeout": 10,
+                  "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/orchestra/hook.py\" || python \"${CLAUDE_PLUGIN_ROOT}/orchestra/hook.py\" || true"}]}
+    ]
+  }
+}

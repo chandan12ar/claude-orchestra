@@ -63,6 +63,9 @@ class Agent:
     last_activity_at: Optional[float] = None
     result: str = ""
     tokens: Dict[str, int] = field(default_factory=dict)
+    tokens_by_model: Dict[str, Dict[str, int]] = field(default_factory=dict)
+    cost: Optional[float] = None     # None = no price table (or nothing priced)
+    loop: Optional[Dict[str, Any]] = None   # a POSSIBLE loop (orchestra.runaway)
     tool_calls: List[ToolCall] = field(default_factory=list)
     files_written: List[str] = field(default_factory=list)
     files_read: List[str] = field(default_factory=list)
@@ -86,6 +89,14 @@ class Agent:
             return None
         return self.ended_at - self.started_at
 
+    def _loop_dict(self) -> Optional[Dict[str, Any]]:
+        if not self.loop:
+            return None
+        return {"kind": self.loop["kind"], "count": self.loop["count"],
+                "tool": self.loop["tool"], "target": scrub(self.loop["target"]),
+                "calls": [{"tool": c["tool"], "target": scrub(c["target"])}
+                          for c in self.loop["calls"]]}
+
     def to_light_dict(self) -> Dict[str, Any]:
         """Everything the timeline and graph need; nothing large."""
         return {
@@ -102,6 +113,8 @@ class Agent:
             "duration_s": self.duration_s,
             "last_activity_at": self.last_activity_at,
             "tokens": dict(self.tokens),
+            "cost": self.cost,
+            "loop": self._loop_dict(),
             "rounds": [{"started_at": r.started_at, "ended_at": r.ended_at,
                         "status": r.status} for r in self.rounds],
             "objective": _cap(scrub(self.objective.text)),
@@ -191,6 +204,14 @@ class Run:
     hub_files: List[HubFile] = field(default_factory=list)
     write_conflicts: List[WriteConflict] = field(default_factory=list)
     diagnostics: Dict[str, int] = field(default_factory=dict)
+    # Hook-event ground truth (orchestra.livestate.LiveState.to_dict), or None
+    # when no hook has ever reported for this session.
+    live: Optional[Dict[str, Any]] = None
+    # The orchestrator's own usage (the main transcript), which no per-agent
+    # figure includes: {"tokens", "model", "cost"}.
+    orchestrator: Optional[Dict[str, Any]] = None
+    # Money, when a price table is configured; see RunBuilder._cost_block.
+    cost: Optional[Dict[str, Any]] = None
 
     def agent(self, agent_id: str) -> Optional[Agent]:
         for a in self.agents:
@@ -200,7 +221,7 @@ class Run:
 
     def totals(self) -> Dict[str, Any]:
         counts = {"agents": len(self.agents)}
-        for status in (C.RUNNING, C.COMPLETED, C.FAILED, C.STALLED,
+        for status in (C.RUNNING, C.WAITING, C.COMPLETED, C.FAILED, C.STALLED,
                        C.ORPHANED, C.UNKNOWN):
             counts[status] = sum(1 for a in self.agents if a.status == status)
         tokens = {}
@@ -227,4 +248,7 @@ class Run:
             "hub_files": [h.to_dict() for h in self.hub_files],
             "write_conflicts": [c.to_dict() for c in self.write_conflicts],
             "diagnostics": dict(self.diagnostics),
+            "live": self.live,
+            "orchestrator": self.orchestrator,
+            "cost": self.cost,
         }

@@ -2,6 +2,11 @@
 
 const TOKEN = new URLSearchParams(location.search).get("k") || "";
 const POLL_MS = 2000;
+// While the push stream is healthy, polling is only a safety net (it also
+// catches time-based changes no file write announces, like a stall threshold).
+const STREAM_POLL_MS = 15000;
+const STREAM_DEBOUNCE_MS = 300;
+const FLEET_POLL_MS = 4000;
 
 const state = {
   run: null,
@@ -37,7 +42,28 @@ const state = {
   // burst of notifications for history.
   notifyEnabled: false,
   notifySeeded: false,
+  fleet: null,           // last /api/fleet payload
+  fleetSeeded: false,    // first fleet poll only records, never notifies
+  fleetAttention: {},    // session_id -> kind@since already announced
+  fleetTimer: null,
+  history: { data: null, selected: [], compare: null, timer: null },
+  liveRun: null,         // the newest run from the server; state.run may be a replay of it
+  replay: { on: false, t: 0, playing: false, speed: 30, timer: null },
+  faviconKey: "",
+  soundEnabled: false,   // off by default; turning it on is the click autoplay needs
+  soundMemo: null,       // per-session baseline so history never makes noise
+  soundFleetMemo: null,
+  lastSoundAt: 0,
+  soundPrefs: null,      // per-event mute + quiet hours; see normalizeSoundPrefs
+  audio: null,
+  pill: null,            // the open Picture-in-Picture window, if any
+  stream: null,          // the open EventSource, if any
+  streamLive: false,     // true only while that stream is connected
+  refreshTimer: null,    // pending debounced refresh after a push
+  knownAttention: "",   // kind@since of the last attention already announced
+  knownBudget: "",      // last budget state announced (ok / warn / exceeded)
   knownFailedIds: new Set(),
+  knownLoopIds: new Set(),
   lastSessionLive: null,
   // agent_id -> { toolCount, tokenTotal } as of the last render, so the Work
   // Floor view can tell "this agent did something since the last poll" apart
@@ -76,10 +102,33 @@ function api(path) {
 
 function fmtDuration(seconds) {
   if (seconds === null || seconds === undefined) return "—";
-  if (seconds < 60) return seconds.toFixed(0) + "s";
-  const m = Math.floor(seconds / 60);
-  const s = Math.round(seconds % 60);
-  return m + "m " + (s < 10 ? "0" : "") + s + "s";
+  const sign = seconds < 0 ? "-" : "";
+  const total = Math.round(Math.abs(seconds));
+  const pad = (n) => (n < 10 ? "0" : "") + n;
+  if (total < 60) return sign + total + "s";
+  if (total < 3600) return sign + Math.floor(total / 60) + "m " + pad(total % 60) + "s";
+  return sign + Math.floor(total / 3600) + "h " + pad(Math.floor((total % 3600) / 60)) + "m";
+}
+
+// A possible loop, in words, with its evidence. Never a verdict: the same
+// pattern is also what legitimate polling looks like.
+function loopText(loop) {
+  if (!loop) return "";
+  const call = (c) => c.tool + (c.target ? " " + c.target : "");
+  if (loop.kind === "cycle") {
+    return "alternating " + loop.calls.map(call).join(" \u21C4 ") + " over its last " +
+      loop.count + " calls";
+  }
+  return call(loop.calls[0] || loop) + " \u00D7" + loop.count;
+}
+
+// Money in the price file's currency. Tiny amounts say "<", not "$0.00", which
+// would read as free.
+function fmtMoney(amount, currency) {
+  if (amount === null || amount === undefined) return "—";
+  const symbol = !currency || currency === "USD" ? "$" : currency + " ";
+  if (amount > 0 && amount < 0.01) return "<" + symbol + "0.01";
+  return symbol + (amount >= 100 ? amount.toFixed(0) : amount.toFixed(2));
 }
 
 function fmtCount(n) {
@@ -214,7 +263,7 @@ function agentMatchesFilter(agent) {
 function renderFilterChips() {
   const box = $("filter-status");
   if (!box || !state.run) return;
-  const order = ["running", "completed", "failed", "stalled", "orphaned", "unknown"];
+  const order = ["running", "waiting", "completed", "failed", "stalled", "orphaned", "unknown"];
   const present = new Set(state.run.agents.map((a) => a.status));
   const statuses = order.filter((s) => present.has(s));
   box.innerHTML = statuses.map((s) =>
@@ -300,6 +349,37 @@ function checkNotifications(run) {
     }
   }
 
+  // A prompt that appears while the tab is open is exactly what a notification
+  // is for; one already pending at page load is shown by the banner instead.
+  const att = run.live && run.live.attention;
+  const attKey = att ? att.kind + "@" + att.since : "";
+  if (!seeding && state.notifyEnabled && att && attKey !== state.knownAttention &&
+      att.kind !== "idle") {
+    notify(attentionTitle(att), att.message || "");
+  }
+  state.knownAttention = attKey;
+
+  // A newly suspected loop is worth a nudge while the tab is open: it is
+  // burning tokens right now. Seeded like failures, so history stays quiet.
+  const loopingNow = new Set(run.agents.filter((a) => a.loop).map((a) => a.agent_id));
+  if (!seeding && state.notifyEnabled) {
+    for (const agent of run.agents) {
+      if (agent.loop && !state.knownLoopIds.has(agent.agent_id)) {
+        notify("Possible loop", (agent.description || agent.agent_id) + ": " + loopText(agent.loop));
+      }
+    }
+  }
+  state.knownLoopIds = loopingNow;
+
+  // Budget: announce crossing INTO warn/exceeded while the tab is open.
+  const budget = run.cost && run.cost.budget ? run.cost.budget.state : "";
+  if (!seeding && state.notifyEnabled && budget !== state.knownBudget &&
+      (budget === "warn" || budget === "exceeded")) {
+    notify(budget === "exceeded" ? "Budget exceeded" : "Budget warning",
+      costText(run.cost) + " (" + Math.round(run.cost.budget.ratio * 100) + "%)");
+  }
+  state.knownBudget = budget;
+
   state.knownFailedIds = currentlyFailed;
   state.lastSessionLive = run.session_live;
   state.notifySeeded = true;
@@ -320,12 +400,25 @@ function buildSummaryMarkdown(run) {
       fmtTokens(t.tokens) + " tokens (" + fmtPct(cacheHitRatio(t.tokens)) + " cached) · " +
       fmtDuration(t.wall_time_s) + " wall",
   ];
+  if (run.cost && run.cost.enabled) {
+    lines.push("Cost: " + costText(run.cost) + (run.cost.partial ? " (partial — no price for " +
+      run.cost.unpriced_models.join(", ") + ")" : ""));
+  }
 
-  const trouble = run.agents.filter((a) => ["stalled", "failed", "orphaned"].includes(a.status));
-  if (trouble.length) {
+  const trouble = run.agents.filter((a) =>
+    ["waiting", "stalled", "failed", "orphaned"].includes(a.status));
+  const att = run.live && run.live.attention;
+  const loops = run.agents.filter((a) => a.loop);
+  if (trouble.length || att || loops.length) {
     lines.push("", "### Needs attention");
+    if (att) lines.push("- " + attentionTitle(att).toUpperCase() +
+      (att.message ? " — " + att.message : ""));
     for (const agent of trouble) {
       lines.push("- " + agent.status.toUpperCase() + " — " + (agent.description || agent.agent_id));
+    }
+    for (const agent of loops) {
+      lines.push("- POSSIBLE LOOP — " + (agent.description || agent.agent_id) + ": " +
+        loopText(agent.loop));
     }
   }
 
@@ -345,7 +438,7 @@ function buildSummaryMarkdown(run) {
 async function copySummary() {
   const btn = $("copy-summary");
   if (!state.run || !btn) return;
-  const text = buildSummaryMarkdown(state.run);
+  const text = buildSummaryMarkdown(state.liveRun || state.run);
   let ok = false;
   try {
     if (typeof navigator !== "undefined" && navigator.clipboard && navigator.clipboard.writeText) {
@@ -543,6 +636,7 @@ const AGENT_SPRITE_STATE = {
   completed: { row: 3, fps: 3 },
   failed: { row: 5, fps: 3 },
   stalled: { row: 6, fps: 4 },
+  waiting: { row: 6, fps: 3 },
   orphaned: { row: 0, fps: 2 },
   unknown: { row: 0, fps: 2 },
 };
@@ -827,37 +921,133 @@ function renderHeader(run) {
   const parts = [
     ["agents", t.agents],
     ["running", t.running],
+    ...(t.waiting ? [["waiting", t.waiting]] : []),
     ["done", t.completed],
     ["failed", t.failed + t.orphaned],
-    ["tokens", fmtTokens(t.tokens)],
-    ["cached", fmtPct(cacheHitRatio(t.tokens))],
+    ["tokens", run.replay_at !== undefined ? "\u2014" : fmtTokens(t.tokens)],
+    ["cached", run.replay_at !== undefined ? "\u2014" : fmtPct(cacheHitRatio(t.tokens))],
     ["wall", fmtDuration(t.wall_time_s)],
   ];
+  if (run.orchestrator) {
+    // The per-agent "tokens" above exclude the orchestrator; say so, don't hide it.
+    parts.splice(parts.length - 2, 0, ["orchestrator", fmtTokens(run.orchestrator.tokens)]);
+  }
   for (const [label, value] of parts) {
     const span = document.createElement("span");
     span.innerHTML = "<strong>" + value + "</strong> " + label;
     $("totals").appendChild(span);
   }
+  renderCostPart(run);
   $("conn").textContent = run.session_live ? "" : "session ended";
 }
 
+function costText(cost) {
+  const total = fmtMoney(cost.total, cost.currency);
+  const b = cost.budget;
+  return total + (b ? " / " + fmtMoney(b.limit, cost.currency) : "");
+}
+
+function renderCostPart(run) {
+  const cost = run.cost;
+  if (!cost) return;
+  const span = document.createElement("span");
+  if (cost.enabled) {
+    const strong = document.createElement("strong");
+    strong.textContent = costText(cost);
+    span.appendChild(strong);
+    const label = document.createElement("span");
+    label.textContent = cost.partial ? " cost (partial)" : " cost";
+    span.appendChild(label);
+    if (cost.budget && cost.budget.state !== "ok") span.className = "cost-" + cost.budget.state;
+    const notes = [];
+    if (cost.partial) notes.push("No price for: " + cost.unpriced_models.join(", "));
+    if (cost.budget) notes.push(Math.round(cost.budget.ratio * 100) + "% of budget");
+    notes.push("agents " + fmtMoney(cost.agents, cost.currency) +
+      " + orchestrator " + fmtMoney(cost.orchestrator, cost.currency));
+    span.title = notes.join(" · ");
+  } else if (cost.error) {
+    span.className = "cost-warn";
+    span.textContent = cost.error;
+  } else {
+    return;     // no price file: tokens only, as documented
+  }
+  $("totals").appendChild(span);
+}
+
 function renderHealth(run) {
-  const trouble = run.agents.filter((a) =>
-    ["stalled", "failed", "orphaned"].includes(a.status));
+  const items = [];
+  for (const agent of run.agents) {
+    const label = agent.description || agent.agent_id;
+    if (["waiting", "stalled", "failed", "orphaned"].includes(agent.status)) {
+      items.push({ id: agent.agent_id, text: agent.status.toUpperCase() + " — " + label });
+    }
+    if (agent.loop) {
+      items.push({ id: agent.agent_id,
+        text: "POSSIBLE LOOP — " + label + ": " + loopText(agent.loop) });
+    }
+  }
   const box = $("health");
-  if (!trouble.length) { box.hidden = true; return; }
+  if (!items.length) { box.hidden = true; return; }
   box.hidden = false;
-  box.innerHTML = "<strong>" + trouble.length + " agent(s) need attention</strong>";
+  const distinct = new Set(items.map((i) => i.id)).size;
+  box.innerHTML = "<strong>" + distinct + " agent(s) need attention</strong>";
   const list = document.createElement("ul");
-  for (const agent of trouble) {
+  for (const entry of items) {
     const item = document.createElement("li");
-    item.textContent = agent.status.toUpperCase() + " — " +
-      (agent.description || agent.agent_id);
+    item.textContent = entry.text;
     item.style.cursor = "pointer";
-    item.onclick = () => openDrawer(agent.agent_id);
+    item.onclick = () => openDrawer(entry.id);
     list.appendChild(item);
   }
   box.appendChild(list);
+}
+
+function attentionTitle(att) {
+  if (att.kind === "permission") return "Waiting for your permission";
+  if (att.kind === "input") return "Waiting for your input";
+  if (att.kind === "idle") return "Idle — waiting for your next prompt";
+  if (att.kind === "error") {
+    return "API error" + (att.error_type ? ": " + att.error_type : "");
+  }
+  return att.kind;
+}
+
+// What the session is blocked on, straight from hook events. Built with
+// textContent, never innerHTML: the message is text from outside this page.
+function renderAttention(run) {
+  const box = $("attention");
+  if (!box) return;
+  const live = run.live;
+  let kind = "";
+  let title = "";
+  let detail = "";
+  let since = null;
+  if (live && live.attention) {
+    kind = live.attention.kind;
+    title = attentionTitle(live.attention);
+    detail = live.attention.message || "";
+    since = live.attention.since;
+  } else if (live && live.ended && !run.session_live) {
+    kind = "ended";
+    title = "Session ended" + (live.ended.reason ? " (" + live.ended.reason + ")" : "");
+    since = live.ended.at;
+  }
+  if (!kind) { box.hidden = true; return; }
+  box.hidden = false;
+  box.setAttribute("data-kind", kind);
+  box.setAttribute("role", kind === "permission" || kind === "error" ? "alert" : "status");
+  box.textContent = "";
+  const add = (cls, text) => {
+    const span = document.createElement("span");
+    span.className = cls;
+    span.textContent = text;
+    box.appendChild(span);
+  };
+  add("att-title", title);
+  if (detail) add("att-detail", detail);
+  if (since !== null && !state.offline) {
+    add("att-since", fmtDuration(Math.max(0, Date.now() / 1000 - since)) + " ago");
+  }
 }
 
 function renderDiagnostics(run) {
@@ -877,6 +1067,9 @@ const DOT_R = 4;
 const LABEL_X = 14;
 
 function timeWindow(run) {
+  // A replay scrubs along a FIXED axis (the whole run), so bars grow across a
+  // stable scale instead of the scale itself rescaling on every frame.
+  if (run.replay_window) return run.replay_window;
   let min = Infinity;
   let max = -Infinity;
   for (const agent of run.agents) {
@@ -1001,6 +1194,8 @@ function setView(view) {
   $("view-graph").hidden = view !== "graph";
   $("view-activity").hidden = view !== "activity";
   $("view-workfloor").hidden = view !== "workfloor";
+  $("view-fleet").hidden = view !== "fleet";
+  $("view-history").hidden = view !== "history";
   for (const tab of document.querySelectorAll(".tab")) {
     const active = tab.dataset.view === view;
     tab.classList.toggle("active", active);
@@ -1010,11 +1205,14 @@ function setView(view) {
   // Refresh immediately on switching in, rather than waiting up to POLL_MS
   // for the next cycle to notice the tab is now visible.
   if (view === "activity" && state.run) refreshTicker(state.run);
+  if (view === "history") loadHistory();
 }
 
 function render() {
   if (!state.run) return;
   renderHeader(state.run);
+  updateChrome();
+  renderAttention(state.run);
   renderHealth(state.run);
   renderConflicts(state.run);
   renderFilterChips();
@@ -1023,6 +1221,8 @@ function render() {
   if (state.view === "timeline") renderTimeline(state.run);
   else if (state.view === "graph") renderGraph(state.run);
   else if (state.view === "workfloor") renderWorkfloor(state.run);
+  else if (state.view === "fleet") renderFleet();
+  else if (state.view === "history") renderHistory();
   else renderTicker();
 }
 
@@ -1032,6 +1232,8 @@ function startPolling() {
 }
 
 async function poll(generation) {
+  // A timer scheduled by a loop that has since been superseded must not fetch.
+  if (generation !== state.generation) return;
   let run = null;
   try {
     run = await api("/api/run");
@@ -1045,15 +1247,951 @@ async function poll(generation) {
   // A response that arrived after the session changed, or after this loop was
   // superseded, must not overwrite the current view.
   if (generation !== state.generation) return;
-  state.run = run;
-  state.backoff = POLL_MS;
+  state.liveRun = run;
+  state.run = state.replay.on ? deriveRunAt(run, replayClamp(state.replay.t, run)) : run;
+  state.backoff = state.streamLive ? STREAM_POLL_MS : POLL_MS;
   $("conn").textContent = run.session_live ? "" : "session ended";
   checkNotifications(run);
+  checkSounds(run);
   render();
   // Only actively poll agent detail while the tab showing it is open, so
   // watching Timeline/Graph never costs N extra per-agent fetches.
   if (state.view === "activity") refreshTicker(run);
   if (state.live) setTimeout(() => poll(generation), state.backoff);
+}
+
+// ------------------------------------------------------------------ sounds
+//
+// Synthesized with Web Audio: no audio files, so nothing to fetch (the no-egress
+// guarantee stands) and nothing to license. Off until the user clicks Sound,
+// which is also the user gesture browsers require before a page may make noise.
+//
+// Three sounds, by what a person should do about it:
+//   fail   something broke (API error, an agent failed)   -> look now
+//   alert  Claude is waiting on you                       -> act now
+//   done   everything that was running has finished       -> optional
+// At most one plays per update (the most important), and never twice in 1.5 s.
+
+const SOUND_PRIORITY = { fail: 3, alert: 2, done: 1 };
+const SOUND_NOTES = {            // [frequency Hz, start offset s]
+  alert: [[660, 0], [880, 0.14]],
+  fail: [[330, 0], [220, 0.18]],
+  done: [[523, 0], [659, 0.11], [784, 0.22]],
+};
+
+function topSound(names) {
+  let best = null;
+  for (const name of names) {
+    if (!best || SOUND_PRIORITY[name] > SOUND_PRIORITY[best]) best = name;
+  }
+  return best;
+}
+
+// Mute per event and quiet hours, kept in this browser only. Quiet hours silence
+// every event, including failures: if you want to be woken, leave them off.
+const SOUND_PREF_DEFAULT = { mute: { alert: false, fail: false, done: false }, quiet: { on: false, from: "22:00", to: "07:00" } };
+
+function clockMinutes(text) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(typeof text === "string" ? text : "");
+  if (!m || +m[1] > 23 || +m[2] > 59) return null;
+  return +m[1] * 60 + +m[2];
+}
+
+// Stored values are untrusted (any page script on this origin can write them):
+// anything that is not exactly what we write falls back to the default.
+function normalizeSoundPrefs(raw) {
+  const prefs = JSON.parse(JSON.stringify(SOUND_PREF_DEFAULT));
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return prefs;
+  if (raw.mute && typeof raw.mute === "object") {
+    for (const name of Object.keys(prefs.mute)) prefs.mute[name] = raw.mute[name] === true;
+  }
+  if (raw.quiet && typeof raw.quiet === "object") {
+    prefs.quiet.on = raw.quiet.on === true;
+    if (clockMinutes(raw.quiet.from) !== null) prefs.quiet.from = raw.quiet.from;
+    if (clockMinutes(raw.quiet.to) !== null) prefs.quiet.to = raw.quiet.to;
+  }
+  return prefs;
+}
+
+function inQuietHours(quiet, date) {
+  if (!quiet || !quiet.on) return false;
+  const from = clockMinutes(quiet.from);
+  const to = clockMinutes(quiet.to);
+  if (from === null || to === null || from === to) return false;
+  const now = date.getHours() * 60 + date.getMinutes();
+  return from < to ? (now >= from && now < to) : (now >= from || now < to);
+}
+
+// Applied BEFORE topSound(), so a muted "fail" does not hide an unmuted "alert".
+function audibleSounds(names, prefs, date) {
+  if (inQuietHours(prefs.quiet, date)) return [];
+  return names.filter((name) => !prefs.mute[name]);
+}
+
+// What should sound, given this poll of the viewed session? `memo` is the
+// baseline from the previous poll; the first call only records it.
+function computeSounds(run, memo) {
+  const att = run.live && run.live.attention;
+  const attKey = att && att.kind !== "idle" ? att.kind + "@" + att.since : "";
+  const failed = new Set(run.agents
+    .filter((a) => a.status === "failed").map((a) => a.agent_id));
+  const running = run.totals ? run.totals.running + (run.totals.waiting || 0) : 0;
+  const budget = run.cost && run.cost.budget ? run.cost.budget.state : "";
+  const out = [];
+  if (memo.seeded) {
+    if (budget === "exceeded" && memo.budget !== "exceeded") out.push("alert");
+    if (attKey && attKey !== memo.attKey) out.push(att.kind === "error" ? "fail" : "alert");
+    for (const id of failed) if (!memo.failed.has(id)) out.push("fail");
+    if (memo.running > 0 && running === 0 && failed.size === 0) out.push("done");
+  }
+  memo.seeded = true;
+  memo.attKey = attKey;
+  memo.failed = failed;
+  memo.running = running;
+  memo.budget = budget;
+  return out;
+}
+
+// Other sessions: a prompt or error in one you are not looking at.
+function computeFleetSounds(fleet, viewing, memo) {
+  const next = {};
+  const out = [];
+  for (const s of fleet.sessions) {
+    const att = s.attention && s.session_live && s.urgency > 0 ? s.attention : null;
+    if (!att) continue;
+    const key = att.kind + "@" + att.since;
+    next[s.session_id] = key;
+    if (memo.seeded && s.session_id !== viewing && memo.keys[s.session_id] !== key) {
+      out.push(att.kind === "error" ? "fail" : "alert");
+    }
+  }
+  memo.seeded = true;
+  memo.keys = next;
+  return out;
+}
+
+function audioContext() {
+  if (state.audio) return state.audio;
+  const Ctor = typeof window !== "undefined" && (window.AudioContext || window.webkitAudioContext);
+  if (!Ctor) return null;
+  try { state.audio = new Ctor(); } catch (err) { return null; }
+  return state.audio;
+}
+
+function playSound(name) {
+  const ctx = state.soundEnabled ? audioContext() : null;
+  const notes = SOUND_NOTES[name];
+  if (!ctx || !notes) return;
+  const now = Date.now();
+  if (now - state.lastSoundAt < 1500) return;
+  state.lastSoundAt = now;
+  if (ctx.state === "suspended" && typeof ctx.resume === "function") ctx.resume();
+  for (const [freq, offset] of notes) {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const t = ctx.currentTime + offset;
+    osc.type = "sine";
+    osc.frequency.value = freq;
+    // A short attack and release: a bare square edge clicks.
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.12, t + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(t);
+    osc.stop(t + 0.25);
+  }
+}
+
+function checkSounds(run) {
+  if (!state.soundMemo) state.soundMemo = { seeded: false, attKey: "", failed: new Set(), running: 0 };
+  const names = computeSounds(run, state.soundMemo);
+  playAudible(names);
+}
+
+function playAudible(names) {
+  if (!state.soundEnabled) return;
+  if (!state.soundPrefs) state.soundPrefs = normalizeSoundPrefs(null);
+  const audible = audibleSounds(names, state.soundPrefs, new Date());
+  if (audible.length) playSound(topSound(audible));
+}
+
+function checkFleetSounds(fleet) {
+  if (!state.soundFleetMemo) state.soundFleetMemo = { seeded: false, keys: {} };
+  const viewing = state.run && state.run.session_id;
+  const names = computeFleetSounds(fleet, viewing, state.soundFleetMemo);
+  playAudible(names);
+}
+
+function updateSoundButton() {
+  const btn = $("sound-toggle");
+  if (!btn) return;
+  btn.setAttribute("aria-pressed", String(state.soundEnabled));
+  btn.textContent = state.soundEnabled ? "Sound: on" : "Sound";
+}
+
+// Exports come from the server (one implementation of the format, the same
+// scrubbed data the dashboard shows), so a static report has nothing to call.
+function downloadExport(format) {
+  const session = state.sessionId ? "&session=" + encodeURIComponent(state.sessionId) : "";
+  const link = document.createElement("a");
+  link.href = "/api/export?format=" + encodeURIComponent(format) +
+    "&k=" + encodeURIComponent(TOKEN) + session;
+  link.download = "";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+}
+
+function setStoredSoundPref(enabled) {
+  try {
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem("orchestra-sound", enabled ? "1" : "0");
+    }
+  } catch (err) { /* blocked storage; not worth failing over */ }
+}
+
+function loadSoundPrefs() {
+  let raw = null;
+  try {
+    if (typeof localStorage !== "undefined") raw = JSON.parse(localStorage.getItem("orchestra-sound-prefs"));
+  } catch (err) { /* blocked or corrupt: defaults */ }
+  return normalizeSoundPrefs(raw);
+}
+
+function saveSoundPrefs(prefs) {
+  try {
+    if (typeof localStorage !== "undefined") localStorage.setItem("orchestra-sound-prefs", JSON.stringify(prefs));
+  } catch (err) { /* blocked storage; not worth failing over */ }
+}
+
+// The small "Sound options" panel: one checkbox per event, plus quiet hours.
+function setupSoundPrefs() {
+  const panel = $("sound-prefs");
+  if (!panel) return;
+  state.soundPrefs = loadSoundPrefs();
+  panel.hidden = false;
+  const prefs = state.soundPrefs;
+  const bind = (id, read, write) => {
+    const el = $(id);
+    if (!el) return;
+    read(el);
+    el.onchange = () => { write(el); saveSoundPrefs(prefs); };
+  };
+  for (const name of Object.keys(prefs.mute)) {
+    // The checkbox says "play this sound", the stored flag says "muted".
+    bind("sound-play-" + name, (el) => { el.checked = !prefs.mute[name]; },
+         (el) => { prefs.mute[name] = !el.checked; });
+  }
+  bind("sound-quiet-on", (el) => { el.checked = prefs.quiet.on; }, (el) => { prefs.quiet.on = el.checked; });
+  for (const key of ["from", "to"]) {
+    bind("sound-quiet-" + key, (el) => { el.value = prefs.quiet[key]; },
+         (el) => { if (clockMinutes(el.value) !== null) prefs.quiet[key] = el.value; });
+  }
+}
+
+// ------------------------------------------------------------------ replay
+//
+// "What did this run look like at 02:13?" Rebuilt purely from the round start
+// and end times already in the payload, so it works live AND in a static report
+// shared after the fact (a post-mortem needs no server).
+//
+// What it can know: who had launched, who was still in a round, who had ended
+// and how. What it cannot know: stalled / waiting / orphaned (those depend on
+// the clock and on hook events of that moment) and token totals at that moment.
+// So an open round replays as "running", and tokens are left out rather than
+// shown as final numbers that would be wrong.
+
+function replayBounds(run) {
+  if (!run || run.started_at === null || run.started_at === undefined) return null;
+  const times = [];
+  for (const a of run.agents) {
+    if (a.ended_at !== null && a.ended_at !== undefined) times.push(a.ended_at);
+    if (a.last_activity_at) times.push(a.last_activity_at);
+  }
+  if (run.ended_at) times.push(run.ended_at);
+  const end = times.length ? Math.max.apply(null, times) : run.started_at;
+  return { start: run.started_at, end: Math.max(end, run.started_at) };
+}
+
+function agentAt(agent, t) {
+  const rounds = (agent.rounds || []).filter((r) => r.started_at !== null &&
+    r.started_at !== undefined && r.started_at <= t);
+  if (!rounds.length) return null;                     // not launched yet
+  const open = rounds.some((r) => r.ended_at === null || r.ended_at === undefined ||
+    r.ended_at > t);
+  const closed = rounds.filter((r) => r.ended_at !== null && r.ended_at !== undefined &&
+    r.ended_at <= t);
+  let status = "running";
+  if (!open) {
+    status = closed.length ? closed[closed.length - 1].status : "unknown";
+  }
+  const ended = open ? null : Math.max.apply(null, closed.map((r) => r.ended_at));
+  const started = Math.min.apply(null, rounds.map((r) => r.started_at));
+  return Object.assign({}, agent, {
+    status: status,
+    started_at: started,
+    ended_at: ended,
+    duration_s: ended === null ? null : ended - started,
+    rounds: rounds.map((r) => ({
+      started_at: r.started_at,
+      ended_at: r.ended_at !== null && r.ended_at !== undefined && r.ended_at <= t ? r.ended_at : null,
+      status: r.ended_at !== null && r.ended_at !== undefined && r.ended_at <= t ? r.status : "running",
+    })),
+    // An open agent has been going at least until t; this is what the bar is
+    // drawn to. A finished one keeps its own last activity.
+    last_activity_at: open ? t : Math.min(agent.last_activity_at || ended, t),
+    tokens: {}, cost: null, loop: null, tool_call_count: 0, files_written_count: 0,
+  });
+}
+
+function deriveRunAt(run, t) {
+  const agents = run.agents.map((a) => agentAt(a, t)).filter((a) => a !== null);
+  const present = new Set(agents.map((a) => a.agent_id));
+  present.add("main");
+  const counts = { agents: agents.length, running: 0, waiting: 0, completed: 0,
+    failed: 0, stalled: 0, orphaned: 0, unknown: 0, tokens: {}, wall_time_s: null };
+  for (const a of agents) counts[a.status] = (counts[a.status] || 0) + 1;
+  const ends = agents.map((a) => a.ended_at).filter((e) => e !== null);
+  const starts = agents.map((a) => a.started_at);
+  if (starts.length) {
+    counts.wall_time_s = (ends.length ? Math.max.apply(null, ends) : t) - Math.min.apply(null, starts);
+  }
+  return Object.assign({}, run, {
+    agents: agents,
+    totals: counts,
+    edges: run.edges.filter((e) => present.has(e.src) && present.has(e.dst)),
+    batches: run.batches.map((b) => Object.assign({}, b, {
+      agent_ids: b.agent_ids.filter((id) => present.has(id)) })).filter((b) => b.agent_ids.length),
+    hub_files: [], write_conflicts: [],
+    live: null, cost: null, orchestrator: null,
+    session_live: t < replayBounds(run).end,
+    ended_at: t >= replayBounds(run).end ? run.ended_at : null,
+    replay_at: t,
+    replay_window: [replayBounds(run).start,
+      Math.max(replayBounds(run).end, replayBounds(run).start + 1)],
+  });
+}
+
+// Replay controls. state.run is what the views draw; during a replay it is
+// deriveRunAt(state.liveRun, t), and everything else (notifications, sounds,
+// the pill, copy-summary) keeps reading the true live run.
+
+function replayClamp(t, run) {
+  const b = replayBounds(run);
+  if (!b) return t;
+  return Math.min(Math.max(t, b.start), b.end);
+}
+
+function fmtOffset(seconds) {
+  const s = Math.max(0, Math.round(seconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const pad = (n) => (n < 10 ? "0" : "") + n;
+  return (h ? h + ":" + pad(m) : m) + ":" + pad(s % 60);
+}
+
+function setReplayTime(t) {
+  const base = state.liveRun;
+  if (!base) return;
+  state.replay.t = replayClamp(t, base);
+  state.run = deriveRunAt(base, state.replay.t);
+  updateReplayBar();
+  render();
+}
+
+function stopReplayTimer() {
+  if (state.replay.timer) { clearInterval(state.replay.timer); state.replay.timer = null; }
+  state.replay.playing = false;
+}
+
+function playReplay() {
+  const b = replayBounds(state.liveRun);
+  if (!b) return;
+  if (state.replay.t >= b.end) setReplayTime(b.start);      // play again from the top
+  state.replay.playing = true;
+  updateReplayBar();
+  state.replay.timer = setInterval(() => {
+    const bounds = replayBounds(state.liveRun);
+    if (!bounds) { stopReplayTimer(); return; }
+    const next = state.replay.t + state.replay.speed * 0.1;
+    if (next >= bounds.end) {
+      setReplayTime(bounds.end);
+      stopReplayTimer();
+      updateReplayBar();
+    } else {
+      setReplayTime(next);
+    }
+  }, 100);
+}
+
+function updateReplayBar() {
+  const bar = $("replay-bar");
+  const b = replayBounds(state.liveRun);
+  if (!bar || !b || bar.hidden) return;
+  const refs = state.replayRefs;
+  if (!refs) return;
+  refs.slider.min = String(b.start);
+  refs.slider.max = String(b.end);
+  refs.slider.value = String(state.replay.t);
+  refs.play.textContent = state.replay.playing ? "Pause" : "Play";
+  refs.time.textContent = fmtOffset(state.replay.t - b.start) + " / " + fmtOffset(b.end - b.start);
+}
+
+function buildReplayBar() {
+  const bar = $("replay-bar");
+  bar.textContent = "";
+  const make = (tag, cls, text) => {
+    const el = document.createElement(tag);
+    if (cls) el.className = cls;
+    if (text !== undefined) el.textContent = text;
+    return el;
+  };
+  const play = make("button", "", "Play");
+  play.type = "button";
+  play.onclick = () => (state.replay.playing ? (stopReplayTimer(), updateReplayBar()) : playReplay());
+  const slider = make("input");
+  slider.type = "range";
+  slider.step = "1";
+  slider.setAttribute("aria-label", "Replay position");
+  slider.oninput = () => { stopReplayTimer(); setReplayTime(Number(slider.value)); };
+  const time = make("span", "replay-time", "");
+  const speed = make("select");
+  speed.setAttribute("aria-label", "Replay speed");
+  for (const x of [1, 10, 30, 60, 120]) {
+    const option = make("option", "", x + "×");
+    option.value = String(x);
+    speed.appendChild(option);
+  }
+  speed.value = String(state.replay.speed);
+  speed.onchange = () => { state.replay.speed = Number(speed.value); };
+  const note = make("span", "replay-note",
+    "Statuses are reconstructed from start/end times; token totals are not shown.");
+  for (const el of [play, slider, time, speed, note]) bar.appendChild(el);
+  state.replayRefs = { play: play, slider: slider, time: time };
+}
+
+function toggleReplay() {
+  const bar = $("replay-bar");
+  const btn = $("replay-toggle");
+  if (!bar || !btn) return;
+  if (state.replay.on) {
+    stopReplayTimer();
+    state.replay.on = false;
+    bar.hidden = true;
+    btn.setAttribute("aria-pressed", "false");
+    state.run = state.liveRun;
+    render();
+    return;
+  }
+  const b = replayBounds(state.liveRun);
+  if (!b) return;
+  state.replay.on = true;
+  bar.hidden = false;
+  btn.setAttribute("aria-pressed", "true");
+  buildReplayBar();
+  setReplayTime(b.start);
+}
+
+// ----------------------------------------------------------------- history
+//
+// Past runs, from the opt-in metrics store. Metrics only: there is nothing here
+// to leak, because nothing but counts, durations, tokens and cost is kept.
+
+// For each comparable metric: does a bigger number mean better, worse, or neither?
+const HISTORY_METRICS = [
+  ["agents", "Agents", "neutral", "count"],
+  ["completed", "Completed", "higher", "count"],
+  ["failed", "Failed", "lower", "count"],
+  ["wall_s", "Wall time", "lower", "duration"],
+  ["tokens_total", "Tokens", "lower", "count"],
+  ["cost", "Cost", "lower", "money"],
+  ["loops", "Possible loops", "lower", "count"],
+  ["write_conflicts", "Write conflicts", "lower", "count"],
+  ["cache_hit_ratio", "Cache hit", "higher", "pct"],
+];
+
+function fmtHistoryValue(value, kind, currency) {
+  if (value === null || value === undefined) return "—";
+  if (kind === "duration") return fmtDuration(value);
+  if (kind === "money") return fmtMoney(value, currency);
+  if (kind === "pct") return fmtPct(value);
+  return fmtCount(value);
+}
+
+// "better" / "worse" / "flat" for a change in a metric.
+function deltaVerdict(change, direction) {
+  if (change === null || change === undefined || change === 0) return "flat";
+  if (direction === "neutral") return "flat";
+  const up = change > 0;
+  return (direction === "higher") === up ? "good" : "bad";
+}
+
+function fmtWhen(seconds) {
+  if (!seconds) return "—";
+  const d = new Date(seconds * 1000);
+  const pad = (n) => (n < 10 ? "0" : "") + n;
+  return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + " " +
+    pad(d.getHours()) + ":" + pad(d.getMinutes());
+}
+
+async function loadHistory() {
+  try {
+    state.history.data = await api("/api/history?limit=100");
+  } catch (err) {
+    state.history.data = { enabled: true, runs: [], error: "could not load history" };
+  }
+  if (state.view === "history") renderHistory();
+}
+
+// The earlier run first, whatever order the user clicked them in: the compare
+// table reads "Earlier / Later", so a click order of new-then-old would
+// otherwise label the newer run "Earlier" and flip every verdict.
+function orderRuns(ids, runs) {
+  const when = (id) => {
+    const run = runs.find((r) => r.session_id === id);
+    return run ? (run.started_at || run.first_seen_at || 0) : 0;
+  };
+  return ids.slice().sort((x, y) => when(x) - when(y));
+}
+
+async function loadCompare() {
+  if (state.history.selected.length < 2) { state.history.compare = null; return; }
+  const runs = state.history.data ? state.history.data.runs : [];
+  const [a, b] = orderRuns(state.history.selected, runs);
+  try {
+    state.history.compare = await api("/api/history/compare?a=" + encodeURIComponent(a) +
+      "&b=" + encodeURIComponent(b));
+  } catch (err) { state.history.compare = null; }
+  if (state.view === "history") renderHistory();
+}
+
+function selectHistoryRun(sessionId) {
+  const sel = state.history.selected;
+  const at = sel.indexOf(sessionId);
+  if (at >= 0) sel.splice(at, 1);
+  else { sel.push(sessionId); if (sel.length > 2) sel.shift(); }
+  state.history.compare = null;
+  renderHistory();
+  loadCompare();
+}
+
+function renderHistory() {
+  const box = $("history");
+  if (!box) return;
+  const data = state.history.data;
+  if (!data) { box.innerHTML = '<div class="history-note">Loading…</div>'; return; }
+  if (!data.enabled) {
+    box.innerHTML = '<div class="history-note"><strong>Run history is off.</strong><br>' +
+      "Set <code>ORCHESTRA_HISTORY=on</code> in the environment Claude Code runs in, then " +
+      "restart the dashboard, to start remembering how runs went.<br>Only counts, durations, " +
+      "tokens and cost are kept — never prompts, results, or file contents.</div>";
+    return;
+  }
+  if (data.error) {
+    box.innerHTML = '<div class="history-note">' + esc(data.error) + "</div>";
+    return;
+  }
+  if (!data.runs.length) {
+    box.innerHTML = '<div class="history-note">No runs recorded yet — they appear as you ' +
+      "view sessions.<br>Select two runs here to compare them.</div>";
+    return;
+  }
+  const sel = new Set(state.history.selected);
+  const rows = data.runs.map((r) =>
+    '<tr data-session="' + esc(r.session_id) + '" aria-selected="' + sel.has(r.session_id) + '" tabindex="0">' +
+    "<td>" + esc(fmtWhen(r.started_at || r.first_seen_at)) + "</td>" +
+    "<td>" + esc(r.project_name || "(unknown)") + "</td>" +
+    '<td class="num">' + esc(r.agents) + "</td>" +
+    '<td class="num">' + esc(r.failed) + "</td>" +
+    '<td class="num">' + esc(fmtHistoryValue(r.wall_s, "duration")) + "</td>" +
+    '<td class="num">' + esc(fmtHistoryValue(r.tokens_total, "count")) + "</td>" +
+    '<td class="num">' + esc(fmtHistoryValue(r.cost, "money", r.currency)) + "</td>" +
+    "</tr>").join("");
+  box.innerHTML = "<table><thead><tr><th>Started</th><th>Project</th>" +
+    '<th class="num">Agents</th><th class="num">Failed</th><th class="num">Wall</th>' +
+    '<th class="num">Tokens</th><th class="num">Cost</th></tr></thead><tbody>' + rows +
+    "</tbody></table>" + renderCompare();
+  for (const tr of box.querySelectorAll("tbody tr")) {
+    tr.onclick = () => selectHistoryRun(tr.dataset.session);
+    tr.onkeydown = (event) => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectHistoryRun(tr.dataset.session); }
+    };
+  }
+}
+
+function renderCompare() {
+  const c = state.history.compare;
+  if (state.history.selected.length < 2) {
+    return '<div class="history-compare history-note" style="padding:12px">Select two runs to compare them.</div>';
+  }
+  if (!c) return '<div class="history-compare history-note" style="padding:12px">Comparing…</div>';
+  const label = (r) => (r.project_name || "run") + " · " + fmtWhen(r.started_at || r.first_seen_at);
+  const currency = c.a.currency || c.b.currency;
+  const lines = HISTORY_METRICS.map(([key, name, direction, kind]) => {
+    const d = c.delta[key];
+    if (!d) {
+      return "<tr><td>" + esc(name) + '</td><td class="num">—</td><td class="num">—</td>' +
+        '<td class="num delta-flat">n/a</td></tr>';
+    }
+    const verdict = deltaVerdict(d.change, direction);
+    // Sign and magnitude are formatted apart: the duration formatter has no
+    // notion of a negative ("-2m -30s"), and a change of 0 should read "0".
+    const sign = d.change > 0 ? "+" : d.change < 0 ? "\u2212" : "";
+    const pct = d.pct === null || d.pct === undefined ? "" :
+      " (" + (d.pct > 0 ? "+" : d.pct < 0 ? "\u2212" : "") + Math.abs(d.pct).toFixed(0) + "%)";
+    const size = Math.abs(d.change);
+    const change = d.change === 0 ? "0" : (kind === "pct"
+      ? sign + (size * 100).toFixed(1) + " pts"
+      : sign + fmtHistoryValue(size, kind, currency));
+    return "<tr><td>" + esc(name) + '</td><td class="num">' + esc(fmtHistoryValue(d.a, kind, currency)) +
+      '</td><td class="num">' + esc(fmtHistoryValue(d.b, kind, currency)) +
+      '</td><td class="num delta-' + verdict + '">' + esc(change + pct) + "</td></tr>";
+  }).join("");
+  return '<div class="history-compare"><h3>' + esc(label(c.b)) + " vs " + esc(label(c.a)) +
+    "</h3><table><thead><tr><th>Metric</th>" +
+    '<th class="num">Earlier</th><th class="num">Later</th><th class="num">Change</th></tr></thead><tbody>' +
+    lines + "</tbody></table></div>";
+}
+
+// ------------------------------------------------------- pill + tab chrome
+//
+// The same few facts drive three surfaces: the browser tab's title, its
+// favicon, and an optional always-on-top "pill" window. One pure model decides
+// what to say; the surfaces only draw it.
+
+const PILL_COLORS = { permission: "#7950f2", input: "#7950f2", error: "#e03131",
+  running: "#1c7ed6", idle: "#868e96" };
+
+function pillModel(run, fleet) {
+  const live = fleet ? fleet.sessions.filter((s) => s.session_live) : [];
+  let needing = live.filter((s) => s.urgency > 0 && s.attention);
+  // Before the first fleet poll, fall back to the session on screen.
+  if (!fleet && run && run.live && run.live.attention && run.session_live &&
+      run.live.attention.kind !== "idle") {
+    needing = [{ attention: run.live.attention, project_name: "", session_id: run.session_id }];
+  }
+  const totals = run ? run.totals : null;
+  const running = fleet
+    ? live.reduce((n, s) => n + ((s.totals && s.totals.running) || 0), 0)
+    : (totals ? totals.running : 0);
+  const top = needing[0] || null;
+  let kind = "idle";
+  if (top) kind = top.attention.kind;
+  else if (running > 0) kind = "running";
+  const where = top ? (top.project_name || (top.session_id || "").slice(0, 8)) : "";
+  const more = needing.length - 1;
+  return {
+    kind: kind,
+    count: needing.length,
+    headline: top ? attentionTitle(top.attention)
+      : (running > 0 ? running + " running" : "All quiet"),
+    detail: top
+      ? where + (more > 0 ? " · +" + more + " more" : "")
+      : (totals ? totals.agents + " agents · " + totals.completed + " done" : ""),
+    agents: run ? run.agents.slice(0, 16).map((a) => a.status) : [],
+  };
+}
+
+function tabTitle(model) {
+  if (model.count > 0) return "(" + model.count + ") Workflow";
+  if (model.kind === "running") return "\u25B6 Workflow";
+  return "Workflow";
+}
+
+function drawFavicon(model) {
+  if (typeof document.createElement !== "function") return null;
+  const canvas = document.createElement("canvas");
+  if (!canvas || typeof canvas.getContext !== "function") return null;
+  canvas.width = canvas.height = 64;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.beginPath();
+  ctx.arc(32, 32, 28, 0, Math.PI * 2);
+  ctx.fillStyle = PILL_COLORS[model.kind] || PILL_COLORS.idle;
+  ctx.fill();
+  if (model.count > 0) {
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 38px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(model.count > 9 ? "9+" : String(model.count), 32, 35);
+  }
+  try { return canvas.toDataURL("image/png"); } catch (err) { return null; }
+}
+
+function updateTabChrome(model) {
+  document.title = tabTitle(model);
+  // Redrawing a canvas on every poll is wasted work if nothing changed.
+  const key = model.kind + ":" + model.count;
+  if (key === state.faviconKey) return;
+  state.faviconKey = key;
+  const href = drawFavicon(model);
+  if (!href || typeof document.querySelectorAll !== "function") return;
+  let link = null;
+  for (const el of document.querySelectorAll("link")) {
+    if (el.rel === "icon") link = el;
+  }
+  if (!link) {
+    link = document.createElement("link");
+    link.rel = "icon";
+    document.head.appendChild(link);
+  }
+  link.href = href;
+}
+
+const PILL_CSS = `
+:root { color-scheme: light dark; --bg:#fbfbfa; --ink:#1a1a19; --muted:#6b6b66; --line:#e3e3df; }
+@media (prefers-color-scheme: dark) { :root { --bg:#17171a; --ink:#e8e8e6; --muted:#9a9a95; --line:#32323a; } }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--ink); font:13px system-ui,"Segoe UI",Roboto,sans-serif; }
+.pill { display:flex; align-items:center; gap:10px; padding:10px 12px; height:100vh;
+  border-left:5px solid var(--c, #868e96); }
+.dot { width:12px; height:12px; border-radius:50%; background:var(--c, #868e96); flex:none; }
+.pill[data-kind="running"] .dot, .pill[data-kind="permission"] .dot,
+.pill[data-kind="input"] .dot, .pill[data-kind="error"] .dot { animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 0%,100% { box-shadow:0 0 0 0 color-mix(in srgb, var(--c) 55%, transparent); }
+  50% { box-shadow:0 0 0 6px transparent; } }
+@media (prefers-reduced-motion: reduce) { .dot { animation:none !important; } }
+.txt { min-width:0; flex:1; }
+.head { font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.sub { color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.agents { display:flex; flex-wrap:wrap; gap:3px; max-width:84px; justify-content:flex-end; }
+.agents i { width:8px; height:8px; border-radius:2px; background:var(--muted); display:block; }
+.agents i[data-s="running"] { background:#1c7ed6; } .agents i[data-s="completed"] { background:#2f9e44; }
+.agents i[data-s="failed"], .agents i[data-s="orphaned"] { background:#e03131; }
+.agents i[data-s="stalled"] { background:#e8950c; } .agents i[data-s="waiting"] { background:#7950f2; }
+`;
+
+function renderPill(model) {
+  const win = state.pill;
+  if (!win || win.closed) return;
+  const doc = win.document;
+  let root = doc.getElementById("pill-root");
+  if (!root) {
+    root = doc.createElement("div");
+    root.id = "pill-root";
+    doc.body.appendChild(root);
+  }
+  root.textContent = "";
+  const make = (tag, cls, text) => {
+    const el = doc.createElement(tag);
+    if (cls) el.className = cls;
+    if (text !== undefined) el.textContent = text;
+    return el;
+  };
+  const pill = make("div", "pill");
+  pill.setAttribute("data-kind", model.kind);
+  pill.style.setProperty("--c", PILL_COLORS[model.kind] || PILL_COLORS.idle);
+  pill.appendChild(make("span", "dot"));
+  const txt = make("div", "txt");
+  txt.appendChild(make("div", "head", model.headline));
+  txt.appendChild(make("div", "sub", model.detail));
+  pill.appendChild(txt);
+  const agents = make("div", "agents");
+  for (const status of model.agents) {
+    const cell = make("i");
+    cell.setAttribute("data-s", status);
+    agents.appendChild(cell);
+  }
+  pill.appendChild(agents);
+  root.appendChild(pill);
+}
+
+function updatePillButton() {
+  const btn = $("pill-toggle");
+  if (!btn) return;
+  btn.setAttribute("aria-pressed", String(!!state.pill));
+}
+
+async function togglePill() {
+  if (state.pill) { state.pill.close(); return; }
+  if (typeof window.documentPictureInPicture === "undefined") return;
+  let win;
+  try {
+    win = await window.documentPictureInPicture.requestWindow({ width: 340, height: 96 });
+  } catch (err) { return; }   // refused (no user gesture, or the user declined)
+  const style = win.document.createElement("style");
+  style.textContent = PILL_CSS;
+  win.document.head.appendChild(style);
+  win.document.title = "Workflow";
+  win.addEventListener("pagehide", () => { state.pill = null; updatePillButton(); });
+  state.pill = win;
+  updatePillButton();
+  updateChrome();
+}
+
+function updateChrome() {
+  const model = pillModel(state.liveRun || state.run, state.fleet);
+  updateTabChrome(model);
+  renderPill(model);
+}
+
+// ------------------------------------------------------------------ fleet
+//
+// Every recently active session across every project, most urgent first: the
+// answer to "which of my sessions needs me?" without opening each one.
+
+function fleetAgo(modifiedAt) {
+  return fmtDuration(Math.max(0, Date.now() / 1000 - modifiedAt)) + " ago";
+}
+
+function renderFleetBadge() {
+  const badge = $("fleet-badge");
+  if (!badge) return;
+  const n = state.fleet ? state.fleet.attention_count : 0;
+  badge.hidden = !n;
+  badge.textContent = n ? String(n) : "";
+}
+
+function renderFleet() {
+  const box = $("fleet");
+  if (!box) return;
+  const data = state.fleet;
+  if (!data) { box.innerHTML = '<div class="fleet-empty">Loading sessions…</div>'; return; }
+  if (!data.sessions.length) {
+    box.innerHTML = '<div class="fleet-empty">No sessions active in the last ' +
+      esc(fmtDuration(data.window_s)) + ".</div>";
+    return;
+  }
+  const current = state.run && state.run.session_id;
+  box.innerHTML = data.sessions.map((s) => {
+    const att = s.attention && s.session_live ? s.attention : null;
+    const t = s.totals;
+    const sub = att
+      ? attentionTitle(att) + (att.message ? " — " + att.message : "")
+      : (!s.session_live ? "Ended" + (s.ended && s.ended.reason ? " (" + s.ended.reason + ")" : "")
+        : (t && t.running ? t.running + " agent(s) running" : "Idle"));
+    const meta = (t ? t.agents + " agents" +
+      (t.waiting ? " · " + t.waiting + " waiting" : "") +
+      (t.failed ? " · " + t.failed + " failed" : "") + " · " : "") + fleetAgo(s.modified_at);
+    return '<div class="fleet-row' + (s.session_id === current ? " fleet-current" : "") +
+      (s.session_live ? "" : " fleet-quiet") + '" data-session="' + esc(s.session_id) + '"' +
+      (att ? ' data-kind="' + esc(att.kind) + '"' : "") +
+      (s.session_live ? ' data-live="1"' : "") + ' role="button" tabindex="0">' +
+      '<span class="fleet-dot"></span>' +
+      '<div class="fleet-main"><div class="fleet-title">' +
+        esc(s.project_name || "(unknown project)") +
+        '<span class="fleet-id">' + esc(s.session_id.slice(0, 8)) + "</span></div>" +
+        '<div class="fleet-sub">' + esc(sub) + "</div></div>" +
+      '<div class="fleet-meta">' + esc(meta) + "</div></div>";
+  }).join("");
+  for (const row of box.querySelectorAll(".fleet-row")) {
+    const open = () => { switchSession(row.dataset.session); setView("timeline"); };
+    row.onclick = open;
+    row.onkeydown = (event) => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); open(); }
+    };
+  }
+}
+
+// Announce a prompt or failure in a session you are NOT looking at — the case
+// the current-session notifications cannot cover. Seeded like every other alert:
+// whatever is already pending when the page opens is shown, not announced.
+function checkFleetNotifications(data) {
+  const viewing = state.run && state.run.session_id;
+  const next = {};
+  for (const s of data.sessions) {
+    const att = s.attention && s.session_live && s.urgency > 0 ? s.attention : null;
+    if (!att) continue;
+    const key = att.kind + "@" + att.since;
+    next[s.session_id] = key;
+    if (state.fleetSeeded && state.notifyEnabled && s.session_id !== viewing &&
+        state.fleetAttention[s.session_id] !== key) {
+      notify(attentionTitle(att) + " — " + (s.project_name || s.session_id.slice(0, 8)),
+        att.message || "");
+    }
+  }
+  state.fleetAttention = next;
+  state.fleetSeeded = true;
+}
+
+async function pollFleet() {
+  if (state.fleetTimer) { clearTimeout(state.fleetTimer); state.fleetTimer = null; }
+  try {
+    const data = await api("/api/fleet");
+    state.fleet = data;
+    checkFleetNotifications(data);
+    checkFleetSounds(data);
+    renderFleetBadge();
+    updateChrome();
+    if (state.view === "fleet") renderFleet();
+  } catch (err) { /* the fleet is an extra; the current session still works */ }
+  if (state.live && !state.offline) state.fleetTimer = setTimeout(pollFleet, FLEET_POLL_MS);
+}
+
+// One place that knows everything to reset when the viewed session changes.
+function switchSession(sessionId) {
+  state.sessionId = sessionId;
+  const picker = $("session-picker");
+  if (picker) {
+    if (![...picker.options].some((o) => o.value === sessionId)) {
+      const option = document.createElement("option");
+      option.value = sessionId;
+      option.textContent = sessionId.slice(0, 8);
+      picker.appendChild(option);
+    }
+    picker.value = sessionId;
+  }
+  if (state.replay.on) toggleReplay();      // a replay belongs to one session
+  state.run = null;
+  state.liveRun = null;
+  // A different session's edges are all pre-existing history to us, not
+  // events happening live — reseed instead of flashing every one of them.
+  state.seenEdgeKeys = new Set();
+  state.graphSeeded = false;
+  // Same reasoning for notifications: a different session's existing
+  // failures/end-state are history, not something to alert on.
+  state.notifySeeded = false;
+  state.knownFailedIds = new Set();
+  state.knownLoopIds = new Set();
+  state.knownAttention = "";
+  state.knownBudget = "";
+  state.soundMemo = null;           // reseed: another session's history is silent
+  state.lastSessionLive = null;
+  // A different session's agents are all pre-existing history — reseed so
+  // switching sessions doesn't read as a burst of simultaneous activity.
+  state.floorActivity = {};
+  state.floorSeeded = false;
+  state.agentPrevStatus = {};
+  state.agentCelebrateUntil = {};
+  startPolling();
+  startStream();
+}
+
+// Live push. The server only says *that* something changed; the data still
+// comes from /api/run, so there is one place anything is redacted. Without
+// EventSource, or if the stream drops, the 2-second poll simply carries on.
+function stopStream() {
+  if (state.stream) { state.stream.close(); state.stream = null; }
+  state.streamLive = false;
+}
+
+function scheduleRefresh() {
+  if (!state.live || state.refreshTimer) return;
+  state.refreshTimer = setTimeout(() => {
+    state.refreshTimer = null;
+    if (state.live) startPolling();
+  }, STREAM_DEBOUNCE_MS);
+}
+
+function startStream() {
+  stopStream();
+  if (state.offline || typeof EventSource === "undefined") return;
+  const session = state.sessionId ? "&session=" + encodeURIComponent(state.sessionId) : "";
+  let source;
+  try {
+    source = new EventSource("/api/stream?k=" + encodeURIComponent(TOKEN) + session);
+  } catch (err) { return; }
+  state.stream = source;
+  source.addEventListener("hello", () => { state.streamLive = true; });
+  source.addEventListener("tick", scheduleRefresh);
+  source.onerror = () => {
+    // EventSource retries by itself; meanwhile go back to fast polling.
+    const wasLive = state.streamLive;
+    state.streamLive = false;
+    if (wasLive) scheduleRefresh();
+  };
 }
 
 async function loadSessions() {
@@ -1078,28 +2216,10 @@ function init() {
     state.live = !state.live;
     event.target.setAttribute("aria-pressed", String(state.live));
     event.target.textContent = state.live ? "Live" : "Paused";
-    if (state.live) startPolling();
+    if (state.live) { startPolling(); startStream(); pollFleet(); }
+    else stopStream();
   };
-  $("session-picker").onchange = (event) => {
-    state.sessionId = event.target.value;
-    state.run = null;
-    // A different session's edges are all pre-existing history to us, not
-    // events happening live — reseed instead of flashing every one of them.
-    state.seenEdgeKeys = new Set();
-    state.graphSeeded = false;
-    // Same reasoning for notifications: a different session's existing
-    // failures/end-state are history, not something to alert on.
-    state.notifySeeded = false;
-    state.knownFailedIds = new Set();
-    state.lastSessionLive = null;
-    // A different session's agents are all pre-existing history — reseed so
-    // switching sessions doesn't read as a burst of simultaneous activity.
-    state.floorActivity = {};
-    state.floorSeeded = false;
-    state.agentPrevStatus = {};
-    state.agentCelebrateUntil = {};
-    startPolling();
-  };
+  $("session-picker").onchange = (event) => switchSession(event.target.value);
   if (notificationsSupported()) {
     let stored = "0";
     try {
@@ -1123,6 +2243,48 @@ function init() {
     $("notify-toggle").hidden = true;
   }
   $("copy-summary").onclick = copySummary;
+  const replayBtn = $("replay-toggle");
+  if (replayBtn) replayBtn.onclick = toggleReplay;
+  const exportSelect = $("export-select");
+  if (exportSelect && !state.offline) {
+    exportSelect.hidden = false;
+    exportSelect.onchange = () => {
+      if (exportSelect.value) downloadExport(exportSelect.value);
+      exportSelect.value = "";        // it is a menu, not a setting
+    };
+  }
+  const soundBtn = $("sound-toggle");
+  const hasAudio = typeof window !== "undefined" && (window.AudioContext || window.webkitAudioContext);
+  if (soundBtn && !state.offline && hasAudio) {
+    let stored = "0";
+    try {
+      if (typeof localStorage !== "undefined") stored = localStorage.getItem("orchestra-sound") || "0";
+    } catch (err) { /* off */ }
+    soundBtn.hidden = false;
+    setupSoundPrefs();
+    // A remembered "on" still needs a fresh click before the browser lets this
+    // page make noise, so the first click after a reload re-arms it.
+    state.soundEnabled = stored === "1";
+    updateSoundButton();
+    // Browsers keep an audio context silent until a gesture; the first click
+    // anywhere on the page re-arms it, so a remembered "on" works after reload.
+    document.addEventListener("click", () => {
+      const ctx = state.soundEnabled ? audioContext() : null;
+      if (ctx && ctx.state === "suspended" && typeof ctx.resume === "function") ctx.resume();
+    }, { once: true });
+    soundBtn.onclick = () => {
+      state.soundEnabled = !state.soundEnabled;
+      setStoredSoundPref(state.soundEnabled);
+      updateSoundButton();
+      if (state.soundEnabled) { state.lastSoundAt = 0; playSound("done"); }  // hear what you turned on
+    };
+  }
+  // Only where the browser can do it (Chromium); a static report has no use.
+  const pillBtn = $("pill-toggle");
+  if (pillBtn && !state.offline && typeof window.documentPictureInPicture !== "undefined") {
+    pillBtn.hidden = false;
+    pillBtn.onclick = togglePill;
+  }
   for (const tab of document.querySelectorAll(".tab")) {
     tab.onclick = () => setView(tab.dataset.view);
   }
@@ -1147,6 +2309,15 @@ function init() {
   if (!state.offline) setInterval(tickAgentClocks, 500);
   loadSessions();
   startPolling();
+  startStream();
+  if (state.offline) {
+    // A frozen snapshot has no other sessions to list.
+    for (const tab of document.querySelectorAll(".tab")) {
+      if (tab.dataset.view === "fleet" || tab.dataset.view === "history") tab.hidden = true;
+    }
+  } else {
+    pollFleet();
+  }
   // A #agent=<id> link (pasted from a health-box item, a ticker row, or an
   // earlier session) opens straight to that agent's drawer. openDrawer fetches
   // independently of run state, so this doesn't need to wait for the first poll.
@@ -1436,10 +2607,14 @@ function showEvidence(edge) {
 
 // ---------------------------------------------------------------- drawer
 
+// Safe in text AND in a quoted attribute. Serializing a DOM text node escapes
+// < > & but not quotes, so a value containing " would end an attribute early
+// (data-agent="..."), which is how markup gets injected. Ids and paths come from
+// file names and transcripts, i.e. from outside this page.
 function esc(text) {
   const div = document.createElement("div");
   div.textContent = text === null || text === undefined ? "" : String(text);
-  return div.innerHTML;
+  return div.innerHTML.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
 // Deep-linkable: #agent=<id> is set while the drawer is open (replaceState,
@@ -1506,6 +2681,9 @@ async function openDrawer(agentId) {
     ["launch", agent.launch_mode],
     ["duration", fmtDuration(agent.duration_s)],
     ["tokens", fmtTokens(agent.tokens)],
+    ...(agent.loop ? [["possible loop", loopText(agent.loop)]] : []),
+    ...(agent.cost !== null && agent.cost !== undefined && state.run && state.run.cost
+      ? [["cost", fmtMoney(agent.cost, state.run.cost.currency)]] : []),
     ["cache hit", fmtPct(cacheHitRatio(agent.tokens)) +
       (cacheHitRatio(agent.tokens) !== null ? "  (" + fmtTokenMix(agent.tokens) + ")" : "")],
     ["rounds", agent.rounds.length],

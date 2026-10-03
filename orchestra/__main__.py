@@ -7,21 +7,18 @@ import secrets
 import signal
 import subprocess
 import sys
-import tempfile
 import time
 import webbrowser
 from typing import Any, Dict, List, Optional
 
 from orchestra import constants as C
+from orchestra.statedir import state_dir
 
 MIN_PYTHON = (3, 9)
 
 
 def _state_dir() -> str:
-    directory = os.environ.get("ORCHESTRA_STATE_DIR") or \
-        os.path.join(tempfile.gettempdir(), "orchestra")
-    os.makedirs(directory, exist_ok=True)
-    return directory
+    return state_dir()
 
 
 def portfile_path(session_id: str) -> str:
@@ -92,8 +89,33 @@ def _kill(pid: int) -> None:
 
 # -- commands -------------------------------------------------------------
 
+def _make_spool():
+    """A fresh event spool, or None when events are unavailable.
+
+    Hook events are an enhancement. A state directory we cannot safely use must
+    degrade the dashboard to transcript-only, not stop it starting.
+    """
+    from orchestra.events import EventSpool
+    try:
+        return EventSpool()
+    except OSError:
+        return None
+
+
+def _latest_session_in(cwd: str) -> str:
+    """Newest session of the project that `cwd` belongs to, or ""."""
+    from orchestra.locate import find_project_dir, list_sessions
+    project = find_project_dir(cwd)
+    sessions = list_sessions(project) if project else []
+    return sessions[0].session_id if sessions else ""
+
+
 def _resolve_session(args) -> str:
-    return args.session or os.environ.get("CLAUDE_CODE_SESSION_ID", "")
+    """--session, else $CLAUDE_CODE_SESSION_ID, else the newest in --cwd's project."""
+    explicit = args.session or os.environ.get("CLAUDE_CODE_SESSION_ID", "")
+    if explicit or not getattr(args, "cwd", ""):
+        return explicit
+    return _latest_session_in(args.cwd)
 
 
 def cmd_serve(args) -> int:
@@ -103,7 +125,13 @@ def cmd_serve(args) -> int:
 
     session_id = _resolve_session(args)
     token = args.token or secrets.token_urlsafe(24)
-    service = OrchestraService(token=token, default_session=session_id)
+    from orchestra import history as history_mod
+    from orchestra.pricing import PriceSource
+    # History persists data after the session is gone, so it is opt-in only.
+    store = history_mod.HistoryStore() if history_mod.enabled() else None
+    service = OrchestraService(token=token, default_session=session_id,
+                               spool_factory=_make_spool, prices=PriceSource(),
+                               history=store)
 
     port = args.port
     server = None
@@ -155,7 +183,12 @@ def cmd_start(args) -> int:
                                    getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200))
     else:
         kwargs["start_new_session"] = True
-    subprocess.Popen(command, **kwargs)
+    try:
+        subprocess.Popen(command, **kwargs)
+    finally:
+        # The child inherited its own copy of the descriptor; this one only
+        # leaked in the parent for the life of the command.
+        log.close()
 
     deadline = time.time() + 5.0
     while time.time() < deadline:
@@ -201,8 +234,38 @@ def cmd_report(args) -> int:
     if paths is None:
         print("no transcript found for session: {}".format(session_id or "(none)"))
         return 2
-    written = write_report(RunBuilder(paths), args.report)
+    target = args.report or ""
+    base = args.cwd or os.getcwd()
+    # A relative path means "relative to the project", not to wherever this
+    # process happens to be: the slash command runs from the plugin directory.
+    if not os.path.isabs(target):
+        target = os.path.join(base, target) if target else base + os.sep
+    written = write_report(RunBuilder(paths), target)
     print(written)
+    return 0
+
+
+def cmd_export(args) -> int:
+    from orchestra import export as export_mod
+    from orchestra.build import RunBuilder
+    from orchestra.locate import find_session
+    from orchestra.pricing import PriceSource
+
+    session_id = _resolve_session(args)
+    paths = find_session(session_id)
+    if paths is None:
+        print("no transcript found for session: {}".format(session_id or "(none)"))
+        return 2
+    summary = RunBuilder(paths, spool=_make_spool(),
+                         prices=PriceSource()).refresh().to_summary_dict()
+    content_type, body, name = export_mod.render(summary, args.export)
+    target = args.out or os.path.join(args.cwd or os.getcwd(), name)
+    if os.path.isdir(target):
+        target = os.path.join(target, name)
+    # newline="" so the CSV's own \r\n is written as-is on every platform.
+    with open(target, "w", encoding="utf-8", newline="") as fh:
+        fh.write(body)
+    print(target)
     return 0
 
 
@@ -214,12 +277,19 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     parser = argparse.ArgumentParser(prog="orchestra", add_help=True)
     parser.add_argument("--session", default="")
+    parser.add_argument("--cwd", default="",
+                        help="project directory: base for relative report "
+                             "paths, and where to look for a session when "
+                             "none is given")
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--token", default="")
     parser.add_argument("--no-open", action="store_true")
     parser.add_argument("--serve", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--stop", action="store_true")
     parser.add_argument("--report", nargs="?", const="", default=None)
+    parser.add_argument("--export", choices=("csv", "json"), default=None,
+                        help="write the run as CSV (one row per agent) or JSON")
+    parser.add_argument("--out", default="", help="file or directory for --export")
     args = parser.parse_args(argv)
 
     if args.serve:
@@ -228,6 +298,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         return cmd_stop(args)
     if args.report is not None:
         return cmd_report(args)
+    if args.export:
+        return cmd_export(args)
     return cmd_start(args)
 
 

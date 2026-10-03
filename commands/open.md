@@ -7,13 +7,14 @@ argument-hint: "[stop | report [path]]"
 Run Workflow for the current Claude Code session.
 
 The plugin directory is `${CLAUDE_PLUGIN_ROOT}`. Run every command from there so
-`python -m orchestra` resolves.
+`python -m orchestra` resolves, and pass the directory you started in as `--cwd`
+so reports land in the project, not in the plugin directory.
 
 Dispatch on `$ARGUMENTS`:
 
 - **empty** — start the dashboard and print its URL:
   ```bash
-  cd "${CLAUDE_PLUGIN_ROOT}" && python -m orchestra --session "$CLAUDE_CODE_SESSION_ID"
+  P="$PWD"; cd "${CLAUDE_PLUGIN_ROOT}" && python -m orchestra --session "$CLAUDE_CODE_SESSION_ID" --cwd "$P"
   ```
 - **`stop`** — shut the server down:
   ```bash
@@ -21,7 +22,7 @@ Dispatch on `$ARGUMENTS`:
   ```
 - **`report`** or **`report <path>`** — write a self-contained HTML snapshot:
   ```bash
-  cd "${CLAUDE_PLUGIN_ROOT}" && python -m orchestra --session "$CLAUDE_CODE_SESSION_ID" --report "<path or .>"
+  P="$PWD"; cd "${CLAUDE_PLUGIN_ROOT}" && python -m orchestra --session "$CLAUDE_CODE_SESSION_ID" --cwd "$P" --report "<path or .>"
   ```
 
 Report back to the user exactly what the command printed — the URL, the report

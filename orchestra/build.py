@@ -11,23 +11,40 @@ import time
 from typing import Callable, Dict, List, Optional
 
 from orchestra import constants as C
-from orchestra.agentlog import AgentDigest
-from orchestra.edges import infer_edges
+from orchestra.agentlog import AgentDigest, TokenTally
+from orchestra.edges import HandoffCache, infer_edges
+from orchestra import livestate
+from orchestra.events import Event, EventSpool
 from orchestra.extract import extract_expected_output, extract_objective
 from orchestra.locate import SessionPaths
-from orchestra.model import Agent, Batch, Run
-from orchestra.parent import ParentIndex
+from orchestra.model import Agent, Batch, Round, Run
+from orchestra.parent import ParentIndex, parse_timestamp
+from orchestra.pricing import PriceSource, PriceTable
+from orchestra.runaway import detect_loop
 from orchestra.status import build_rounds, compute_status
 from orchestra.transcript import IncrementalReader
+
+
+MAX_EVENTS = 5000
 
 
 class RunBuilder:
     """Holds the incremental state between polls. One per session."""
 
     def __init__(self, paths: SessionPaths,
-                 now_fn: Callable[[], float] = time.time) -> None:
+                 now_fn: Callable[[], float] = time.time,
+                 spool: Optional[EventSpool] = None,
+                 prices: Optional[PriceSource] = None) -> None:
         self.paths = paths
         self.now_fn = now_fn
+        # Hook events, when a spool is given. Without one the run is built from
+        # transcripts alone, exactly as before.
+        self._spool = spool
+        self._events: List[Event] = []
+        self._prices = prices
+        self._table: Optional[PriceTable] = None
+        self._main_tally = TokenTally()
+        self._main_activity: Optional[float] = None
         # ThreadingHTTPServer runs a thread per connection, and every one of
         # them calls refresh() on this same builder. refresh mutates the
         # reader's byte offsets and the per-agent digests, which accumulate
@@ -38,6 +55,7 @@ class RunBuilder:
         self._parent = ParentIndex()
         self._digests: Dict[str, AgentDigest] = {}
         self._metas: Dict[str, dict] = {}
+        self._handoffs = HandoffCache()
 
     def refresh(self) -> Run:
         with self._lock:
@@ -45,16 +63,27 @@ class RunBuilder:
 
     def _refresh_locked(self) -> Run:
         now = self.now_fn()
-        self._parent.ingest(self._reader.read_new(self.paths.session_jsonl))
+        main_entries = self._reader.read_new(self.paths.session_jsonl)
+        if self._reader.consume_reset(self.paths.session_jsonl):
+            self._main_tally.reset()          # re-read from byte 0: don't double count
+            self._parent = ParentIndex()      # and don't keep launches the new file lacks
+        self._main_tally.ingest(main_entries)
+        self._parent.ingest(main_entries)
+        self._note_main_activity(main_entries)
         self._scan_subagents()
-        session_live = self._session_live(now)
+        if self._spool is not None:
+            self._events.extend(self._spool.read_new(self.paths.session_id))
+            del self._events[:-MAX_EVENTS]
+        live = livestate.derive(self._events, self._activity_at(),
+                                self._agent_activity())
+        session_live = self._session_live(now, live)
+        self._table = self._prices.get() if self._prices else None
 
-        agents = [self._assemble(agent_id, now, session_live)
+        agents = [self._assemble(agent_id, now, session_live, live)
                   for agent_id in sorted(self._agent_ids())]
-        agents = [a for a in agents if a is not None]
         agents.sort(key=lambda a: (a.started_at is None, a.started_at or 0))
 
-        edges, hubs, conflicts = infer_edges(agents)
+        edges, hubs, conflicts = infer_edges(agents, self._handoffs)
         starts = [a.started_at for a in agents if a.started_at is not None]
         ends = [a.ended_at for a in agents if a.ended_at is not None]
 
@@ -70,16 +99,50 @@ class RunBuilder:
             hub_files=hubs,
             write_conflicts=conflicts,
             diagnostics=dict(self._reader.diagnostics),
+            live=live.to_dict() if live.has_events else None,
+            orchestrator=self._orchestrator_block(),
+            cost=self._cost_block(agents),
         )
 
     # -- internals ---------------------------------------------------------
 
-    def _session_live(self, now: float) -> bool:
+    def _session_live(self, now: float, live: "livestate.LiveState") -> bool:
         try:
-            age = now - os.path.getmtime(self.paths.session_jsonl)
+            mtime = os.path.getmtime(self.paths.session_jsonl)
         except OSError:
             return False
-        return age <= C.SESSION_LIVE_THRESHOLD_S
+        if (live.ended_at is not None
+                and mtime <= live.ended_at + livestate.GRACE_S):
+            # SessionEnd is a fact; the mtime window is only a guess. Don't wait
+            # out 10 minutes to learn what the hook already told us. Transcript
+            # writes after the end mean the session was resumed.
+            return False
+        return (now - mtime) <= C.SESSION_LIVE_THRESHOLD_S
+
+    def _note_main_activity(self, entries: List[dict]) -> None:
+        for entry in entries:
+            at = parse_timestamp(entry.get("timestamp")) \
+                if isinstance(entry, dict) else None
+            if at is not None and (self._main_activity is None
+                                   or at > self._main_activity):
+                self._main_activity = at
+
+    def _agent_activity(self) -> Dict[str, float]:
+        return {agent_id: d.last_activity_at
+                for agent_id, d in self._digests.items()
+                if d.last_activity_at is not None}
+
+    def _activity_at(self) -> Optional[float]:
+        """Latest transcript activity anywhere in the session.
+
+        Entry timestamps, not file mtime: Claude Code appends bookkeeping lines
+        with no timestamp, and mtime would read each as activity and wrongly
+        clear a prompt that is still waiting.
+        """
+        times = list(self._agent_activity().values())
+        if self._main_activity is not None:
+            times.append(self._main_activity)
+        return max(times) if times else None
 
     def _scan_subagents(self) -> None:
         directory = self.paths.subagents_dir
@@ -132,7 +195,8 @@ class RunBuilder:
                 return notes.tool_use_id
         return ""
 
-    def _assemble(self, agent_id: str, now: float, session_live: bool) -> Optional[Agent]:
+    def _assemble(self, agent_id: str, now: float, session_live: bool,
+                  live: "livestate.LiveState") -> Agent:
         meta = self._metas.get(agent_id) or {}
         digest = self._digests.get(agent_id) or AgentDigest()
         tool_use_id = self._tool_use_id_for(agent_id)
@@ -141,7 +205,15 @@ class RunBuilder:
         notifications = self._parent.notifications.get(agent_id, [])
 
         rounds = build_rounds(launch, result, notifications, digest)
+        self._apply_stop_event(rounds, digest, live.agent_stops.get(agent_id))
         status = compute_status(rounds, digest, now, session_live)
+        if status in (C.RUNNING, C.STALLED) and agent_id in live.agent_waiting:
+            status = C.WAITING
+        # Only an agent that is still going can be "in a loop right now".
+        loop = None
+        if status in (C.RUNNING, C.STALLED, C.WAITING):
+            found = detect_loop(digest.tool_calls, C.LOOP_REPEATS, C.LOOP_CYCLE_CALLS)
+            loop = found.to_dict() if found else None
 
         brief = launch.prompt if launch else ""
         description = str(meta.get("description") or (launch.description if launch else ""))
@@ -188,12 +260,68 @@ class RunBuilder:
             rounds=rounds,
             last_activity_at=digest.last_activity_at,
             result=final_result,
+            loop=loop,
             tokens=dict(digest.tokens),
+            tokens_by_model={m: dict(t) for m, t in digest.tokens_by_model.items()},
+            cost=(self._table.cost(digest.tokens_by_model)[0]
+                  if self._table is not None else None),
             tool_calls=list(digest.tool_calls),
             files_written=list(digest.files_written),
             files_read=list(digest.files_read),
             transcript_path=log_path,
         )
+
+    def _orchestrator_block(self) -> Optional[Dict[str, object]]:
+        tally = self._main_tally
+        if not tally.tokens:
+            return None
+        cost = (self._table.cost(tally.by_model)[0]
+                if self._table is not None else None)
+        return {"tokens": dict(tally.tokens), "model": tally.model, "cost": cost}
+
+    def _cost_block(self, agents: List[Agent]) -> Dict[str, object]:
+        """Money for the whole run, or why there is none."""
+        if self._table is None:
+            block: Dict[str, object] = {"enabled": False}
+            if self._prices is not None and self._prices.error:
+                block["error"] = self._prices.error
+            return block
+        agents_total = sum(a.cost or 0.0 for a in agents)
+        main_cost, main_unpriced = self._table.cost(self._main_tally.by_model)
+        unpriced = set(main_unpriced)
+        for a in agents:
+            unpriced.update(self._table.cost(a.tokens_by_model)[1])
+        total = agents_total + main_cost
+        block = {"enabled": True, "currency": self._table.currency,
+                 "total": total, "agents": agents_total,
+                 "orchestrator": main_cost,
+                 "partial": bool(unpriced), "unpriced_models": sorted(unpriced),
+                 "budget": None}
+        if C.BUDGET > 0:
+            ratio = total / C.BUDGET
+            block["budget"] = {
+                "limit": C.BUDGET, "spent": total, "ratio": ratio,
+                "state": ("exceeded" if ratio >= 1.0 else
+                          "warn" if ratio >= C.BUDGET_WARN_RATIO else "ok")}
+        return block
+
+    @staticmethod
+    def _apply_stop_event(rounds: List[Round], digest: AgentDigest,
+                          stopped_at: Optional[float]) -> None:
+        """A SubagentStop hook closes an open round at the exact stop time.
+
+        The event does not say whether the agent succeeded. Reuse the transcript
+        rule: dying while holding an unanswered tool call is a failure.
+        """
+        if stopped_at is None or not rounds or rounds[-1].ended_at is not None:
+            return
+        last = rounds[-1]
+        if last.started_at is not None and stopped_at < last.started_at:
+            return
+        last.ended_at = stopped_at
+        last.status = C.FAILED if digest.ended_mid_tool else C.COMPLETED
+        if not last.result:
+            last.result = digest.final_text
 
     def _batches(self, agents: List[Agent]) -> List[Batch]:
         by_tool_use = {a.tool_use_id: a.agent_id for a in agents if a.tool_use_id}

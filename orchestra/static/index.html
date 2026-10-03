@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Workflow</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 64 64%27%3E%3Crect width=%2764%27 height=%2764%27 rx=%2714%27 fill=%27%236b4eff%27/%3E%3Ccircle cx=%2724%27 cy=%2732%27 r=%278%27 fill=%27%23fff%27/%3E%3Ccircle cx=%2744%27 cy=%2720%27 r=%276%27 fill=%27%23fff%27/%3E%3Ccircle cx=%2744%27 cy=%2744%27 r=%276%27 fill=%27%23fff%27/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -13,12 +14,32 @@
     <select id="session-picker" aria-label="Session"></select>
     <button id="live-toggle" type="button" aria-pressed="true">Live</button>
     <button id="notify-toggle" type="button" aria-pressed="false">Notify</button>
+    <button id="sound-toggle" type="button" aria-pressed="false" hidden>Sound</button>
+    <details id="sound-prefs" class="sound-prefs" hidden>
+      <summary aria-label="Sound options">Options</summary>
+      <div class="sound-prefs-body">
+        <label><input type="checkbox" id="sound-play-alert"> Claude needs you</label>
+        <label><input type="checkbox" id="sound-play-fail"> Something failed</label>
+        <label><input type="checkbox" id="sound-play-done"> Run finished</label>
+        <label><input type="checkbox" id="sound-quiet-on"> Quiet hours</label>
+        <span class="sound-quiet-range">
+          <input type="time" id="sound-quiet-from" aria-label="Quiet from">
+          to
+          <input type="time" id="sound-quiet-to" aria-label="Quiet until">
+        </span>
+      </div>
+    </details>
+    <button id="pill-toggle" type="button" aria-pressed="false" hidden>Pill</button>
     <button id="copy-summary" type="button">Copy summary</button>
+    <button id="replay-toggle" type="button" aria-pressed="false">Replay</button>
+    <select id="export-select" aria-label="Export this run" hidden><option value="">Export…</option><option value="csv">CSV (agents)</option><option value="json">JSON (everything)</option></select>
     <span id="conn" class="conn"></span>
   </div>
   <div id="totals" class="totals"></div>
 </header>
 
+<div id="replay-bar" class="replay-bar" hidden></div>
+<div id="attention" class="attention" hidden></div>
 <div id="health" class="health" hidden></div>
 <div id="conflicts" class="health" hidden></div>
 
@@ -40,6 +61,8 @@
   <button type="button" class="tab" data-view="graph" role="tab">Graph</button>
   <button type="button" class="tab" data-view="activity" role="tab">Activity</button>
   <button type="button" class="tab" data-view="workfloor" role="tab">Work Floor</button>
+  <button type="button" class="tab" data-view="fleet" role="tab">Fleet <span id="fleet-badge" class="badge" hidden></span></button>
+  <button type="button" class="tab" data-view="history" role="tab">History</button>
 </nav>
 
 <main>
@@ -52,6 +75,12 @@
   </section>
   <section id="view-activity" class="view" hidden>
     <div id="ticker" class="ticker"></div>
+  </section>
+  <section id="view-fleet" class="view" hidden>
+    <div id="fleet" class="fleet"></div>
+  </section>
+  <section id="view-history" class="view" hidden>
+    <div id="history" class="history"></div>
   </section>
   <section id="view-workfloor" class="view" hidden>
     <div id="workfloor" class="workfloor"></div>

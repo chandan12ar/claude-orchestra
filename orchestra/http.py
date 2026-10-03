@@ -23,6 +23,12 @@ _CONTENT_TYPES = {".html": "text/html; charset=utf-8",
 
 _LOOPBACK = ("127.0.0.1", "localhost", "::1")
 
+# Live push (Server-Sent Events).
+STREAM_POLL_S = 0.4         # how often a stream checks for changes
+STREAM_HEARTBEAT_S = 15.0   # comment line so proxies/clients see the link alive
+STREAM_MAX_S = 3600.0       # then close; EventSource reconnects. Reaps vanished clients.
+MAX_STREAMS = 8
+
 
 def _hostname_of(value: str, is_url: bool) -> Optional[str]:
     """The real hostname, per URL rules — lowercased, unbracketed, no userinfo.
@@ -56,7 +62,7 @@ def _origin_is_allowed(header: Optional[str]) -> bool:
     return _hostname_of(header, is_url=True) in _LOOPBACK
 
 
-def make_handler(service: OrchestraService, state: Dict[str, float]):
+def make_handler(service: OrchestraService, state: Dict[str, Any]):
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
         server_version = "Workflow"
@@ -134,10 +140,94 @@ def make_handler(service: OrchestraService, state: Dict[str, float]):
                     self._json(200, service.agent_detail(agent_id, session))
                 elif path == "/api/sessions":
                     self._json(200, service.session_list(session))
+                elif path == "/api/history":
+                    try:
+                        limit = int(query.get("limit", ["50"])[0])
+                    except ValueError:
+                        limit = 50
+                    self._json(200, service.history_list(limit))
+                elif path == "/api/history/compare":
+                    result = service.history_compare(query.get("a", [""])[0],
+                                                     query.get("b", [""])[0])
+                    if result is None:
+                        self._error(404, "both runs must be in the history")
+                    else:
+                        self._json(200, result)
+                elif path == "/api/export":
+                    self._export(session, query.get("format", ["csv"])[0])
+                elif path == "/api/fleet":
+                    self._json(200, service.fleet())
+                elif path == "/api/stream":
+                    self._stream(session)
                 else:
                     self._error(404, "no such route")
             except NotFound as exc:
                 self._error(404, str(exc))
+
+        def _export(self, session: str, fmt: str) -> None:
+            result = service.export(fmt, session)
+            if result is None:
+                self._error(400, "format must be csv or json")
+                return
+            content_type, body, filename = result
+            data = body.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(data)))
+            # filename is built from alphanumerics, '-' and '_' only (export.filename).
+            self.send_header("Content-Disposition",
+                             'attachment; filename="{}"'.format(filename))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            self.wfile.write(data)
+
+        def _stream(self, session: str) -> None:
+            """Tell the browser *when* something changed; it fetches the data.
+
+            The stream carries no run data, only a change fingerprint, so the
+            token-gated JSON endpoints stay the single place anything is
+            redacted and served.
+            """
+            service.change_token(session)      # unknown session -> 404, pre-headers
+            with state["lock"]:
+                if state["streams"] >= MAX_STREAMS:
+                    self._error(429, "too many streams")
+                    return
+                state["streams"] += 1
+            try:
+                self.close_connection = True
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.send_header("Connection", "close")
+                self.end_headers()
+                last = service.change_token(session)
+                self._emit("hello", {"ok": True})
+                started = last_beat = time.time()
+                while time.time() - started < STREAM_MAX_S:
+                    time.sleep(STREAM_POLL_S)
+                    state["last_request"] = time.time()   # an open tab is use
+                    current = service.change_token(session)
+                    if current != last:
+                        last = current
+                        self._emit("tick", {})
+                        last_beat = time.time()
+                    elif time.time() - last_beat >= STREAM_HEARTBEAT_S:
+                        self.wfile.write(b": keep-alive\n\n")
+                        self.wfile.flush()
+                        last_beat = time.time()
+            except (BrokenPipeError, ConnectionError, OSError, NotFound):
+                pass          # the client went away; that is the normal ending
+            finally:
+                with state["lock"]:
+                    state["streams"] -= 1
+
+        def _emit(self, event: str, data: Dict[str, Any]) -> None:
+            self.wfile.write("event: {}\ndata: {}\n\n".format(
+                event, json.dumps(data)).encode("utf-8"))
+            self.wfile.flush()
 
         def _static(self, path: str) -> None:
             name = "index.html" if path in ("/", "") else path.lstrip("/")
@@ -158,9 +248,21 @@ def make_handler(service: OrchestraService, state: Dict[str, float]):
     return Handler
 
 
+class _Server(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def handle_error(self, request, client_address) -> None:
+        # A browser closing a tab or an EventSource reconnecting is not an
+        # error worth a stack trace in the log; anything else still is.
+        if isinstance(sys.exc_info()[1], (ConnectionError, BrokenPipeError)):
+            return
+        super().handle_error(request, client_address)
+
+
 def make_server(service: OrchestraService, port: int) -> ThreadingHTTPServer:
-    state = {"last_request": time.time()}
-    server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(service, state))
+    state: Dict[str, Any] = {"last_request": time.time(),
+                             "streams": 0, "lock": threading.Lock()}
+    server = _Server(("127.0.0.1", port), make_handler(service, state))
     server.orchestra_state = state  # type: ignore[attr-defined]
     return server
 

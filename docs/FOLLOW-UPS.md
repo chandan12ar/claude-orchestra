@@ -74,6 +74,28 @@ is visible rather than forgotten. Ranked roughly by value.
 
 ## Resolved
 
+- **Dead code and leaked log handle (#9, #11).** Removed `IncrementalReader.reset`,
+  the `parent.content_text` alias, the never-true `a is not None` filter and
+  `SessionInfo.size_bytes`; `cmd_start` now closes its log handle. (The
+  duplicated `"report format"` heading was already gone.)
+
+- **Thresholds only configurable by editing code (#10).** Every threshold in
+  `constants.py` now reads an `ORCHESTRA_*` env var (validated, falls back to
+  the default); table in README.
+
+- **Idle builders never evicted (#5).** `OrchestraService` keeps an LRU of
+  `MAX_BUILDERS` (8); the default session is pinned; evicted sessions are
+  rebuilt from disk on next visit.
+- **`report` wrote to the plugin dir (#3) and `--cwd` did not exist (#4).**
+  `--cwd` now exists: base for relative report paths and fallback session
+  discovery (newest session of that project). `commands/open.md` passes it.
+
+- **Handoff-edge inference cost (#2).** `HandoffCache` in `edges.py` keys scores
+  by text content so unchanged pairs are never rescored across polls, and a
+  provably exact prefilter skips `SequenceMatcher` when too few 8-word shingles
+  are shared for a 40-word run to exist. 96 agents: 5.2s -> 0.22s cold, 0.024s
+  warm. `TestHandoffCache` checks results against the old algorithm.
+
 - **`AgentDigest`'s docstring claim.** Was false: "safe to ingest repeatedly"
   didn't hold, because `transcript.py` resetting its offset to 0 on a
   truncated/replaced file left `build.py`'s accumulated per-agent digest in

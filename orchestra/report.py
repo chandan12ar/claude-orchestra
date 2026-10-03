@@ -23,13 +23,20 @@ _SHELL = """<!doctype html>
 <header>
   <div class="bar">
     <h1>Workflow</h1>
+    <button id="pill-toggle" type="button" aria-pressed="false" hidden>Pill</button>
+    <button id="sound-toggle" type="button" aria-pressed="false" hidden>Sound</button>
+    <details id="sound-prefs" hidden></details>
     <button id="copy-summary" type="button">Copy summary</button>
+    <button id="replay-toggle" type="button" aria-pressed="false">Replay</button>
+    <select id="export-select" aria-label="Export this run" hidden><option value="">Export…</option><option value="csv">CSV (agents)</option><option value="json">JSON (everything)</option></select>
     <!-- id is load-bearing: app.js sets $("conn").textContent inside poll(),
          before render(). Without it the whole page throws and stays blank. -->
     <span id="conn" class="conn">static report · session {session}</span>
   </div>
   <div id="totals" class="totals"></div>
 </header>
+<div id="replay-bar" class="replay-bar" hidden></div>
+<div id="attention" class="attention" hidden></div>
 <div id="health" class="health" hidden></div>
 <div id="conflicts" class="health" hidden></div>
 <div id="filter-bar" class="filter-bar">
@@ -49,6 +56,8 @@ _SHELL = """<!doctype html>
   <button type="button" class="tab" data-view="graph" role="tab">Graph</button>
   <button type="button" class="tab" data-view="activity" role="tab">Activity</button>
   <button type="button" class="tab" data-view="workfloor" role="tab">Work Floor</button>
+  <button type="button" hidden class="tab" data-view="fleet" role="tab">Fleet <span id="fleet-badge" class="badge" hidden></span></button>
+  <button type="button" hidden class="tab" data-view="history" role="tab">History</button>
 </nav>
 <main>
   <section id="view-timeline" class="view">
@@ -60,6 +69,12 @@ _SHELL = """<!doctype html>
   </section>
   <section id="view-activity" class="view" hidden>
     <div id="ticker" class="ticker"></div>
+  </section>
+  <section id="view-fleet" class="view" hidden>
+    <div id="fleet" class="fleet"></div>
+  </section>
+  <section id="view-history" class="view" hidden>
+    <div id="history" class="history"></div>
   </section>
   <section id="view-workfloor" class="view" hidden>
     <div id="workfloor" class="workfloor"></div>

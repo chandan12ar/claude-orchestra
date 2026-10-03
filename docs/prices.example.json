@@ -1,0 +1,9 @@
+{
+  "_comment": "ILLUSTRATIVE ONLY - replace every number with the prices on your plan or contract. Per million tokens. First matching pattern wins. Save as ~/.config/workflow/prices.json (Windows: %APPDATA%\\workflow\\prices.json) or point ORCHESTRA_PRICES at it.",
+  "currency": "USD",
+  "models": {
+    "claude-opus-*":   {"input": 15.0, "output": 75.0, "cache_read": 1.5,  "cache_create": 18.75},
+    "claude-sonnet-*": {"input": 3.0,  "output": 15.0, "cache_read": 0.3,  "cache_create": 3.75},
+    "claude-haiku-*":  {"input": 1.0,  "output": 5.0,  "cache_read": 0.1,  "cache_create": 1.25}
+  }
+}

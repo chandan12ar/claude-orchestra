@@ -68,6 +68,55 @@ class TestReportCommand(unittest.TestCase):
         self.assertIn("missing", out.getvalue())
 
 
+class TestCwdFlag(unittest.TestCase):
+    """--cwd: base for relative report paths, and session discovery fallback."""
+
+    def setUp(self):
+        from orchestra.locate import encode_project_dir
+        self.root = tempfile.mkdtemp()
+        self.project = tempfile.mkdtemp()
+        build_session(self.root, "s1")
+        # Put the session where Claude Code would for this project directory.
+        os.rename(os.path.join(self.root, "projects", "E--proj"),
+                  os.path.join(self.root, "projects",
+                               encode_project_dir(os.path.abspath(self.project))))
+        os.environ["CLAUDE_CONFIG_DIR"] = self.root
+        os.environ["ORCHESTRA_STATE_DIR"] = tempfile.mkdtemp()
+        os.environ.pop("CLAUDE_CODE_SESSION_ID", None)
+        self.addCleanup(os.environ.pop, "CLAUDE_CONFIG_DIR", None)
+        self.addCleanup(os.environ.pop, "ORCHESTRA_STATE_DIR", None)
+
+    def test_relative_report_path_lands_in_the_project_not_the_cwd(self):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = main(["--session", "s1", "--cwd", self.project, "--report", "."])
+        self.assertEqual(code, 0)
+        written = out.getvalue().strip()
+        self.assertEqual(os.path.dirname(os.path.abspath(written)),
+                         os.path.abspath(self.project))
+        self.assertTrue(os.path.isfile(written))
+
+    def test_bare_report_flag_also_lands_in_the_project(self):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            main(["--session", "s1", "--cwd", self.project, "--report"])
+        self.assertTrue(out.getvalue().strip().startswith(
+            os.path.abspath(self.project)))
+
+    def test_no_session_id_falls_back_to_the_newest_in_the_project(self):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = main(["--cwd", self.project, "--report", "."])
+        self.assertEqual(code, 0)
+        self.assertIn("s1", out.getvalue())
+
+    def test_no_session_and_no_matching_project_still_fails_clearly(self):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = main(["--cwd", tempfile.mkdtemp(), "--report", "."])
+        self.assertEqual(code, 2)
+
+
 class TestStopCommand(unittest.TestCase):
     def setUp(self):
         os.environ["ORCHESTRA_STATE_DIR"] = tempfile.mkdtemp()

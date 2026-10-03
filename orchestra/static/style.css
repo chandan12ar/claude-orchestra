@@ -11,6 +11,7 @@
   --failed: #e03131;
   --stalled: #e8950c;
   --orphaned: #868e96;
+  --waiting: #7950f2;
   --unknown: #adb5bd;
   /* Tool-call categories, distinct from the status palette above so a
      category swatch never reads as a status. Validated (dataviz skill's
@@ -23,6 +24,10 @@
   --font: ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --mono: ui-monospace, "Cascadia Mono", Consolas, "Courier New", monospace;
 }
+
+/* Author rules like `display: flex` beat the UA's [hidden] style, so any element
+   that sets its own display would stay visible (and empty) while "hidden". */
+[hidden] { display: none !important; }
 
 @media (prefers-color-scheme: dark) {
   :root {
@@ -57,6 +62,20 @@ select, button { font: inherit; color: inherit; background: var(--panel);
   transition: border-color 150ms ease, color 150ms ease, background-color 150ms ease,
     transform 100ms ease; }
 button { cursor: pointer; }
+.sound-prefs { position: relative; }
+.sound-prefs summary { cursor: pointer; list-style: none; color: var(--muted);
+  border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px;
+  background: var(--panel); user-select: none; }
+.sound-prefs summary::-webkit-details-marker { display: none; }
+.sound-prefs[open] summary { color: var(--ink); }
+.sound-prefs-body { position: absolute; z-index: 20; top: calc(100% + 6px); left: 0;
+  display: flex; flex-direction: column; gap: 8px; min-width: 200px; padding: 12px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12); font-size: 13px; }
+.sound-prefs-body label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.sound-quiet-range { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+.sound-quiet-range input { font: inherit; color: inherit; background: var(--bg);
+  border: 1px solid var(--line); border-radius: 6px; padding: 2px 4px; }
 button:active { transform: scale(0.96); }
 button[aria-pressed="false"] { opacity: 0.55; }
 @media (prefers-reduced-motion: reduce) {
@@ -68,10 +87,27 @@ button[aria-pressed="false"] { opacity: 0.55; }
 .totals { margin-top: 8px; color: var(--muted); display: flex;
   gap: 16px; flex-wrap: wrap; font-variant-numeric: tabular-nums; }
 .totals strong { color: var(--ink); font-weight: 600; }
+.totals .cost-warn { color: var(--stalled); }
+.totals .cost-exceeded, .totals .cost-exceeded strong { color: var(--failed); }
 
 .health { margin: 12px 16px; padding: 10px 12px; border-radius: 8px;
   border: 1px solid var(--stalled); background: color-mix(in srgb, var(--stalled) 10%, transparent); }
 .health ul { margin: 6px 0 0; padding-left: 18px; }
+
+/* What the session is waiting on, from hook events. Louder than .health: this
+   is the one thing that blocks everything else until a person acts. */
+.attention { margin: 12px 16px; padding: 10px 12px; border-radius: 8px;
+  display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap;
+  border: 1px solid var(--waiting);
+  background: color-mix(in srgb, var(--waiting) 12%, transparent); }
+.attention[data-kind="error"] { border-color: var(--failed);
+  background: color-mix(in srgb, var(--failed) 10%, transparent); }
+.attention[data-kind="idle"], .attention[data-kind="ended"] {
+  border-color: var(--line); background: var(--panel); }
+.attention .att-title { font-weight: 600; }
+.attention .att-detail { color: var(--muted); overflow-wrap: anywhere; }
+.attention .att-since { color: var(--muted); font-variant-numeric: tabular-nums;
+  margin-left: auto; }
 
 .filter-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   margin: 0 16px; }
@@ -116,6 +152,7 @@ main { padding: 12px 16px 24px; }
 .s-failed    { fill: var(--failed);    color: var(--failed); }
 .s-stalled   { fill: var(--stalled);   color: var(--stalled); }
 .s-orphaned  { fill: var(--orphaned);  color: var(--orphaned); }
+.s-waiting   { fill: var(--waiting);   color: var(--waiting); }
 .s-unknown   { fill: var(--unknown);   color: var(--unknown); }
 
 /* A running agent needs to read as "actively happening," not just
@@ -301,3 +338,64 @@ main { padding: 12px 16px 24px; }
   font-variant-numeric: tabular-nums; margin-top: 2px; }
 
 .agent-card.agent-quiet .agent-canvas { opacity: 0.55; }
+
+
+/* ------------------------------------------------------------------ fleet */
+.badge { display: inline-block; min-width: 18px; padding: 0 6px; margin-left: 4px;
+  border-radius: 9px; background: var(--waiting); color: #fff; font-size: 11px;
+  font-weight: 700; line-height: 18px; text-align: center; }
+.fleet { background: var(--panel); border: 1px solid var(--line);
+  border-radius: 8px; overflow: hidden; }
+.fleet-empty { padding: 32px 16px; text-align: center; color: var(--muted); }
+.fleet-row { display: flex; align-items: center; gap: 12px; padding: 10px 14px;
+  border-bottom: 1px solid var(--line); cursor: pointer; }
+.fleet-row:last-child { border-bottom: none; }
+.fleet-row:hover, .fleet-row:focus-visible { background: var(--bg); outline: none; }
+.fleet-row.fleet-current { box-shadow: inset 3px 0 0 var(--accent); }
+.fleet-row.fleet-quiet { opacity: 0.6; }
+.fleet-dot { width: 10px; height: 10px; border-radius: 50%; flex: none;
+  background: var(--unknown); }
+.fleet-row[data-kind="permission"] .fleet-dot, .fleet-row[data-kind="input"] .fleet-dot {
+  background: var(--waiting); }
+.fleet-row[data-kind="error"] .fleet-dot { background: var(--failed); }
+.fleet-row[data-live="1"]:not([data-kind]) .fleet-dot { background: var(--running); }
+.fleet-main { flex: 1 1 auto; min-width: 0; }
+.fleet-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; }
+.fleet-title .fleet-id { color: var(--muted); font-weight: 400; margin-left: 6px;
+  font-family: var(--mono); font-size: 12px; }
+.fleet-sub { color: var(--muted); overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; }
+.fleet-row[data-kind="permission"] .fleet-sub, .fleet-row[data-kind="error"] .fleet-sub {
+  color: var(--ink); }
+.fleet-meta { color: var(--muted); font-size: 12px; text-align: right; flex: none;
+  font-variant-numeric: tabular-nums; }
+
+/* ------------------------------------------------------------------ replay */
+.replay-bar { margin: 12px 16px 0; padding: 8px 12px; border-radius: 8px;
+  display: flex; align-items: center; gap: 12px;
+  border: 1px solid var(--accent); background: var(--panel); }
+.replay-bar input[type="range"] { flex: 1 1 auto; min-width: 120px; accent-color: var(--accent); }
+.replay-bar .replay-time { font-variant-numeric: tabular-nums; color: var(--muted);
+  white-space: nowrap; }
+.replay-bar .replay-note { color: var(--muted); font-size: 12px; }
+
+/* ----------------------------------------------------------------- history */
+.history { background: var(--panel); border: 1px solid var(--line);
+  border-radius: 8px; overflow: hidden; }
+.history-note { padding: 28px 18px; color: var(--muted); text-align: center;
+  line-height: 1.5; }
+.history-note code { font-family: var(--mono); color: var(--ink); }
+.history table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.history th { text-align: left; font-weight: 600; color: var(--muted); font-size: 12px;
+  padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.history td { padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.history td.num, .history th.num { text-align: right; }
+.history tbody tr { cursor: pointer; }
+.history tbody tr:hover { background: var(--bg); }
+.history tbody tr[aria-selected="true"] { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.history-compare { padding: 12px 14px; border-top: 2px solid var(--accent); }
+.history-compare h3 { margin: 0 0 8px; font-size: 13px; }
+.delta-good { color: var(--completed); }
+.delta-bad { color: var(--failed); }
+.delta-flat { color: var(--muted); }

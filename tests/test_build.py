@@ -150,6 +150,24 @@ class TestIncrementalRefresh(BuildTestCase):
         second = builder.refresh()
         self.assertEqual(second.agent("a3").tokens["output"], 33)
 
+    def test_replaced_main_transcript_drops_stale_launches(self):
+        import json
+
+        builder = RunBuilder(self.paths, now_fn=lambda: NOW_LIVE)
+        os.utime(self.paths.session_jsonl, (NOW_LIVE, NOW_LIVE))
+        builder.refresh()
+        self.assertTrue(builder._parent.launches)
+
+        # The main transcript is replaced by a shorter one that launches nothing.
+        # Launches/results from the old file must not outlive it.
+        with open(self.paths.session_jsonl, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps({"type": "user", "cwd": r"E:\other",
+                                 "timestamp": ts(1)}) + "\n")
+        builder.refresh()
+        self.assertEqual(builder._parent.launches, {})
+        self.assertEqual(builder._parent.results, {})
+        self.assertEqual(builder._parent.cwd, r"E:\other")
+
     def test_diagnostics_report_unparsable_lines(self):
         path = os.path.join(self.paths.subagents_dir, "agent-a3.jsonl")
         with open(path, "a", encoding="utf-8") as fh:
