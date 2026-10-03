@@ -6,6 +6,19 @@ versions follow [SemVer](https://semver.org/) (the `version` in
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-03
+
+### Added
+- **What the run produced**: commits, pushes, pull requests, branch merges and test runs, from the main
+  session and every agent. An Insights card shows the counts, how many test, build and lint runs passed,
+  the whole run's cost (or fresh tokens) per commit and per pull request, the pull requests as links
+  (https only, opened in a new tab without a referrer) and the latest commits with their first message
+  line, branch, author agent and time. The agent panel says what that agent produced. Read from the git
+  results Claude Code records on a Bash call (`toolUseResult.gitOperation`) and its `pr-link` entries.
+  A `git commit -q` prints no commit id, so Claude Code records none: it is still counted, without a sha.
+  A forked agent replays its parent's history, so commits and pull requests are counted once.
+- The demo's orchestrator commits, pushes and opens a pull request; one agent commits its own work.
+
 ## [0.8.0] - 2026-10-03
 
 ### Added

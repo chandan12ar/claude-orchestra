@@ -3716,6 +3716,55 @@ function insChanges(ins) {
     metrics + agents + files);
 }
 
+// A link out of the dashboard, only ever to an https URL, opened without a referrer.
+function safeLink(url, text) {
+  return /^https:\/\/[^\s"'<>]+$/.test(String(url || ""))
+    ? '<a href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">' + esc(text) + "</a>"
+    : esc(text);
+}
+
+// What the run produced: commits, pull requests, pushes and test runs, and what each cost.
+function insOutcomes(ins) {
+  const o = ins.outcomes;
+  if (!o) return "";
+  const tests = o.checks.passed + o.checks.failed;
+  const metrics = [insMetric(o.commits, o.commits === 1 ? "commit" : "commits"),
+    insMetric(o.prs, o.prs === 1 ? "pull request" : "pull requests"),
+    insMetric(o.pushes, o.pushes === 1 ? "push" : "pushes"),
+    insMetric(tests ? o.checks.passed + " of " + tests : "0", "test, build and lint runs passed")];
+  const per = (key, noun) => {
+    const p = o.per[key];
+    if (!p || (p.cost === null && p.tokens === null)) return;
+    metrics.push(insMetric(p.cost !== null ? fmtMoney(p.cost, o.currency) : fmtCount(p.tokens),
+      (p.cost !== null ? "" : "fresh tokens ") + "per " + noun));
+  };
+  per("commit", "commit");
+  per("pr", "pull request");
+  const prs = o.pull_requests.length ? "<h4>Pull requests</h4>" + '<ul class="out-list">' + o.pull_requests.map((p) =>
+    "<li><b>" + safeLink(p.url, (p.number !== null ? "#" + p.number : "pull request") + (p.repo ? " " + p.repo : "")) + "</b>" +
+    "<span>" + esc((p.action || "linked") + " by " + p.label) + "</span></li>").join("") + "</ul>" : "";
+  const commits = o.recent_commits.length ? "<h4>Latest commits</h4>" + '<ul class="out-list">' + o.recent_commits.map((c) =>
+    '<li><code title="' + esc(c.sha ? "commit " + c.sha : "git printed no commit id (quiet mode)") + '">' + esc(c.sha || "—") + "</code>" +
+    "<b>" + esc(c.message || "(no message seen)") + "</b>" +
+    "<span>" + esc([c.branch, c.label, fmtClock(c.at)].filter(Boolean).join(" · ")) + "</span></li>").join("") + "</ul>" : "";
+  return insCard("What the run produced",
+    "Commits, pushes and pull requests as Claude Code recorded them, and every test, build or lint run. " +
+    "Cost per commit divides the whole run's cost by its commits.",
+    '<div class="metrics">' + metrics.join("") + "</div>" + prs + commits, "wide");
+}
+
+// The agent panel's "produced" line.
+function producedRow(o) {
+  if (!o) return "";
+  const parts = [];
+  if (o.commits.length) parts.push(o.commits.length + (o.commits.length === 1 ? " commit" : " commits"));
+  if (o.prs.length) parts.push(o.prs.map((p) => p.number !== null ? "PR #" + p.number : "a pull request").join(", "));
+  if (o.pushes) parts.push(o.pushes + (o.pushes === 1 ? " push" : " pushes"));
+  const tests = o.checks.passed + o.checks.failed;
+  if (tests) parts.push(o.checks.passed + " of " + tests + " test runs passed");
+  return parts.length ? "<dt>produced</dt><dd>" + esc(parts.join(", ")) + "</dd>" : "";
+}
+
 function tickWaits() {
   if (state.offline) return;
   const now = Date.now() / 1000;
@@ -3763,7 +3812,7 @@ function renderInsights(run) {
     return;
   }
   const width = Math.max(320, (box.clientWidth || 960) - 38);
-  box.innerHTML = insParallelism(ins, width) + insCritical(ins) + insChecks(ins) + insWaits(ins, run) + insChanges(ins) + insTools(ins) +
+  box.innerHTML = insParallelism(ins, width) + insCritical(ins) + insOutcomes(ins) + insChecks(ins) + insWaits(ins, run) + insChanges(ins) + insTools(ins) +
     insTokens(ins, run) + insSpend(run) + insSlowest(ins) + insFiles(ins);
   for (const el of box.querySelectorAll("[data-agent]")) {
     const open = () => openDrawer(el.getAttribute("data-agent"));
@@ -4462,7 +4511,7 @@ async function openDrawer(agentId) {
     "<dl>" + rows.map(([k, v]) =>
       "<dt>" + esc(k) + "</dt><dd>" + esc(v) + "</dd>").join("") + waitRow(agent, waitNow(state.run)) +
       (agent.verification ? "<dt>checked its work</dt><dd>" + esc((agent.verification.state === "checked" ? "yes, " : "") +
-        checkText(agent.verification)) + "</dd>" : "") + "</dl>" +
+        checkText(agent.verification)) + "</dd>" : "") + producedRow(agent.outcomes) + "</dl>" +
     "<h3>Tool mix</h3>" + (renderToolMix(agent.tool_calls) || '<p class="source-note">no tool calls yet</p>') +
     "<h3>Objective</h3><pre>" + esc(agent.objective || "\u2014") + "</pre>" +
     '<div class="source-note">' + esc(agent.objective_source) + "</div>" +

@@ -41,6 +41,7 @@ PRICES = {"currency": "USD", "models": {
 }}
 
 SESSION_AGE_S = 780          # the demo session "started" this long ago
+PR_URL = "https://github.com/northwind/shop/pull/42"
 
 
 @dataclass
@@ -128,7 +129,8 @@ def _scenario() -> List[_Agent]:
                "completed",
                _read("docs/providers.md", "src/payments/adapter.ts")
                + [("Write", CWD + "/src/payments/webhooks.ts"),
-                  ("Bash", "npm run test -- webhooks")],
+                  ("Bash", "npm run test -- webhooks"),
+                  ("Bash", 'git commit -m "feat: verify webhook signatures and dedupe by event id"')],
                "Webhook handler verifies signatures and is idempotent on event id.",
                depth=2, parent="payments", wave="build", asks=(0,)),
         _Agent("ui", "Build the checkout UI", "general-purpose", "sonnet", 340, None, "running",
@@ -218,8 +220,23 @@ def _tool_block(uid: str, name: str, target: str) -> Dict[str, Any]:
     return {"type": "tool_use", "id": uid, "name": name, "input": params}
 
 
+def _git_result(command: str) -> Optional[Dict[str, Any]]:
+    """The gitOperation Claude Code records for a successful git or gh command."""
+    if command.startswith("git commit"):
+        sha = hashlib.sha1(command.encode()).hexdigest()[:7]
+        return {"stdout": "", "gitOperation": {"commit": {"sha": sha, "kind": "committed", "branch": "checkout-v2"}}}
+    if command.startswith("git push"):
+        return {"stdout": "", "gitOperation": {"push": {"branch": "checkout-v2"}}}
+    if command.startswith("gh pr create"):
+        return {"stdout": PR_URL, "gitOperation": {"pr": {"number": 42, "url": PR_URL, "action": "created"}}}
+    return None
+
+
 def _edit_result(name: str, target: str) -> Optional[Dict[str, Any]]:
-    """The toolUseResult Claude Code records for a successful Write or Edit: the patch."""
+    """The toolUseResult Claude Code records for a successful Write or Edit (the patch),
+    or for a git command (what it did)."""
+    if name == "Bash":
+        return _git_result(target)
     stem = os.path.splitext(os.path.basename(target))[0]
     ext = os.path.splitext(target)[1].lower()
     if name == "Write":
@@ -391,6 +408,23 @@ def build_demo(root: str, now: Optional[float] = None,
             nested.setdefault(launcher.key, []).extend([launch, ack])
         if agent.status in ("completed", "failed") and agent.end is not None:
             main.append(_notification(agent, clock.at(agent.end)))
+    # Once the build wave is in, the orchestrator commits, pushes and opens a pull request.
+    for i, command in enumerate(('git commit -m "feat: checkout v2 cart service, payment adapter and migration"',
+                                 "git push -u origin checkout-v2",
+                                 'gh pr create --title "Checkout v2" --body "Cart, payments, webhooks"')):
+        uid = "toolu_orch_git{}".format(i)
+        at = clock.at(615 + i * 4)
+        main.append({"uuid": "orch-git-{}".format(i), "timestamp": _iso(at), "type": "assistant", "cwd": CWD,
+                     "message": {"id": "msg_orch_git{}".format(i), "role": "assistant", "model": MODELS["opus"],
+                                 "content": [_tool_block(uid, "Bash", command)],
+                                 "usage": {"input_tokens": 40, "output_tokens": 90,
+                                           "cache_read_input_tokens": 52000}}})
+        main.append({"uuid": "orch-git-r{}".format(i), "timestamp": _iso(at + 1.5), "type": "user", "cwd": CWD,
+                     "toolUseResult": _git_result(command),
+                     "message": {"role": "user", "content": [
+                         {"type": "tool_result", "tool_use_id": uid, "content": "ok"}]}})
+    main.append({"type": "pr-link", "sessionId": session_id, "prNumber": 42, "prUrl": PR_URL,
+                 "prRepository": "northwind/shop", "timestamp": _iso(clock.at(624))})
     main.sort(key=lambda e: e["timestamp"])
     main.append({"uuid": "orch-now", "timestamp": _iso(now - 3), "type": "assistant", "cwd": CWD,
                  "message": {"id": "msg_orch_now", "role": "assistant", "model": MODELS["opus"],

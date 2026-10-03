@@ -906,6 +906,22 @@ pure functions in `app.js`, tested under node.
   `edges.normalize_path` so worktree copies of a file are one file. Scratch/temp files
   (`verify.is_scratch`) are listed in the panel but never counted.
 
+### What the run produced (`outcomes.py`)
+- Claude Code records git results on a Bash call's result: `toolUseResult.gitOperation` with `commit`
+  (`sha`, `kind`, `branch`), `push` (`branch`), `pr` (`number`, `url`, `action`) or `branch` (`ref`,
+  `action`), and writes `pr-link` entries (`prNumber`, `prUrl`, `prRepository`) to the main transcript.
+  Checked on real transcripts. `OutcomeLog.ingest` pairs each Bash/PowerShell call with its result
+  (incrementally, like the digests) and records those; one log per agent and one for the main session.
+- The commit id comes from git's own output, so `git commit -q` gets no `commit` record. A successful
+  command that runs `git commit` on its command line (here-document text excluded, `--dry-run`
+  excluded) still counts, keyed by its tool call id, with no sha. The first message line is read from
+  `-m "..."`, `-m '...'` or a here-document, for display only.
+- Test runs reuse `verify.classify`: a check command's result error flag says passed or failed.
+- `outcomes.summary` merges every log, removing duplicates by commit key and pull request URL (a forked
+  agent replays its parent's history) and attributing each to the first transcript that recorded it;
+  cost and fresh tokens per commit and per pull request divide the whole run's figures. Only `https://`
+  URLs are kept, and the page links them with `rel="noopener noreferrer"`.
+
 ### Graph and Work Floor
 - **Graph layout** (`layoutGraph`) is a pure function split into `graphRankColumns`
   (longest path over exact edges; columns indexed, never raw rank), `graphOrderColumns`

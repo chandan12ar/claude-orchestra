@@ -16,6 +16,7 @@ from orchestra.model import Agent, Run
 from orchestra.redact import scrub
 from orchestra import verify
 from orchestra.edges import normalize_path
+from orchestra import outcomes
 
 # Mirrors the dashboard's tool taxonomy (app.js TOOL_BUCKETS), so a colour means the
 # same thing in the drawer, the ticker and here.
@@ -420,6 +421,17 @@ def _changes(run: Run) -> Optional[Dict[str, Any]]:
                            "agents": len(f["agents"]), "created": f["created"]} for _, f in hot[:TOP]]}
 
 
+def _outcomes(run: Run) -> Optional[Dict[str, Any]]:
+    """Commits, pull requests, pushes and test runs across the main session and every agent,
+    with the run's cost (or fresh tokens) per commit and per pull request."""
+    sources = [("", "Main session", run.main_outcomes)]
+    sources += [(a.agent_id, a.description, a.outcomes) for a in run.agents]
+    fresh = sum(_fresh(a.tokens) for a in run.agents)
+    if run.orchestrator:
+        fresh += _fresh(run.orchestrator.get("tokens") or {})
+    return outcomes.summary(sources, run.cost, fresh)
+
+
 def compute(run: Run, now: float, table: Any = None) -> Dict[str, Any]:
     """The Insights payload for a run. `table` is the optional PriceTable."""
     par = _parallelism(run, now)
@@ -432,4 +444,5 @@ def compute(run: Run, now: float, table: Any = None) -> Dict[str, Any]:
             "slowest": _slowest(run, now),
             "waits": _waits(run, now),
             "checks": verify.summary(run.agents) if run.agents else None,
-            "changes": _changes(run)}
+            "changes": _changes(run),
+            "outcomes": _outcomes(run)}
