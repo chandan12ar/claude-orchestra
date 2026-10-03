@@ -14,14 +14,14 @@ def read(*parts):
 class TestPluginManifest(unittest.TestCase):
     def test_plugin_json_is_valid_and_named(self):
         data = json.loads(read(".claude-plugin", "plugin.json"))
-        self.assertEqual(data["name"], "workflow")
+        self.assertEqual(data["name"], "cuelight")
         self.assertIn("description", data)
         self.assertRegex(data["version"], r"^\d+\.\d+\.\d+$")
 
     def test_marketplace_lists_the_plugin(self):
         data = json.loads(read(".claude-plugin", "marketplace.json"))
         names = [p["name"] for p in data["plugins"]]
-        self.assertIn("workflow", names)
+        self.assertIn("cuelight", names)
 
 
 class TestSlashCommand(unittest.TestCase):

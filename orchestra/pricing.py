@@ -35,7 +35,16 @@ def default_prices_path() -> str:
     else:
         base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(
             os.path.expanduser("~"), ".config")
-    return os.path.join(base, "workflow", "prices.json")
+    return _keep_legacy(os.path.join(base, "cuelight", "prices.json"),
+                        os.path.join(base, "workflow", "prices.json"))
+
+
+def _keep_legacy(path: str, legacy: str) -> str:
+    """The product was called "Workflow" before 0.4.0. A file already saved under the
+    old directory keeps working until the person moves it; a new install uses the new one."""
+    if not os.path.exists(path) and os.path.exists(legacy):
+        return legacy
+    return path
 
 
 class PriceError(ValueError):

@@ -349,7 +349,7 @@ function checkNotifications(run) {
     }
     if (state.lastSessionLive === true && !run.session_live) {
       const t = run.totals || {};
-      notify("Workflow session ended",
+      notify("Cuelight session ended",
         (t.completed || 0) + " completed, " + ((t.failed || 0) + (t.orphaned || 0)) + " failed");
     }
   }
@@ -399,7 +399,7 @@ function buildSummaryMarkdown(run) {
   const t = run.totals || {};
   const failedCount = (t.failed || 0) + (t.orphaned || 0);
   const lines = [
-    "## Workflow summary — " + (run.session_id || "session"),
+    "## Cuelight summary — " + (run.session_id || "session"),
     (t.agents || 0) + " agents · " + (t.completed || 0) + " completed · " +
       failedCount + " failed · " + (t.running || 0) + " running · " +
       fmtTokens(t.tokens) + " tokens (" + fmtPct(cacheHitRatio(t.tokens)) + " cached) · " +
@@ -2062,9 +2062,9 @@ function pillModel(run, fleet) {
 }
 
 function tabTitle(model) {
-  if (model.count > 0) return "(" + model.count + ") Workflow";
-  if (model.kind === "running") return "\u25B6 Workflow";
-  return "Workflow";
+  if (model.count > 0) return "(" + model.count + ") Cuelight";
+  if (model.kind === "running") return "\u25B6 Cuelight";
+  return "Cuelight";
 }
 
 function drawFavicon(model) {
@@ -2182,7 +2182,7 @@ async function togglePill() {
   const style = win.document.createElement("style");
   style.textContent = PILL_CSS;
   win.document.head.appendChild(style);
-  win.document.title = "Workflow";
+  win.document.title = "Cuelight";
   win.addEventListener("pagehide", () => { state.pill = null; updatePillButton(); });
   state.pill = win;
   updatePillButton();

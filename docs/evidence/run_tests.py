@@ -57,7 +57,7 @@ def main():
         slot["ok" if result == "ok" else "skipped" if result.startswith("skipped") else "failed"] += 1
 
     lines = [
-        "Workflow - local test run",
+        "Cuelight - local test run",
         "=" * 60,
         "when      : " + started.strftime("%Y-%m-%d %H:%M:%S UTC"),
         "commit    : " + sh("git", "rev-parse", "HEAD") + "  (" + sh("git", "rev-parse", "--abbrev-ref", "HEAD") + ")",

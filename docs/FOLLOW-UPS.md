@@ -1,4 +1,4 @@
-# Workflow — known follow-ups
+# Cuelight — known follow-ups
 
 Everything here was raised by the final whole-branch review and judged
 non-blocking. The branch ships without these; they are recorded so the decision
@@ -8,7 +8,7 @@ is visible rather than forgotten. Ranked roughly by value.
 
 1. **Add a table view.** `expected_output` is extracted for every agent but is
    only visible in the drawer, one agent at a time — and neither the timeline
-   nor the graph surfaces it. Of the five questions Workflow answers, "what was
+   nor the graph surfaces it. Of the five questions Cuelight answers, "what was
    this agent supposed to produce" is the one whose answer is least certain
    (deterministic extraction from prose), so it is the one that most needs to be
    scannable side by side, where a reader can spot the row whose deliverable
@@ -25,7 +25,7 @@ is visible rather than forgotten. Ranked roughly by value.
    orchestrations are both the worst case and the common case. Cache results
    keyed on the `(result, brief)` pairs that actually changed.
 
-3. **`/workflow:open report` writes to the plugin directory, not the project.**
+3. **`/cuelight:open report` writes to the plugin directory, not the project.**
    `commands/open.md` does `cd "${CLAUDE_PLUGIN_ROOT}"` and passes a
    relative path, which `write_report` resolves against that cwd. Spec section
    12 says the project root, and `.gitignore` already carries

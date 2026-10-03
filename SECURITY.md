@@ -2,7 +2,7 @@
 
 ## Threat model
 
-Workflow is a **local, read-only** viewer. It assumes other processes on the
+Cuelight is a **local, read-only** viewer. It assumes other processes on the
 same machine, and other web pages open in the user's browser, are hostile.
 
 | Property | Mechanism |
@@ -28,6 +28,6 @@ steps to reproduce and the affected version.
 
 ## Out of scope by design
 
-Workflow does not approve, deny or otherwise control Claude Code. If that is
+Cuelight does not approve, deny or otherwise control Claude Code. If that is
 ever added it will be a separate opt-in plugin with its own threat model and an
 audit log, and this document will be updated first.

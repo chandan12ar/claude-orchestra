@@ -304,3 +304,28 @@ class TestServiceAndApi(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestRenamedDataDirectory(unittest.TestCase):
+    """History recorded before the 0.4.0 rename (as "Workflow") keeps being used."""
+
+    def path_with(self, base, new=False, legacy=False):
+        for flag, name in ((new, "cuelight"), (legacy, "workflow")):
+            if flag:
+                os.makedirs(os.path.join(base, name), exist_ok=True)
+                open(os.path.join(base, name, "history.sqlite"), "wb").close()
+        with mock.patch.dict(os.environ, {"LOCALAPPDATA": base, "XDG_DATA_HOME": base}):
+            os.environ.pop("ORCHESTRA_HISTORY_DB", None)
+            return H.default_path()
+
+    def test_a_new_install_uses_the_new_name(self):
+        path = self.path_with(tempfile.mkdtemp())
+        self.assertEqual(os.path.basename(os.path.dirname(path)), "cuelight")
+
+    def test_existing_history_under_the_old_name_is_kept(self):
+        path = self.path_with(tempfile.mkdtemp(), legacy=True)
+        self.assertEqual(os.path.basename(os.path.dirname(path)), "workflow")
+
+    def test_the_new_location_wins_once_it_exists(self):
+        path = self.path_with(tempfile.mkdtemp(), new=True, legacy=True)
+        self.assertEqual(os.path.basename(os.path.dirname(path)), "cuelight")

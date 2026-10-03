@@ -1,14 +1,14 @@
-# CLAUDE.md — working context for Workflow (repo: claude-orchestra)
+# CLAUDE.md — working context for Cuelight (repo: cuelight)
 
 Read `RESUME.md` first (one-page session handoff), then `PROGRESS.md` (what is done / what is next), then
 `docs/ROADMAP.md` (why).
 
 ## What this project is
 
-A Claude Code **plugin** (`/workflow:open`) that serves a local, read-only
+A Claude Code **plugin** (`/cuelight:open`) that serves a local, read-only
 dashboard of a session's subagent orchestration. Python 3.9+ **stdlib only**,
 vanilla JS front end, **no build step, no network egress**. Package name is
-`orchestra/`; plugin name is `workflow`. Architecture: `docs/ARCHITECTURE.md`.
+`orchestra/`; plugin name is `cuelight`. Architecture: `docs/ARCHITECTURE.md`.
 
 ## Current direction (decided with the owner)
 

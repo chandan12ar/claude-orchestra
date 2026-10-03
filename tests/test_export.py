@@ -117,10 +117,10 @@ class TestRenderAndFilename(unittest.TestCase):
     def test_filename_cannot_carry_path_or_header_injection(self):
         for evil in ('../../etc/passwd', 'a"b', "a\r\nSet-Cookie: x=1", "a b;c"):
             name = X.filename({"session_id": evil}, "csv")
-            self.assertRegex(name, r"^workflow-[A-Za-z0-9_-]+\.csv$")
+            self.assertRegex(name, r"^cuelight-[A-Za-z0-9_-]+\.csv$")
 
     def test_empty_session_id_still_gets_a_name(self):
-        self.assertEqual(X.filename({"session_id": ""}, "json"), "workflow-session.json")
+        self.assertEqual(X.filename({"session_id": ""}, "json"), "cuelight-session.json")
 
 
 class ServerCase(unittest.TestCase):
@@ -144,7 +144,7 @@ class TestEndpoint(ServerCase):
         resp = self.get("/api/export?format=csv")
         self.assertIn("text/csv", resp.headers["Content-Type"])
         self.assertEqual(resp.headers["Content-Disposition"],
-                         'attachment; filename="workflow-s1.csv"')
+                         'attachment; filename="cuelight-s1.csv"')
         rows = parse(resp.read().decode("utf-8"))
         self.assertEqual(len(rows), 1 + 3)                    # header + 3 agents
         self.assertEqual({r[0] for r in rows[1:]}, {"a1", "a2", "a3"})
@@ -209,7 +209,7 @@ class TestCli(unittest.TestCase):
         directory = tempfile.mkdtemp()
         code, printed = self.run_cli("--session", "s1", "--export", "csv", "--out", directory)
         self.assertEqual(code, 0)
-        self.assertEqual(printed, os.path.join(directory, "workflow-s1.csv"))
+        self.assertEqual(printed, os.path.join(directory, "cuelight-s1.csv"))
         with open(printed, encoding="utf-8", newline="") as fh:
             self.assertEqual(len(parse(fh.read())), 4)
 

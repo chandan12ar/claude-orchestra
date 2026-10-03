@@ -1,24 +1,24 @@
-# Workflow — Architecture & Feature Reference
+# Cuelight — Architecture & Feature Reference
 
-This document explains how Workflow works end to end: what problem it solves,
+This document explains how Cuelight works end to end: what problem it solves,
 how the pieces fit together, the exact formulas and heuristics it uses to turn
 raw transcript files into a dashboard, and what every feature on screen does
 and why it exists. It assumes no prior knowledge of the codebase.
 
-If you just want to *use* Workflow, see [`README.md`](../README.md). This
+If you just want to *use* Cuelight, see [`README.md`](../README.md). This
 document is for understanding — or extending — how it's built.
 
-> **A note on the demo data.** Workflow was itself built by a 22-agent Claude
+> **A note on the demo data.** Cuelight was itself built by a 22-agent Claude
 > Code orchestration, following the 16-task plan in
 > [`docs/superpowers/plans/2026-09-12-orchestra.md`](superpowers/plans/2026-09-12-orchestra.md).
 > That build's own transcript (session `73b33781`) is what most of the
 > screenshots and examples in this document — and in the dashboard's own
 > development — are drawn from. Later features were validated the same way,
-> one level further in: pointing a live Workflow server at *its own
+> one level further in: pointing a live Cuelight server at *its own
 > currently-running development session* and dispatching real subagents to
 > watch. That's exactly how the notification-parsing fix and the fork
 > self-parent fix (both in §5) were found — not in a test, but by watching
-> the dashboard lie about its own live agents in real time. Workflow
+> the dashboard lie about its own live agents in real time. Cuelight
 > watches its own construction, live.
 
 ---
@@ -38,7 +38,7 @@ record of what happened is scattered across several files:
 
 None of this is a dashboard. There's no single place that says "22 agents
 ran, here's who fed whom, here's who's stuck, here's what each one actually
-did." Workflow reads exactly these files — nothing else, no instrumentation,
+did." Cuelight reads exactly these files — nothing else, no instrumentation,
 no changes to how Claude Code runs — and reconstructs that picture.
 
 It is deliberately **read-only** and **local-only**: it never writes under
@@ -46,18 +46,18 @@ It is deliberately **read-only** and **local-only**: it never writes under
 
 ---
 
-## 2. How you run it — the `/workflow:open` slash command
+## 2. How you run it — the `/cuelight:open` slash command
 
-Workflow ships as an installable Claude Code **plugin**
+Cuelight ships as an installable Claude Code **plugin**
 (`.claude-plugin/plugin.json` + `.claude-plugin/marketplace.json`), installed
 with:
 
 ```
 /plugin marketplace add <this repo>
-/plugin install workflow
+/plugin install cuelight
 ```
 
-That makes the `/workflow:open` command (defined in
+That makes the `/cuelight:open` command (defined in
 [`commands/open.md`](../commands/open.md)) available. It's a thin
 dispatcher — the actual work is a plain Python CLI
 ([`orchestra/__main__.py`](../orchestra/__main__.py)) that the command shells
@@ -65,9 +65,9 @@ out to:
 
 | You type | The command runs | What happens |
 |---|---|---|
-| `/workflow:open` | `python -m orchestra --session $CLAUDE_CODE_SESSION_ID` | Starts the dashboard server (if not already running for this session) and opens the URL |
-| `/workflow:open stop` | `python -m orchestra --session ... --stop` | Kills the server process for this session |
-| `/workflow:open report` | `python -m orchestra --session ... --report .` | Writes one self-contained `.html` file — no server needed to view it |
+| `/cuelight:open` | `python -m orchestra --session $CLAUDE_CODE_SESSION_ID` | Starts the dashboard server (if not already running for this session) and opens the URL |
+| `/cuelight:open stop` | `python -m orchestra --session ... --stop` | Kills the server process for this session |
+| `/cuelight:open report` | `python -m orchestra --session ... --report .` | Writes one self-contained `.html` file — no server needed to view it |
 
 ### What `--session` actually does under the hood
 
@@ -93,10 +93,10 @@ out to:
 ## 3. The core idea: reconstructing orchestration from transcripts alone
 
 To read the rest of this document, it helps to know the vocabulary Claude
-Code's own transcripts use — Workflow's whole backend is built around
+Code's own transcripts use — Cuelight's whole backend is built around
 recognizing these patterns in the JSONL:
 
-| Concept | What it looks like in the transcript | What Workflow calls it |
+| Concept | What it looks like in the transcript | What Cuelight calls it |
 |---|---|---|
 | Spawning a subagent | A `tool_use` block named `Task` or `Agent` in the **parent's** transcript | a **launch** (`LaunchRecord`) |
 | A subagent finishing inline | The matching `tool_result` block, same turn | a **result** (`ResultRecord`) |
@@ -222,7 +222,7 @@ id always works regardless of which project it belongs to.
 
 ### `transcript.py` — incremental reading
 `IncrementalReader` remembers, per file, the byte offset already consumed.
-Because Claude Code appends to these files *while Workflow is reading them*,
+Because Claude Code appends to these files *while Cuelight is reading them*,
 a partially-written final line is the normal case, not an error: the reader
 finds the last `\n` in the chunk it read and only advances its offset past
 that point, leaving a torn tail for the next poll to pick up whole. A file
@@ -244,7 +244,7 @@ ISO-8601 (`...Z`) timestamps into POSIX floats — every duration and every
 x-axis position in the UI ultimately traces back to this one function.
 
 That "most likely to change" warning turned out to be exactly right: running
-Workflow against a genuinely live session surfaced a build that delivers a
+Cuelight against a genuinely live session surfaced a build that delivers a
 background agent's `<task-notification>` wrapped in a top-level
 `queue-operation` entry (`operation: "enqueue"`) or an `attachment` entry,
 neither of which has a `message` field at all. `_notification_text` now
@@ -427,7 +427,7 @@ instead.
 
 ### `__main__.py` — the CLI
 `start` / `stop` / `report` / the hidden `--serve` (what the detached child
-process actually runs). Covered in [§2](#2-how-you-run-it--the-workflowopen-slash-command).
+process actually runs). Covered in [§2](#2-how-you-run-it--the-cuelightopen-slash-command).
 
 ---
 
@@ -696,7 +696,7 @@ automatic 2-second poll — useful when you want to freeze the view to read
 something without it re-rendering under you.
 
 ### Static HTML report
-`/workflow:open report` produces the same UI as a single file with everything
+`/cuelight:open report` produces the same UI as a single file with everything
 baked in — safe to email or attach to a PR, no server, no network call,
 works from a `file://` URL in a real browser. (The one thing it can't do is
 show *live* activity, since there's no running server to poll — the Activity
@@ -722,7 +722,7 @@ tab correctly shows its empty state rather than pretending to be live.)
   asset ships in the package (enforced by `tests/test_static_assets.py`,
   which greps for external `src`/`href`/`fetch` and fails the build if it
   finds one).
-- **Never touches `~/.claude`.** Workflow only *reads* transcripts; nothing
+- **Never touches `~/.claude`.** Cuelight only *reads* transcripts; nothing
   it does writes back into Claude Code's own state.
 - **Redacted at the one chokepoint** — see [`redact.py`](#redactpy--the-one-chokepoint-everything-passes-through)
   above.
@@ -762,7 +762,7 @@ The original design reads transcripts only. Everything below adds a second,
 product above.
 
 ### Live events (`events.py`, `hook.py`, `hooks/hooks.json`, `statedir.py`)
-A plugin can ship hooks, so Workflow registers small **async** command hooks for
+A plugin can ship hooks, so Cuelight registers small **async** command hooks for
 seven events (session start/end, subagent start/stop, notification, API failure,
 turn end) — deliberately *not* per-tool events, which are already in the
 transcripts and would cost a process spawn per call. `hook.py` normalizes the
@@ -902,7 +902,7 @@ orchestra/
     agent-sprite.png  Work Floor's character sheet (MIT-licensed, from
                       ntd4996/agentpet — see §7's "Work Floor" entry)
 commands/
-  open.md           the /workflow:open slash command definition
+  open.md           the /cuelight:open slash command definition
 hooks/
   hooks.json        the async live-event hooks the plugin ships
 .claude-plugin/

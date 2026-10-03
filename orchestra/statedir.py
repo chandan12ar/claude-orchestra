@@ -1,4 +1,4 @@
-"""Where Workflow keeps its own runtime files (port files, logs, the event spool).
+"""Where Cuelight keeps its own runtime files (port files, logs, the event spool).
 
 Never under ~/.claude. Per-user, created 0700, and refused if it already exists
 but belongs to someone else: the system temp directory is world-writable, so a
