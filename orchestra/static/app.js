@@ -75,6 +75,8 @@ const state = {
   // silently, only later deltas earn the one-shot activity pulse.
   floorActivity: {},
   floorSeeded: false,
+  floorGroup: "type",     // "type" (by role) or "status" (who needs a look first)
+  floorSig: "",           // what the floor last drew; an unchanged floor is not rebuilt
   // agent_id -> its last-seen status and a celebrate-until timestamp (ms),
   // so a live transition into "completed" gets a one-shot jump burst
   // instead of every render re-triggering it.
@@ -736,29 +738,80 @@ function humanizeAgentType(agentType) {
   return last.replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+// Who needs a look first. Used to sort a group and to order the "by status" floor.
+const FLOOR_STATUS_ORDER = ["failed", "stalled", "waiting", "orphaned", "running", "completed", "unknown"];
+const FLOOR_STATUS_LABEL = { failed: "Failed", stalled: "Stalled", waiting: "Waiting on you", orphaned: "Orphaned",
+  running: "Running", completed: "Completed", unknown: "Unknown" };
+
+function floorRank(agent) {
+  const at = FLOOR_STATUS_ORDER.indexOf(agent.status);
+  return at < 0 ? FLOOR_STATUS_ORDER.length : at;
+}
+
+// What a tool call acted on, short enough for a card: a file by its name, anything
+// else (a command, a query, a URL) as written.
+function toolTargetLabel(tool) {
+  if (!tool || !tool.target) return "";
+  return ["Read", "Write", "Edit", "NotebookEdit", "NotebookRead"].indexOf(tool.name) >= 0
+    ? baseName(tool.target) : tool.target;
+}
+
+// The same comb the timeline draws, as a sparkline: where the agent was busy.
+function sparkHtml(bins) {
+  if (!bins || !bins.length) return "";
+  const peak = Math.max.apply(null, bins);
+  return '<span class="spark" aria-hidden="true">' + bins.map((b) =>
+    '<i' + (b ? "" : ' class="z"') + ' style="height:' + (b ? Math.max(22, Math.round((b / peak) * 100)) : 8) + '%"></i>').join("") +
+    "</span>";
+}
+
+function floorSignature(run, celebrating) {
+  return JSON.stringify([state.floorGroup, state.filterText, Array.from(state.filterStatuses),
+    state.offline, celebrating,
+    run.agents.map((a) => [a.agent_id, a.status, a.tool_call_count, agentTokenTotal(a.tokens), a.ended_at,
+      a.last_tool ? a.last_tool.name + a.last_tool.target : "", (a.activity || []).join(","),
+      agentMatchesFilter(a)])]);
+}
+
 function renderWorkfloor(run) {
   const box = $("workfloor");
   if (!box) return;
-  stopAgentSprites();
   if (!run.agents.length) {
+    stopAgentSprites();
     box.innerHTML = '<div class="ticker-empty">No agents in this session yet.</div>';
+    state.floorSig = "";
     return;
   }
+  // Nothing visible changed since the last render: leave the DOM and the running
+  // sprites alone. (Rebuilding every few seconds restarted every animation.)
+  const celebrating = Object.keys(state.agentCelebrateUntil)
+    .filter((id) => state.agentCelebrateUntil[id] > Date.now()).sort();
+  const signature = floorSignature(run, celebrating);
+  if (signature === state.floorSig && box.innerHTML) return;
+  state.floorSig = signature;
+  stopAgentSprites();
+
   const now = Date.now() / 1000;
   const seeded = state.floorSeeded;
   const nextActivity = {};
   const spriteStates = {}; // agent_id -> {row, fps}, resolved here so the DOM pass below just wires canvases
 
-  // Group by role (agent_type), each group its own floor section, sorted by
-  // label — "Ungrouped" (inline launches with no declared type) always last,
-  // since it's a catch-all rather than a real role.
+  // Group by role (agent_type) or by status. Roles sort by label, "Ungrouped" (inline
+  // launches with no declared type) last since it is a catch-all; statuses sort by
+  // who needs a look first. Inside a group the agents that need attention come first.
+  const byStatus = state.floorGroup === "status";
   const groups = new Map(); // label -> agents[]
   for (const agent of run.agents) {
-    const label = humanizeAgentType(agent.agent_type);
+    const label = byStatus ? (FLOOR_STATUS_LABEL[agent.status] || "Unknown") : humanizeAgentType(agent.agent_type);
     if (!groups.has(label)) groups.set(label, []);
     groups.get(label).push(agent);
   }
+  for (const list of groups.values()) {
+    list.sort((a, b) => (floorRank(a) - floorRank(b)) || ((a.started_at || 0) - (b.started_at || 0)));
+  }
+  const statusLabels = FLOOR_STATUS_ORDER.map((s) => FLOOR_STATUS_LABEL[s]);
   const groupLabels = Array.from(groups.keys()).sort((a, b) => {
+    if (byStatus) return statusLabels.indexOf(a) - statusLabels.indexOf(b);
     if (a === "Ungrouped") return 1;
     if (b === "Ungrouped") return -1;
     return a.localeCompare(b);
@@ -784,8 +837,8 @@ function renderWorkfloor(run) {
       state.agentCelebrateUntil[id] = Date.now() + AGENT_CELEBRATE_MS;
     }
     state.agentPrevStatus[id] = status;
-    const celebrating = (state.agentCelebrateUntil[id] || 0) > Date.now();
-    spriteStates[id] = celebrating ? AGENT_CELEBRATE_STATE : (AGENT_SPRITE_STATE[status] || AGENT_SPRITE_STATE.unknown);
+    const celebrate = (state.agentCelebrateUntil[id] || 0) > Date.now();
+    spriteStates[id] = celebrate ? AGENT_CELEBRATE_STATE : (AGENT_SPRITE_STATE[status] || AGENT_SPRITE_STATE.unknown);
 
     // Same "open round" test Timeline uses for its dashed bar-open bars:
     // stalled and orphaned agents have gone quiet, but their round never
@@ -798,12 +851,14 @@ function renderWorkfloor(run) {
     const asOf = state.offline ? (agent.last_activity_at || agent.started_at) : now;
     const label = agent.description || agent.agent_id;
     const clockText = live ? fmtDuration(asOf - agent.started_at) : fmtDuration(agent.duration_s);
+    const tool = agent.last_tool;
+    const doing = tool ? tool.name + " " + toolTargetLabel(tool) : "";
     const ariaLabel = label + ", " + status + ", " + fmtTokens(agent.tokens) + " tokens, " +
-      (live ? clockText + " so far" : clockText + " total");
+      (live ? clockText + " so far" : clockText + " total") + (doing ? ", last " + doing : "");
     const quiet = status === "orphaned" || status === "unknown";
 
     return '<div class="agent-card' + (agentMatchesFilter(agent) ? "" : " agent-dim") +
-      (quiet ? " agent-quiet" : "") + '" data-agent="' + esc(id) + '"' +
+      (quiet ? " agent-quiet" : "") + '" data-agent="' + esc(id) + '" data-status="' + esc(status) + '"' +
       (live && !state.offline ? ' data-live="1" data-started="' + agent.started_at + '"' : "") +
       ' role="group" tabindex="0" aria-label="' + esc(ariaLabel) + '">' +
       '<div class="agent-stage' + (pulse ? " pulse" : "") + '">' +
@@ -811,10 +866,13 @@ function renderWorkfloor(run) {
       '</div>' +
       '<div class="agent-name" title="' + esc(label) + '">' + esc(label) + '</div>' +
       '<div class="agent-meta">' + esc(agent.agent_type + " · " + fmtModelShort(agent.model)) + '</div>' +
-      '<div class="agent-status s-' + status + '">' + esc(status) + '</div>' +
-      '<div class="agent-clock">' + esc(clockText) + '</div>' +
+      '<div class="agent-line"><span class="agent-status s-' + esc(status) + '">' + esc(status) + '</span>' +
+        '<span class="agent-clock">' + esc(clockText) + '</span></div>' +
+      '<div class="agent-now" title="' + esc(doing) + '">' + (tool
+        ? '<b>' + esc(tool.name) + '</b> ' + esc(toolTargetLabel(tool)) : '<span class="agent-idle">no tool calls yet</span>') + '</div>' +
+      sparkHtml(agent.activity) +
       '<div class="agent-tokens" title="' + esc(fmtTokenMix(agent.tokens)) + '">' +
-        esc(fmtTokens(agent.tokens)) + ' tok</div>' +
+        esc(fmtTokens(agent.tokens)) + ' tok · ' + toolCount + (toolCount === 1 ? ' call' : ' calls') + '</div>' +
     '</div>';
   }
 
@@ -1278,7 +1336,10 @@ function setView(view) {
   if (VIEWS.indexOf(view) < 0) view = "timeline";
   // Leaving Work Floor: stop every mounted sprite's rAF loop rather than let
   // it keep animating an off-screen, hidden canvas indefinitely.
-  if (state.view === "workfloor" && view !== "workfloor") stopAgentSprites();
+  if (state.view === "workfloor" && view !== "workfloor") {
+    stopAgentSprites();
+    state.floorSig = "";     // the sprites are stopped, so the floor must be rebuilt on return
+  }
   state.view = view;
   for (const name of VIEWS) {
     const section = $("view-" + name);
@@ -1648,7 +1709,7 @@ function agentAt(agent, t) {
     // drawn to. A finished one keeps its own last activity.
     last_activity_at: open ? t : Math.min(agent.last_activity_at || ended, t),
     tokens: {}, cost: null, loop: null, tool_call_count: 0, files_written_count: 0,
-    activity: [],
+    activity: [], last_tool: null,
   });
 }
 
@@ -2716,6 +2777,7 @@ function toast(message) {
 
 function init() {
   applyTheme(themeMode());
+  setupFloorGroup();
   setupPalette();
   setupGraphInteractions();
   const themeBtn = $("theme-toggle");
@@ -3330,6 +3392,22 @@ function fitGraph() {
 
 // Pan and zoom: drag the background, Ctrl/Cmd+wheel (or pinch) to zoom, +/-/0 and the
 // arrow keys when the graph has focus, or the buttons. Plain wheel still scrolls the page.
+function setupFloorGroup() {
+  const select = $("floor-group");
+  if (!select) return;
+  try {
+    const stored = localStorage.getItem("orchestra-floor-group");
+    if (stored === "type" || stored === "status") state.floorGroup = stored;
+  } catch (err) { /* blocked storage: use the default */ }
+  select.value = state.floorGroup;
+  select.onchange = () => {
+    state.floorGroup = select.value === "status" ? "status" : "type";
+    try { localStorage.setItem("orchestra-floor-group", state.floorGroup); } catch (err) { /* ignore */ }
+    state.floorSig = "";
+    if (state.run) renderWorkfloor(state.run);
+  };
+}
+
 function setupGraphInteractions() {
   const svg = $("graph");
   if (!svg || !svg.addEventListener) return;

@@ -66,14 +66,17 @@ cells a spreadsheet would execute as formulas are neutralised.
   message); dashed edges are inferred from text reuse and carry the snippet
   that produced them, so you can judge them yourself. The longest
   duration-weighted chain — the actual bottleneck, not just the longest hop
-  count — is highlighted, and a newly-detected handoff flashes a dot
+  count — is highlighted. Drag to pan, Ctrl/Cmd+wheel or the buttons to zoom,
+  `0` to fit; hover an agent to fade everything unrelated to it. A newly-detected handoff flashes a dot
   traveling the edge the moment it happens.
 - **Activity** — a merged, live, newest-first feed of tool calls across every
   running agent, click-through to the agent it came from.
 - **Work Floor** — every agent as a small pixel-art sprite, animated by its
   status (idle, running, waving on completion, a one-shot jump burst the
   moment it finishes), tinted a stable per-agent hue so a busy floor still
-  reads as distinct agents at a glance.
+  reads as distinct agents at a glance. Each card also shows what the agent is
+  doing right now (its last tool call) and where it has been busy; group the
+  floor by role or by status, with the agents that need a look first.
 - **Drawer** — each agent's brief, its extracted objective and expected
   output, its returned result, its exact model version, a cache-hit
   breakdown, a tool-mix fingerprint (Read/Edit/Bash/Task at a glance), every

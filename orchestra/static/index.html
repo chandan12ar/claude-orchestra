@@ -131,6 +131,10 @@ try { var t = localStorage.getItem("orchestra-theme");
     <div id="history" class="history"></div>
   </section>
   <section id="view-workfloor" class="view" hidden>
+    <div class="floor-bar">
+      <label for="floor-group">Group by</label>
+      <select id="floor-group"><option value="type">Role</option><option value="status">Status</option></select>
+    </div>
     <div id="workfloor" class="workfloor"></div>
   </section>
 </main>

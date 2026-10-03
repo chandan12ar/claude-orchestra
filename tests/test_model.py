@@ -144,3 +144,24 @@ class TestActivityBins(unittest.TestCase):
         bins = a.to_light_dict()["activity"]
         self.assertEqual(sum(bins), 1)
         self.assertEqual(bins.index(1), len(bins) // 2)
+
+
+class TestLastTool(unittest.TestCase):
+    def light(self, calls):
+        from orchestra.model import Agent, Round, ToolCall
+        a = Agent(agent_id="a", rounds=[Round(started_at=0.0, ended_at=1.0)])
+        a.tool_calls = [ToolCall(n, t, i) for i, (n, t) in enumerate(calls)]
+        return a.to_light_dict()["last_tool"]
+
+    def test_is_the_most_recent_call(self):
+        self.assertEqual(self.light([("Read", "/a"), ("Edit", "/b/c.ts")]),
+                         {"name": "Edit", "target": "/b/c.ts"})
+
+    def test_none_when_the_agent_has_made_no_calls(self):
+        self.assertIsNone(self.light([]))
+
+    def test_target_is_scrubbed_and_capped(self):
+        out = self.light([("Bash", "curl -H sk-ant-api03-" + "Q" * 40)])
+        self.assertNotIn("Q" * 20, out["target"])
+        long = self.light([("Bash", "x" * 500)])
+        self.assertLessEqual(len(long["target"]), 81)       # the cap plus an ellipsis

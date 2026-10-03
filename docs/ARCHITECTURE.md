@@ -835,6 +835,18 @@ pure functions in `app.js`, tested under node.
   prompt after each tick. Nothing is written outside the temp directory, which is
   removed on exit.
 
+### Graph and Work Floor
+- **Graph layout** (`layoutGraph`) is a pure function split into `graphRankColumns`
+  (longest path over exact edges; columns indexed, never raw rank), `graphOrderColumns`
+  (alternating down/up barycentre sweeps on per-column normalised positions, best
+  crossing count kept), `graphPlaceRows` (exact isotonic regression by pooling adjacent
+  violators: each node level with its neighbours, no overlap, order kept) and
+  `graphCriticalPath`. The orchestrator's spawn edge to an agent is hidden whenever that
+  agent has another incoming exact edge. Pan/zoom is a transform on one viewport group.
+- **Work Floor** cards show `last_tool` and the `activity` bins from the light payload.
+  The floor records a signature of everything it draws and skips the rebuild when it is
+  unchanged, so running sprites are not restarted every poll.
+
 ### Front-end design system
 One stylesheet of tokens (`style.css`): a monochrome interface where **status is the
 only chroma**, designed for light and dark together (`data-theme` or the system

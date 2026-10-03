@@ -170,11 +170,13 @@ users ask for on HN), then built the gaps. Every item has tests; the suite is at
 | Contrast guard (`tests/test_contrast.py`), empty/loading states, tab arrow keys | done |
 | README + screenshots, CHANGELOG `[Unreleased]`, ARCHITECTURE section | done |
 
+Also done later the same day: a layered, interactive Graph (tested layout functions,
+pan/zoom/fit, hover focus) and a richer Work Floor (last tool call, sparkline, group by
+role/status, no needless rebuilds).
+
 Not done / ideas worth a later pass (none are blocked):
-- Graph view still uses the old layout algorithm; only restyled (orchestrator edges
-  are faded). A cleaner layered layout would help runs with 30+ agents.
 - Activity tab has no text filter of its own (the palette searches tool calls).
-- Work Floor sprites are unchanged.
+- Graph edges that skip columns still cross intermediate nodes (long-edge routing).
 - `plugin.json` still says 0.2.0: bump to 0.3.0 when this merges.
 - CI could not run on GitHub at the time of writing (account billing); local runs are
   green. Re-run `gh run rerun` once billing is fixed.

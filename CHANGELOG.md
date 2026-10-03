@@ -29,6 +29,15 @@ versions follow [SemVer](https://semver.org/) (the `version` in
   paint. Deep links now carry the view (`#view=insights&agent=<id>`).
 - Empty and loading states, and a visible "can't reach the dashboard" message.
 
+- Graph: a layered layout (ranks by exact edges, up/down ordering sweeps that keep the
+  best crossing count, exact vertical alignment with neighbours), pan and zoom (drag,
+  Ctrl/Cmd+wheel, buttons, `+`/`-`/`0`), hover focus that fades unrelated agents, a
+  duration on every card, and the orchestrator's launch fan drawn only where it is the
+  explanation (hover the orchestrator for the rest).
+- Work Floor: each card shows what the agent is doing right now (its last tool call)
+  and an activity sparkline; group by role or by status, attention first; the floor is
+  no longer rebuilt (restarting every sprite) when nothing visible changed.
+
 ### Changed
 - A new design system: a monochrome interface where status is the only colour, a
   transport-style header (live clock, stat strip, budget meter), alerts as status

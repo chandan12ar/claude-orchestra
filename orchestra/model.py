@@ -11,6 +11,7 @@ LIGHT_TEXT_CAP = 200
 # The timeline draws a comb of ticks along each bar: tool calls per slice of the
 # agent's life. Fixed width, so the payload stays small however long an agent runs.
 ACTIVITY_BINS = 28
+LAST_TOOL_CAP = 80
 
 
 def _cap(text: Optional[str], limit: int = LIGHT_TEXT_CAP) -> str:
@@ -107,6 +108,13 @@ class Agent:
             bins[min(ACTIVITY_BINS - 1, int((at - start) / span * ACTIVITY_BINS))] += 1
         return bins if any(bins) else []
 
+    def _last_tool(self) -> Optional[Dict[str, str]]:
+        """What the agent did most recently: the Work Floor's "doing now" line."""
+        if not self.tool_calls:
+            return None
+        call = self.tool_calls[-1]
+        return {"name": call.name, "target": _cap(scrub(call.target), LAST_TOOL_CAP)}
+
     def _loop_dict(self) -> Optional[Dict[str, Any]]:
         if not self.loop:
             return None
@@ -139,6 +147,7 @@ class Agent:
             "files_written_count": len(self.files_written),
             "tool_call_count": len(self.tool_calls),
             "activity": self._activity(),
+            "last_tool": self._last_tool(),
         }
 
     def to_detail_dict(self) -> Dict[str, Any]:

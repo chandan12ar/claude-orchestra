@@ -452,24 +452,46 @@ main { padding: 16px 20px 32px; max-width: 1760px; margin: 0 auto; outline: none
 .floor-group-header { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
 .floor-group-header h3 { margin: 0; font-size: 13px; font-weight: 650; }
 .floor-group-meta { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
-.floor-group-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(156px, 1fr)); gap: 12px; }
-.agent-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 14px 10px 12px;
-  cursor: pointer; box-shadow: var(--shadow-1);
+.floor-group-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(184px, 1fr)); gap: 14px; }
+.floor-bar { display: flex; align-items: center; gap: 8px; margin: 0 2px 14px; color: var(--muted); font-size: 13px; }
+.floor-bar select { height: 30px; }
+.agent-card { background: var(--panel); border: 1px solid var(--line); border-top: 3px solid var(--line-strong);
+  border-radius: var(--r-lg); padding: 13px 12px 11px; cursor: pointer; box-shadow: var(--shadow-1);
   transition: border-color 120ms var(--ease), opacity 150ms ease, transform 100ms ease, box-shadow 150ms ease; }
+.agent-card[data-status="running"] { border-top-color: var(--running); }
+.agent-card[data-status="completed"] { border-top-color: var(--completed); }
+.agent-card[data-status="failed"] { border-top-color: var(--failed); }
+.agent-card[data-status="stalled"] { border-top-color: var(--stalled); }
+.agent-card[data-status="waiting"] { border-top-color: var(--waiting); }
+.agent-card[data-status="orphaned"] { border-top-color: var(--orphaned); }
 .agent-card:hover { border-color: var(--line-strong); box-shadow: var(--shadow-2); transform: translateY(-1px); }
 .agent-card:active { transform: scale(0.98); }
 .agent-card.agent-dim { opacity: 0.28; }
-.agent-stage { position: relative; display: flex; justify-content: center; align-items: flex-end; height: 68px; margin-bottom: 4px;
+.agent-stage { position: relative; display: flex; justify-content: center; align-items: flex-end; height: 68px; margin-bottom: 6px;
   border-radius: 8px; transition: box-shadow 250ms ease-out; }
 .agent-canvas { width: 60px; height: 68px; image-rendering: pixelated; display: block; }
 @keyframes agent-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
 .agent-canvas.bob { animation: agent-bob 2.4s ease-in-out infinite; }
 @keyframes agent-pulse-glow { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ink) 40%, transparent); } 100% { box-shadow: 0 0 0 10px transparent; } }
 .agent-stage.pulse { animation: agent-pulse-glow 700ms ease-out 1; }
-.agent-name { font-size: 12.5px; font-weight: 600; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.agent-meta { font-size: 10.5px; color: var(--muted); text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 1px; }
-.agent-status { font-size: 11px; text-align: center; margin-top: 6px; font-weight: 650; text-transform: capitalize; }
-.agent-clock, .agent-tokens { font-size: 11px; color: var(--muted); text-align: center; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.agent-name { font-size: 13px; font-weight: 600; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-meta { font-size: 11px; color: var(--muted); text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 1px; }
+.agent-line { display: flex; align-items: baseline; justify-content: center; gap: 8px; margin-top: 8px; }
+.agent-status { font-size: 11.5px; font-weight: 650; text-transform: capitalize; }
+.agent-clock { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* What it is doing right now, in the agent's own terms. */
+.agent-now { margin-top: 8px; padding: 5px 8px; background: var(--panel-2); border-radius: var(--r-sm); font: 11px/1.35 var(--mono);
+  color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.agent-now b { color: var(--ink); font-weight: 650; }
+.agent-idle { color: var(--faint); }
+.spark { display: flex; align-items: flex-end; gap: 1px; height: 16px; margin-top: 8px; }
+.spark i { flex: 1 1 0; min-width: 1px; background: var(--ink-2); border-radius: 1px; opacity: 0.8; }
+.spark i.z { background: var(--line-strong); opacity: 1; }
+.agent-card[data-status="running"] .spark i:not(.z) { background: var(--running); }
+.agent-card[data-status="completed"] .spark i:not(.z) { background: var(--completed); }
+.agent-card[data-status="failed"] .spark i:not(.z) { background: var(--failed); }
+.agent-card[data-status="stalled"] .spark i:not(.z) { background: var(--stalled); }
+.agent-tokens { font-size: 11px; color: var(--muted); text-align: center; font-variant-numeric: tabular-nums; margin-top: 7px; }
 .agent-card.agent-quiet .agent-canvas { opacity: 0.55; }
 
 /* ----------------------------------------------------------------------- fleet */
