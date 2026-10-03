@@ -40,7 +40,9 @@ not a captured payload. If wrong, the headline "waiting on permission" feature s
 install plugin -> trigger a permission prompt -> read `<state dir>/events/<session>.jsonl`.
 (State dir: `ORCHESTRA_STATE_DIR`, else `<tmp>/orchestra-<uid>`.)
 
-Also unconfirmed: whether plugin hooks reach already-running sessions or only after reload.
+Update 2026-10-03: the field names were cross-checked against the official hooks docs and all
+match (docs only, still no captured payload). The docs also say plugin hooks do not reach
+already-running sessions (need a new session, `/reload-plugins` or restart); not tested by us.
 CI run 23 (`1960490`) finished **green** (full test matrix on 3 OS x 3 Pythons + plugin validation).
 
 ## 5. Incidents (honest log)

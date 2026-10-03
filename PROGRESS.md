@@ -38,7 +38,14 @@ plugin rename.
 
 ## Open items (nothing is blocked; ordered by importance)
 
-1. **Verify hook payload field names against a LIVE Claude Code session.** This is
+1. **Verify hook payload field names against a LIVE Claude Code session.**
+   *Update (2026-10-03): cross-checked against the official hooks reference
+   (code.claude.com/docs/en/hooks) via a docs lookup — every field name and the
+   `notification_type` values we map (`permission_prompt`, `idle_prompt`,
+   `agent_needs_input`, `elicitation_dialog`, `elicitation_url_dialog`) match, as do
+   `StopFailure` `error_type`/`error_message`, `SessionEnd` `reason` and
+   `last_assistant_message` on Stop/SubagentStop. This is documentation, still NOT a
+   captured payload, so a live capture remains worth doing.* This is
    the single biggest unverified assumption: ground-truth states (waiting on
    permission, API error type, session end reason) read `notification_type`,
    `message`, `error_type`, `error_message`, `reason`, `last_assistant_message`
@@ -48,7 +55,8 @@ plugin rename.
    How: install the plugin in a real session, trigger a permission prompt, read
    `<state dir>/events/<session>.jsonl`. Needs a human at a real Claude Code.
 2. **Confirm plugin hooks reach already-running sessions** or only after reload
-   (affects onboarding wording).
+   (affects onboarding wording). Docs (per the same lookup, not tested by us) say
+   they do NOT: a new/resumed session, `/reload-plugins` or a restart is needed.
 3. **Merge to the default branch / release.** Not done: `feature/live-events`
    is unmerged, and `.claude-plugin/plugin.json` is still `0.1.0` (the `version`
    pins installed users). Suggest 0.2.0 at merge; CHANGELOG `[Unreleased]` is ready.
