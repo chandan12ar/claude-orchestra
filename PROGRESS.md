@@ -177,6 +177,6 @@ role/status, no needless rebuilds).
 Not done / ideas worth a later pass (none are blocked):
 - Activity tab has no text filter of its own (the palette searches tool calls).
 - Graph edges that skip columns still cross intermediate nodes (long-edge routing).
-- `plugin.json` still says 0.2.0: bump to 0.3.0 when this merges.
-- CI could not run on GitHub at the time of writing (account billing); local runs are
-  green. Re-run `gh run rerun` once billing is fixed.
+- `plugin.json` is 0.3.0 (bumped at merge).
+- CI could not run on GitHub at first (account billing). After the repo went public it
+  ran: all 10 jobs green on Linux, macOS and Windows (Python 3.9, 3.12, 3.13).

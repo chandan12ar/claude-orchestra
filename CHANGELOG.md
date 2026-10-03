@@ -6,6 +6,8 @@ versions follow [SemVer](https://semver.org/) (the `version` in
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-03
+
 ### Added
 - Insights tab: parallelism over time, the critical path (the exact-evidence chain
   of agents that set the run's length, overlap counted once), tool use, prompt-cache
