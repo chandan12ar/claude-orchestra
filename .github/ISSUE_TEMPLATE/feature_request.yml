@@ -1,0 +1,17 @@
+name: Idea or feature request
+description: Something Cuelight could show or do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: What are you trying to find out or do?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help?
+  - type: markdown
+    attributes:
+      value: "Cuelight observes only. Requests to approve or deny from the dashboard are out of scope for this plugin."

@@ -6,7 +6,7 @@ State (2026-10-03): PR #1 (live events, 0.2.0) and PR #2 (Insights, palette, des
 graph, work floor, `--demo`; 0.3.0) are merged; CI is green on main (Linux/macOS/Windows x
 Python 3.9/3.12/3.13 + plugin validation); **766 local tests pass**. Proof of the last run
 (test list + 18 screenshots) is in `docs/evidence/`.
-Details: `PROGRESS.md` (status + open items), `CLAUDE.md` (rules + lessons), `docs/ROADMAP.md`
+Details: `PROGRESS.md` (status + open items), `.claude/CLAUDE.md` (rules + lessons), `docs/ROADMAP.md`
 (why), `docs/ARCHITECTURE.md` (how it works; §10 live layer, then insights/search/demo and
 the design system).
 

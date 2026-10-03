@@ -1,0 +1,59 @@
+# Privacy policy
+
+Cuelight is a Claude Code plugin that runs **entirely on your computer**. This page says exactly what
+it reads, what it writes, and what leaves your machine (nothing).
+
+*Last updated: 2026-10-03, for version 0.4.1.*
+
+## Short version
+
+- **Nothing is sent anywhere.** Cuelight makes no outside network connections, has no analytics or
+  telemetry, and has no account or sign-in. The author does not receive any data from your use of it.
+- **It only watches.** It reads files Claude Code already writes and cannot approve, deny or change anything.
+- **Secrets are redacted** before anything is shown in the dashboard.
+
+## What it reads
+
+| What | Where | Why |
+|---|---|---|
+| Claude Code session transcripts | `~/.claude/projects/...` | To rebuild the run: which agents ran, what each was asked, what each produced |
+| Hook events written by its own hooks | `<state dir>/events/<session>.jsonl` | To know when a session is waiting for your permission or input |
+| An optional price file you supply | the path in `ORCHESTRA_PRICES`, else Cuelight's per-user config folder | To show an estimated cost. It is never fetched from the internet |
+
+Transcripts can contain anything you and Claude discussed, including personal or confidential text.
+Cuelight reads them **locally** and shows them to **you** in a browser tab on the same computer. It does
+not copy them anywhere else.
+
+## What it writes
+
+| What | Where | Kept for |
+|---|---|---|
+| One line per hook event: the event name, session and agent ids, working directory and a short **redacted** message. Never tool inputs, prompts or file contents | `<state dir>/events/` | 7 days, then deleted |
+| The dashboard's port and access token | `<state dir>` (mode `0600`) | Until the dashboard stops |
+| Optional run history (**off by default**; you turn it on with `ORCHESTRA_HISTORY=on`). **Metrics only**: counts, durations, tokens, cost and the project folder, with no prompts, task text, results or file paths | a small local SQLite file in Cuelight's per-user data folder | 90 days (adjustable), then pruned |
+| A static HTML report, **only when you ask** (`/cuelight:open report`) | the path you choose | Until you delete it |
+
+`<state dir>` is `ORCHESTRA_STATE_DIR` if set, otherwise a per-user folder (mode `0700`) in the system temp
+directory. Cuelight **never writes under `~/.claude`**.
+
+You can turn hook recording off completely by setting `ORCHESTRA_EVENTS=off` in the environment Claude Code
+runs in. The dashboard then works from transcripts alone.
+
+## What leaves your computer
+
+**Nothing.** The dashboard server listens on `127.0.0.1` only (not reachable from other devices), requires a
+random access token, and checks the `Host` and `Origin` of every request. The page loads no fonts, scripts or
+images from the internet, and an automated test fails the build if any external reference is added.
+
+Using Claude Code itself sends your prompts to Anthropic as it always does. That traffic belongs to Claude Code
+and is governed by Anthropic's terms and privacy policy; Cuelight does not add to it or change it.
+
+## Children
+
+Cuelight is a developer tool and is not directed at anyone under 18.
+
+## Changes and contact
+
+If this policy changes, the date above changes and the change is listed in [CHANGELOG.md](CHANGELOG.md).
+Questions: open an issue at <https://github.com/chandan12ar/cuelight/issues>. To report a security problem
+privately, see [SECURITY.md](SECURITY.md).

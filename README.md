@@ -195,7 +195,8 @@ it. A database problem never breaks the dashboard.
 
 ## Privacy
 
-Cuelight is local, and does not control Claude Code: it only observes.
+Cuelight is local, and does not control Claude Code: it only observes. The full policy is in
+[PRIVACY.md](PRIVACY.md).
 
 - The server binds `127.0.0.1` only, and every API call requires a token minted
   at launch.
@@ -235,6 +236,20 @@ ignored in favour of the default.
 | `ORCHESTRA_STATE_DIR` | per-user dir in the OS temp dir | Where port files, logs and the event spool live |
 | `ORCHESTRA_EVENTS` | on | `off` stops the hooks recording anything |
 
+## What Cuelight runs and touches
+
+Everything it does, in one place (the full policy is in [PRIVACY.md](PRIVACY.md), the threat model in
+[SECURITY.md](SECURITY.md)):
+
+| | |
+|---|---|
+| **Programs it runs** | `python -m orchestra` (the dashboard, started only when you run `/cuelight:open`) and `orchestra/hook.py` (one short-lived process per Claude Code event, installed by `hooks/hooks.json`). Both are plain Python from this repository; nothing is downloaded or installed. |
+| **Files it reads** | Claude Code transcripts under `~/.claude/projects`, its own hook spool, and an optional price file you provide |
+| **Files it writes** | The hook spool and a port/token file in a per-user state folder (deleted after 7 days or when the dashboard stops), an optional metrics-only history file (off by default), and an HTML report only when you ask for one. Never anything under `~/.claude` |
+| **Network** | None. The server listens on `127.0.0.1` only and nothing is fetched or sent. Using Claude Code itself is unchanged |
+| **Permissions it needs** | None beyond running the two programs above. It is read-only and cannot approve, deny or change anything in Claude Code |
+| **Works in** | Claude Code (terminal, IDE extensions and the desktop Code tab). It needs a local Python 3.9+ and does not run on claude.ai chat or Cowork |
+
 ## Development
 
 ```bash
@@ -244,6 +259,9 @@ python -m unittest discover -s tests -t . -v
 Standard library only, tests included.
 
 ## How it works
+
+For the whole flow on one page see [`docs/WORKFLOW.md`](docs/WORKFLOW.md). To contribute, see
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 For the full architecture — how transcripts are turned into a dashboard, the
 exact formulas behind the status states and the graph's edges, and what every

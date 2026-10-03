@@ -1,7 +1,7 @@
 # PROGRESS
 
 Branch: `feature/live-events`. Rules: test -> commit -> push after every
-feature; on failure record it here and stop. See `CLAUDE.md`.
+feature; on failure record it here and stop. See `.claude/CLAUDE.md`.
 
 ## Status
 
@@ -103,7 +103,8 @@ a command file with no frontmatter; it does NOT catch invalid YAML inside comman
 frontmatter. My commit message for e4f4812 over-claimed that it validated
 `commands/`; this entry is the correction. Also: the validator warns that the
 project CLAUDE.md at the plugin root "is not loaded as context" - informational,
-and the reason the step is not `--strict`.
+and the reason the step was not `--strict`. Resolved: the project file moved to `.claude/CLAUDE.md`
+and both validate steps now run `--strict`.
 
 ### CI incident: red from bc5121c (sounds) through b6351fc (loops)
 
