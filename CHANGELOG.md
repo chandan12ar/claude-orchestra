@@ -6,6 +6,14 @@ versions follow [SemVer](https://semver.org/) (the `version` in
 
 ## [Unreleased]
 
+### Changed
+- The always-on-top pill has a new look: a small cue-light mascot whose face and motion show the
+  state (asleep when quiet, bobbing with an orbiting ring when agents run, hopping with ripples when
+  something needs you, shaking on an error), a count badge when several sessions wait, and a
+  segmented bar for the agents. It is drawn in the window itself (no images, no network), follows
+  the light/dark setting and stops moving when reduced motion is requested. The window is now built
+  once and updated in place, so the animation no longer restarts on every poll.
+
 ### Fixed
 - The marketplace entry still showed the old description; the README install line now names
   the marketplace (`/plugin install cuelight@cuelight-marketplace`).
