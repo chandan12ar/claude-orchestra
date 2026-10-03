@@ -11,7 +11,7 @@ import time
 from typing import Callable, Dict, List, Optional
 
 from orchestra import constants as C
-from orchestra.agentlog import AgentDigest, TokenTally
+from orchestra.agentlog import ActivityTimes, AgentDigest, TokenTally
 from orchestra.edges import HandoffCache, infer_edges
 from orchestra import livestate
 from orchestra.events import Event, EventSpool
@@ -46,6 +46,7 @@ class RunBuilder:
         self._table: Optional[PriceTable] = None
         self._main_tally = TokenTally()
         self._main_activity: Optional[float] = None
+        self._main_times = ActivityTimes()
         # ThreadingHTTPServer runs a thread per connection, and every one of
         # them calls refresh() on this same builder. refresh mutates the
         # reader's byte offsets and the per-agent digests, which accumulate
@@ -68,6 +69,7 @@ class RunBuilder:
         if self._reader.consume_reset(self.paths.session_jsonl):
             self._main_tally.reset()          # re-read from byte 0: don't double count
             self._parent = ParentIndex()      # and don't keep launches the new file lacks
+            self._main_times.clear()
         self._main_tally.ingest(main_entries)
         self._parent.ingest(main_entries)
         self._note_main_activity(main_entries)
@@ -80,8 +82,10 @@ class RunBuilder:
         session_live = self._session_live(now, live)
         self._table = self._prices.get() if self._prices else None
 
+        waits = livestate.waits(self._events, self._first_activity_after, session_live)
         agents = [self._assemble(agent_id, now, session_live, live)
                   for agent_id in sorted(self._agent_ids())]
+        self._apply_waits(agents, waits)
         agents.sort(key=lambda a: (a.started_at is None, a.started_at or 0))
 
         edges, hubs, conflicts = infer_edges(agents, self._handoffs)
@@ -104,6 +108,7 @@ class RunBuilder:
             orchestrator=self._orchestrator_block(),
             cost=self._cost_block(agents),
         )
+        run.waits = waits
         run.insights = insights.compute(run, now, self._table)
         return run
 
@@ -129,6 +134,31 @@ class RunBuilder:
             if at is not None and (self._main_activity is None
                                    or at > self._main_activity):
                 self._main_activity = at
+            if at is not None:
+                self._main_times.add(at)
+
+    def _first_activity_after(self, agent_id: str, t: float) -> Optional[float]:
+        """When the transcript moved after t: that agent's own, or (no agent) anyone's."""
+        if agent_id:
+            digest = self._digests.get(agent_id)
+            return digest.activity.first_after(t) if digest else None
+        found = [x for x in [self._main_times.first_after(t)]
+                 + [d.activity.first_after(t) for d in self._digests.values()]
+                 if x is not None]
+        return min(found) if found else None
+
+    @staticmethod
+    def _apply_waits(agents: List[Agent], waits: List["livestate.Wait"]) -> None:
+        by_id = {a.agent_id: a for a in agents}
+        for wait in waits:
+            agent = by_id.get(wait.agent_id)
+            if agent is None or wait.state == livestate.UNANSWERED:
+                continue
+            agent.wait_count += 1
+            if wait.state == livestate.OPEN:
+                agent.wait_open_since = wait.start
+            else:
+                agent.waited_s += wait.seconds(0.0)
 
     def _agent_activity(self) -> Dict[str, float]:
         return {agent_id: d.last_activity_at
