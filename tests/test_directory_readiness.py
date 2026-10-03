@@ -37,7 +37,7 @@ def tracked_files():
     try:
         out = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, timeout=30,
                              check=True).stdout.decode("utf-8")
-        names = sorted({n for n in out.split("        names = [n for n in out.split("\0") if n]") if n})   # a set: a file mid-merge is listed once per stage
+        names = sorted({n for n in out.split("\0") if n})   # a set: a file mid-merge is listed once per stage
         if names:
             return [n for n in names if os.path.isfile(os.path.join(ROOT, n))]
     except (OSError, subprocess.SubprocessError):
