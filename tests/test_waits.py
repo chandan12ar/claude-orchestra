@@ -182,3 +182,32 @@ class TestBuilt(IntegrationCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestDashboardWiring(unittest.TestCase):
+    """The agent panel line and the live tick, under node where it is available."""
+
+    def js(self, body):
+        from tests import test_insights_ui as ui
+        if ui.NODE is None:
+            self.skipTest("node is not on PATH")
+        return ui.run_js(("esc", "fmtDuration", "liveSpan", "waitNow", "waitRow"), [], body)
+
+    def test_the_panel_line_sums_answered_waits_and_shows_the_open_one_live(self):
+        out = self.js('console.log(JSON.stringify(['
+                      'waitRow({wait_count: 0}, 100),'
+                      'waitRow({wait_count: 2, waited_s: 75}, 100),'
+                      'waitRow({wait_count: 1, waited_s: 0, wait_open_since: 40}, 100)]));')
+        self.assertEqual(out[0], "")
+        self.assertEqual(out[1], "<dt>waited on you</dt><dd>1m 15s (2 waits)</dd>")
+        self.assertIn('waiting now for <span class="wait-live" data-wait-base="0" data-wait-since="40">', out[2])
+        self.assertIn("(1 wait)", out[2])
+        self.assertNotIn("0s, ", out[2])
+
+    def test_the_tick_and_the_card_are_wired_in(self):
+        from tests import test_insights_ui as ui
+        js = ui.read("app.js")
+        self.assertIn("tickWaits();", ui.fn(js, "tickAgentClocks"))
+        self.assertIn("insWaits(ins, run)", ui.fn(js, "renderInsights"))
+        self.assertIn("waitRow(agent,", ui.fn(js, "openDrawer"))
+        self.assertIn("if (state.offline) return;", ui.fn(js, "tickWaits"))

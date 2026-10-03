@@ -60,16 +60,22 @@ def run_js(names, consts, body):
 INSIGHT_FNS = ("esc", "fmtDuration", "fmtCount", "fmtPct", "fmtMoney", "fmtModelShort", "statusVar",
                "insMetric", "insCard", "insEmpty", "insRank", "insStepChart", "insParallelism",
                "insCritical", "insTools", "insTokens", "insSpend", "insFiles", "insSlowest",
+               "fmtClock", "liveSpan", "waitNow", "insWaits",
                "transportSeconds", "fmtTimecode", "renderInsights")
 
 
-def demo_run(mutate=None):
+def demo_run(mutate=None, events=False):
     root = tempfile.mkdtemp()
     now = time.time()
     paths, _ = demo.build_demo(root, now=now)
     prices = os.path.join(root, "prices.json")
     demo.write_prices(prices)
-    built = RunBuilder(paths, now_fn=lambda: now, prices=PriceSource(prices)).refresh()
+    spool = None
+    if events:
+        from orchestra.events import EventSpool
+        spool = EventSpool(os.path.join(tempfile.mkdtemp(), "events"))
+        demo.write_events(spool, paths.session_id, now)
+    built = RunBuilder(paths, now_fn=lambda: now, prices=PriceSource(prices), spool=spool).refresh()
     summary = built.to_summary_dict()
     if mutate:
         mutate(summary)
@@ -141,6 +147,71 @@ class TestSpendBudget(unittest.TestCase):
         html = self.spend({"limit": 1000.0, "spent": 1.0, "ratio": 0.001, "state": "ok"})
         self.assertIn("the budget runs out in", html)
         self.assertIn("background:var(--completed)", html)
+
+
+def card(html, title):
+    return html.split("<h3>" + title + "</h3>")[1].split("</section>")[0]
+
+
+@unittest.skipIf(NODE is None, "node is not on PATH")
+class TestWaitsCard(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.html = render_insights(demo_run(events=True))
+        cls.waits = card(cls.html, "Waiting on you")
+
+    def test_headline_numbers_and_the_open_wait(self):
+        for text in ("of your time with an agent held up", "agent time lost, every wait added",
+                     "5</strong><span>waits", "1 agent is waiting on you now.", "longest: "):
+            self.assertIn(text, self.waits)
+        for bad in ("NaN", "undefined", "null", "Infinity"):
+            self.assertNotIn(bad, self.waits)
+
+    def test_open_durations_count_up_in_place(self):
+        # Your time and the open prompt in the list; both carry what tickWaits needs.
+        self.assertEqual(self.waits.count('class="wait-live" data-wait-base="'), 2)
+        self.assertIn('<li class="wait-open">', self.waits)
+
+    def test_rows_name_agents_and_link_to_them(self):
+        self.assertIn("Update the developer docs", self.waits)
+        self.assertIn("Main session", self.waits)
+        self.assertIn("Claude needs your permission to use Bash", self.waits)
+        self.assertIn('data-agent="a', self.waits)
+
+    def test_without_hooks_it_says_where_prompts_come_from(self):
+        self.assertIn("none have reported for this session", card(self.render_plain(), "Waiting on you"))
+
+    def test_with_hooks_but_no_prompts_it_says_none(self):
+        def quiet(summary):
+            summary["live"] = {"has_events": True}
+        self.assertIn("No agent has waited", card(render_insights(demo_run(quiet)), "Waiting on you"))
+
+    def test_unanswered_prompts_are_explained(self):
+        def ended(summary):
+            w = summary["insights"]["waits"]
+            w["unanswered"], w["open"] = 2, 0
+            w["recent"][0]["state"] = "unanswered"
+        html = card(render_insights(demo_run(ended, events=True)), "Waiting on you")
+        self.assertIn("2 prompts were still up when the session went quiet", html)
+        self.assertIn("never answered", html)
+
+    def test_hostile_labels_and_messages_are_text(self):
+        evil = '"><img src=x onerror=alert(1)>'
+
+        def hit(summary):
+            w = summary["insights"]["waits"]
+            for row in w["recent"] + w["by_agent"]:
+                row["label"] = evil
+            for row in w["recent"]:
+                row["message"] = evil
+            w["longest"]["label"] = evil
+        html = card(render_insights(demo_run(hit, events=True)), "Waiting on you")
+        self.assertNotIn("<img", html)
+        self.assertIn("&lt;img src=x onerror=alert(1)&gt;", html)
+
+    @staticmethod
+    def render_plain():
+        return render_insights(demo_run())
 
 
 @unittest.skipIf(NODE is None, "node is not on PATH")

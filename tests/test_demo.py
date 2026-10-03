@@ -56,10 +56,25 @@ class TestDemoSession(unittest.TestCase):
         sim = demo.Simulator(self.paths, self.agents)
         before = sum(a.tool_call_count if hasattr(a, "tool_call_count") else len(a.tool_calls)
                      for a in self.built.agents)
-        self.assertEqual(sim.tick(now=self.now + 5), 3)
+        # Three agents run; the docs agent sits on a permission prompt, so it stays still.
+        self.assertEqual(sim.tick(now=self.now + 5), 2)
         after_run = RunBuilder(self.paths, now_fn=lambda: self.now + 6).refresh()
         after = sum(len(a.tool_calls) for a in after_run.agents)
-        self.assertEqual(after, before + 3)
+        self.assertEqual(after, before + 2)
+
+    def test_prompts_make_answered_overlapping_and_open_waits(self):
+        from orchestra.events import EventSpool
+        root = tempfile.mkdtemp()
+        paths, _ = demo.build_demo(root, now=self.now)
+        spool = EventSpool(os.path.join(tempfile.mkdtemp(), "events"))
+        demo.write_events(spool, paths.session_id, self.now)
+        run = RunBuilder(paths, now_fn=lambda: self.now, spool=spool).refresh()
+        w = run.insights["waits"]
+        self.assertEqual((w["count"], w["open"], w["unanswered"]), (5, 1, 0))
+        self.assertLess(w["you_s"], w["agent_s"])            # two of them overlap
+        docs = [a for a in run.agents if a.description == "Update the developer docs"][0]
+        self.assertEqual(docs.status, "waiting")
+        self.assertEqual(run.live["attention"]["kind"], "permission")
 
     def test_deterministic_scenario(self):
         other = tempfile.mkdtemp()

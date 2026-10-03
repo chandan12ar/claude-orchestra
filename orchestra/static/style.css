@@ -576,6 +576,23 @@ main { padding: 16px 20px 32px; max-width: 1760px; margin: 0 auto; outline: none
 .metric { display: flex; flex-direction: column; }
 .metric strong { font-size: 24px; line-height: 1.15; font-weight: 650; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
 .metric span { color: var(--muted); font-size: 12px; }
+.card-note { margin: -4px 0 12px; font-size: 12.5px; color: var(--ink); }
+.wait-live { font-variant-numeric: tabular-nums; }
+.metric .wait-live { color: inherit; font-size: inherit; }
+.wait-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; font-size: 12.5px; }
+.wait-list li { display: grid; grid-template-columns: 5.5em minmax(0, 1fr) auto; gap: 12px; align-items: baseline;
+  padding: 5px 8px; border-radius: var(--r-md); }
+.wait-list li:nth-child(odd) { background: var(--panel-2); }
+.wait-when { color: var(--muted); font-variant-numeric: tabular-nums; }
+.wait-who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wait-who small { margin-left: 8px; color: var(--muted); }
+.wait-len { font-variant-numeric: tabular-nums; text-align: right; }
+.wait-open .wait-len { color: var(--waiting); font-weight: 650; }
+.wait-unanswered .wait-len { color: var(--muted); font-style: italic; }
+@media (max-width: 560px) {
+  .wait-list li { grid-template-columns: minmax(0, 1fr) auto; }
+  .wait-when { grid-column: 1 / -1; }
+}
 .ins-chart { width: 100%; height: 150px; display: block; overflow: visible; }
 .ins-area { fill: color-mix(in srgb, var(--running) 22%, transparent); stroke: var(--running); stroke-width: 1.6; stroke-linejoin: round; }
 .ins-grid-line { stroke: var(--line); stroke-width: 1; }
