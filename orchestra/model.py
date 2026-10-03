@@ -212,6 +212,9 @@ class Run:
     orchestrator: Optional[Dict[str, Any]] = None
     # Money, when a price table is configured; see RunBuilder._cost_block.
     cost: Optional[Dict[str, Any]] = None
+    # Run-level analytics (orchestra.insights.compute): parallelism, critical path,
+    # tool mix, token efficiency, file hotspots. None until the builder fills it.
+    insights: Optional[Dict[str, Any]] = None
 
     def agent(self, agent_id: str) -> Optional[Agent]:
         for a in self.agents:
@@ -251,4 +254,5 @@ class Run:
             "live": self.live,
             "orchestrator": self.orchestrator,
             "cost": self.cost,
+            "insights": self.insights,
         }

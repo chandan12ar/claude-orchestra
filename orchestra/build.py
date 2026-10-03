@@ -18,6 +18,7 @@ from orchestra.events import Event, EventSpool
 from orchestra.extract import extract_expected_output, extract_objective
 from orchestra.locate import SessionPaths
 from orchestra.model import Agent, Batch, Round, Run
+from orchestra import insights
 from orchestra.parent import ParentIndex, parse_timestamp
 from orchestra.pricing import PriceSource, PriceTable
 from orchestra.runaway import detect_loop
@@ -87,7 +88,7 @@ class RunBuilder:
         starts = [a.started_at for a in agents if a.started_at is not None]
         ends = [a.ended_at for a in agents if a.ended_at is not None]
 
-        return Run(
+        run = Run(
             session_id=self.paths.session_id,
             project_path=self._parent.cwd,
             started_at=min(starts) if starts else None,
@@ -103,6 +104,8 @@ class RunBuilder:
             orchestrator=self._orchestrator_block(),
             cost=self._cost_block(agents),
         )
+        run.insights = insights.compute(run, now, self._table)
+        return run
 
     # -- internals ---------------------------------------------------------
 
