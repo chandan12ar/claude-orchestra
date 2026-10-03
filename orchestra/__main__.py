@@ -212,6 +212,53 @@ def cmd_start(args) -> int:
     return 1
 
 
+def cmd_demo(args) -> int:
+    """Serve a synthetic multi-agent session from a throwaway directory.
+
+    Everything lives under one temp directory and is removed on exit; the real
+    ~/.claude and the real state directory are never touched.
+    """
+    import shutil
+    import tempfile
+    import threading
+    from orchestra import demo
+
+    root = tempfile.mkdtemp(prefix="orchestra-demo-")
+    os.environ["CLAUDE_CONFIG_DIR"] = os.path.join(root, "claude")
+    os.environ["ORCHESTRA_STATE_DIR"] = os.path.join(root, "state")
+    os.environ["ORCHESTRA_PRICES"] = os.path.join(root, "prices.json")
+    demo.write_prices(os.environ["ORCHESTRA_PRICES"])
+    if C.BUDGET <= 0:
+        C.BUDGET = 8.0               # so the budget meter has something to show
+    paths, agents = demo.build_demo(os.environ["CLAUDE_CONFIG_DIR"])
+    spool = _make_spool()
+    if spool is not None:
+        demo.write_events(spool, paths.session_id)
+    simulator = demo.Simulator(paths, agents)
+    simulator.start()
+
+    args.session = paths.session_id
+    args.token = args.token or secrets.token_urlsafe(24)
+
+    def open_when_ready() -> None:
+        deadline = time.time() + 10.0
+        while time.time() < deadline:
+            info = read_portfile(paths.session_id)
+            if info and server_is_alive(info):
+                print("demo: " + url_for(info), flush=True)
+                if not args.no_open:
+                    webbrowser.open(url_for(info))
+                return
+            time.sleep(0.2)
+
+    threading.Thread(target=open_when_ready, daemon=True).start()
+    try:
+        return cmd_serve(args)
+    finally:
+        simulator.stop()
+        shutil.rmtree(root, ignore_errors=True)
+
+
 def cmd_stop(args) -> int:
     session_id = _resolve_session(args)
     info = read_portfile(session_id)
@@ -286,12 +333,16 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--no-open", action="store_true")
     parser.add_argument("--serve", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--stop", action="store_true")
+    parser.add_argument("--demo", action="store_true",
+                        help="serve a synthetic multi-agent session to explore the dashboard")
     parser.add_argument("--report", nargs="?", const="", default=None)
     parser.add_argument("--export", choices=("csv", "json"), default=None,
                         help="write the run as CSV (one row per agent) or JSON")
     parser.add_argument("--out", default="", help="file or directory for --export")
     args = parser.parse_args(argv)
 
+    if args.demo:
+        return cmd_demo(args)
     if args.serve:
         return cmd_serve(args)
     if args.stop:
