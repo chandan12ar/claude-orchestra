@@ -11,7 +11,7 @@ Details: `PROGRESS.md` (status + open items), `CLAUDE.md` (rules + lessons), `do
 the design system).
 
 **Open:** (1) hook payload field names are verified against the docs only, never a
-captured live payload (needs a human at a real Claude Code session); (2) small ideas:
+captured live payload; (2) small ideas:
 Activity-tab text filter, routing graph edges around columns they skip.
 
 ## 1. What the product is
@@ -42,17 +42,12 @@ Verified: all features in a real Chromium (Playwright) against live servers; tok
 real transcript; `hooks.json` valid per Claude Code 2.1.287's validator (mutation-tested);
 CI green on Linux/macOS/Windows through `1960490` (run 23).
 
-**NOT verified — do this first:** the hook payload **field names** (`notification_type`,
-`message`, `error_type`, `error_message`, `reason`, `last_assistant_message`) came from the docs,
-not a captured payload. If wrong, the headline "waiting on permission" feature shows nothing
-(code degrades to empty fields, it doesn't crash). Needs a human at a real Claude Code session:
-install plugin -> trigger a permission prompt -> read `<state dir>/events/<session>.jsonl`.
+**Hook payload field names: verified on 2026-10-03** against a real Claude Code 2.1.287 session
+(permission prompt, idle prompt, session start/end, turn end, subagent stop); the dashboard
+showed the "waiting for your permission" banner. Evidence: `docs/evidence/live-hook-capture.md`.
+Still documentation-only: `error_type`/`error_message`. Known small gap: `agent_type`
+was empty on `agent_stop`.
 (State dir: `ORCHESTRA_STATE_DIR`, else `<tmp>/orchestra-<uid>`.)
-
-Update 2026-10-03: the field names were cross-checked against the official hooks docs and all
-match (docs only, still no captured payload). The docs also say plugin hooks do not reach
-already-running sessions (need a new session, `/reload-plugins` or restart); not tested by us.
-CI run 23 (`1960490`) finished **green** (full test matrix on 3 OS x 3 Pythons + plugin validation).
 
 ## 5. Incidents (honest log)
 - CI red on Windows for 3 commits (bc5121c..b6351fc): my tests used `text=True` (cp1252 vs Node
@@ -64,7 +59,7 @@ CI run 23 (`1960490`) finished **green** (full test matrix on 3 OS x 3 Pythons +
   `317d4bf` (says 603 tests, was 584), `2ef5e09` (says 440, was 436).
 
 ## 6. Next steps, in order
-1. Verify hook field names with a real Claude Code session (section 4).
+1. (done 2026-10-03) hook field names verified against a real session (section 4).
 2. (done) PRs merged, versions 0.2.0 -> 0.3.0 -> 0.4.0, name decided: Cuelight.
 3. Later, owner's call: approvals (spike `PermissionRequest` first: runs before/alongside the
    terminal dialog? timeout? subagents? auto mode?), other-agent adapters.

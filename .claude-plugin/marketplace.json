@@ -6,7 +6,7 @@
     {
       "name": "cuelight",
       "source": "./",
-      "description": "See what your subagents are actually doing."
+      "description": "Know the moment your Claude Code agents need you: a local, read-only dashboard of subagent runs."
     }
   ]
 }
