@@ -1,6 +1,6 @@
 # Evidence: what was run and what it looked like
 
-This folder is proof of work for the `feature/enterprise-ux` branch (PR #2): the test
+This folder is proof of work for the Cuelight 0.4.0 build (the rename PR; the work itself landed in PRs #1 and #2): the test
 results and screenshots, regenerated from the final build, with the scripts that make them.
 
 | File | What it is |
@@ -12,7 +12,7 @@ results and screenshots, regenerated from the final build, with the scripts that
 
 ## Result
 
-**766 tests, 763 passed, 3 skipped, 0 failed** (local run, Windows, Python 3.11, Node 24).
+**772 tests, 769 passed, 3 skipped, 0 failed** (local run, Windows, Python 3.11, Node 24).
 The 3 skips check POSIX permissions, ownership and symlinks, which Windows does not have.
 
 What the tests cover, in plain terms:

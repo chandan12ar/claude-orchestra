@@ -1,7 +1,7 @@
-Workflow - local test run
+Cuelight - local test run
 ============================================================
-when      : 2026-10-03 04:05:55 UTC
-commit    : fb7bd0362847ae0d0c85548d48aa7590246bfb0a  (feature/enterprise-ux)
+when      : 2026-10-03 06:46:18 UTC
+commit    : 0b1aef8e0452e628dc04c3bb0f1985ae36a2b907  (rename/cuelight)
 worktree  : clean
 python    : 3.11.9
 node      : v24.16.0
@@ -9,7 +9,7 @@ os        : Windows-10-10.0.26300-SP0
 command   : python -m unittest discover -s tests -t . -v
 scope     : LOCAL run only. This says nothing about GitHub CI.
 
-Ran 766 tests in 50.295s
+Ran 772 tests in 86.690s
 OK (skipped=3)
 
 Per module
@@ -34,7 +34,7 @@ tests.test_favicon                      1        0       0
 tests.test_fleet                       22        0       0
 tests.test_fmt_duration                 3        0       0
 tests.test_graph_layout                10        0       0
-tests.test_history                     32        0       0
+tests.test_history                     35        0       0
 tests.test_history_ui                  29        0       0
 tests.test_hook                        15        0       0
 tests.test_http                        29        0       0
@@ -48,7 +48,7 @@ tests.test_packaging                    5        0       0
 tests.test_palette                     14        0       0
 tests.test_parent                      17        0       0
 tests.test_pill                        19        0       0
-tests.test_pricing                     27        0       0
+tests.test_pricing                     30        0       0
 tests.test_redact                      16        0       0
 tests.test_replay                      36        0       0
 tests.test_report                       8        0       0
@@ -62,7 +62,7 @@ tests.test_status                      15        0       0
 tests.test_stream                      17        0       0
 tests.test_transcript                  13        0       0
 tests.test_workfloor_ui                12        0       0
-TOTAL                                 763        3       0
+TOTAL                                 769        3       0
 
 Every test
 ------------------------------------------------------------
@@ -360,6 +360,9 @@ ok       tests.test_history.TestRecording.test_newest_run_is_listed_first
 ok       tests.test_history.TestRecording.test_one_row_per_session_and_first_seen_is_kept
 ok       tests.test_history.TestRecording.test_runs_without_agents_are_not_recorded
 ok       tests.test_history.TestRecording.test_writes_are_rate_limited_per_session
+ok       tests.test_history.TestRenamedDataDirectory.test_a_new_install_uses_the_new_name
+ok       tests.test_history.TestRenamedDataDirectory.test_existing_history_under_the_old_name_is_kept
+ok       tests.test_history.TestRenamedDataDirectory.test_the_new_location_wins_once_it_exists
 ok       tests.test_history.TestRetention.test_old_runs_are_deleted
 ok       tests.test_history.TestRetention.test_the_row_count_is_capped_keeping_the_newest
 ok       tests.test_history.TestSafety.test_a_corrupt_database_is_reported_and_never_raises
@@ -625,6 +628,9 @@ ok       tests.test_pricing.TestPriceSource.test_fixing_the_file_clears_the_erro
 ok       tests.test_pricing.TestPriceSource.test_loads_and_reloads_when_the_file_changes
 ok       tests.test_pricing.TestPriceSource.test_missing_file_means_cost_is_simply_off
 ok       tests.test_pricing.TestPriceSource.test_the_shipped_example_is_valid
+ok       tests.test_pricing.TestRenamedConfigDirectory.test_a_file_saved_under_the_old_name_is_still_found
+ok       tests.test_pricing.TestRenamedConfigDirectory.test_a_new_install_uses_the_new_name
+ok       tests.test_pricing.TestRenamedConfigDirectory.test_the_new_location_wins_once_it_exists
 ok       tests.test_pricing.TestRunCost.test_a_broken_price_file_surfaces_its_error
 ok       tests.test_pricing.TestRunCost.test_an_unpriced_model_marks_the_total_partial
 ok       tests.test_pricing.TestRunCost.test_each_agent_is_priced_from_its_own_tokens
