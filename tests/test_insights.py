@@ -5,6 +5,7 @@ import unittest
 from orchestra import insights
 from orchestra.model import Agent, Edge, Round, Run, ToolCall
 from orchestra.pricing import PriceTable
+from tests import fake_secrets as fake
 
 
 def agent(aid, start, end, **kw):
@@ -113,10 +114,10 @@ class TestPulse(unittest.TestCase):
 
     def test_markers_are_bounded_and_scrubbed(self):
         many = [agent("a%d" % i, i, i + 1, status="completed",
-                      description="key sk-ant-api03-" + "A" * 40) for i in range(100)]
+                      description="key " + fake.ANTHROPIC_KEY) for i in range(100)]
         p = self.pulse(*many, now=500)
         self.assertLessEqual(len(p["markers"]), insights.PULSE_MARKERS)
-        self.assertNotIn("sk-ant-api03-AAAA", str(p["markers"]))
+        self.assertNotIn("AAAABBBBCCCC", str(p["markers"]))
 
 
 class TestCriticalPath(unittest.TestCase):

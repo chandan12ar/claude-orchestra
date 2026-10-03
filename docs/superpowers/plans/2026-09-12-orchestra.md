@@ -423,28 +423,28 @@ from orchestra.redact import scrub, scrub_obj
 
 class TestScrub(unittest.TestCase):
     def test_anthropic_key(self):
-        out = scrub("use sk-ant-api03-AAAABBBBCCCCDDDDEEEEFFFFGGGG now")
+        out = scrub("use <fake-anthropic-key> now")
         self.assertNotIn("AAAABBBB", out)
         self.assertIn("redacted:anthropic_key", out)
 
     def test_github_token(self):
-        out = scrub("token ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+        out = scrub("token <fake-github-token>")
         self.assertIn("redacted:github_token", out)
         self.assertNotIn("ABCDEFGHIJ", out)
 
     def test_aws_access_key_id(self):
-        self.assertIn("redacted:aws_key_id", scrub("AKIAIOSFODNN7EXAMPLE"))
+        self.assertIn("redacted:aws_key_id", scrub("<fake-aws-key-id>"))
 
     def test_bearer_header(self):
         out = scrub("Authorization: Bearer abcdefghijklmnopqrstuvwxyz123456")
         self.assertIn("redacted:bearer", out)
 
     def test_jwt(self):
-        jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dBjftJeZ4CVPmB92K27uhbUJU1p1r"
+        jwt = "<fake-jwt>"
         self.assertIn("redacted:jwt", scrub(jwt))
 
     def test_private_key_block(self):
-        pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKC\n-----END RSA PRIVATE KEY-----"
+        pem = "<fake-pem-block>"
         out = scrub(pem)
         self.assertIn("redacted:private_key", out)
         self.assertNotIn("MIIEpAIBAAKC", out)
@@ -465,7 +465,7 @@ class TestScrub(unittest.TestCase):
 
 class TestScrubObj(unittest.TestCase):
     def test_recurses_nested_structures(self):
-        obj = {"a": ["ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", {"b": "clean"}], "n": 5}
+        obj = {"a": ["<fake-github-token>", {"b": "clean"}], "n": 5}
         out = scrub_obj(obj)
         self.assertIn("redacted:github_token", out["a"][0])
         self.assertEqual(out["a"][1]["b"], "clean")
@@ -2534,7 +2534,7 @@ Append this class:
 ```python
 class TestSerializationRedacts(unittest.TestCase):
     def test_brief_and_result_are_scrubbed(self):
-        token = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        token = "<fake-github-token>"
         a = make_agent(brief="use " + token, result="also " + token)
         d = a.to_detail_dict()
         self.assertNotIn("ABCDEFGHIJ", d["brief"])
@@ -2542,7 +2542,7 @@ class TestSerializationRedacts(unittest.TestCase):
 
     def test_edge_evidence_is_scrubbed(self):
         e = Edge(src="a1", dst="a2", kind="handoff", confidence="inferred",
-                 evidence={"snippet": "token ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"})
+                 evidence={"snippet": "token <fake-github-token>"})
         self.assertNotIn("ABCDEFGHIJ", e.to_dict()["evidence"]["snippet"])
 ```
 

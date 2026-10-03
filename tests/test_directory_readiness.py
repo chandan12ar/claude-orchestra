@@ -207,5 +207,30 @@ class TestFilesShipped(unittest.TestCase):
                 self.assertNotIn(bad, text)
 
 
+class TestNoSecretShapedText(unittest.TestCase):
+    """The directory's scanner blocks a file that looks like it holds a credential, fake or not.
+
+    The redaction tests build their fake keys from pieces at run time (tests/fake_secrets.py) so none
+    of this text sits in a file.
+    """
+
+    PATTERNS = [
+        r"sk-ant-[A-Za-z0-9_-]{10,}", r"sk-(?:proj-)?[A-Za-z0-9]{32,}", r"gh[pousr]_[A-Za-z0-9]{20,}",
+        r"github_pat_[A-Za-z0-9_]{20,}", r"\b(?:AKIA|ASIA)[A-Z0-9]{12,}\b", r"xox[abprs]-[A-Za-z0-9-]{10,}",
+        r"AIza[0-9A-Za-z_-]{30,}", r"-----BEGIN [A-Z ]*PRIVATE KEY",
+        r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}",
+    ]
+
+    def test_no_tracked_text_file_looks_like_it_holds_a_key(self):
+        compiled = [re.compile(p) for p in self.PATTERNS]
+        for name in tracked_files():
+            if os.path.splitext(name)[1].lower() in IMAGE_EXT | FONT_EXT:
+                continue
+            with open(os.path.join(ROOT, name), encoding="utf-8", errors="ignore") as fh:
+                text = fh.read()
+            for pattern in compiled:
+                self.assertIsNone(pattern.search(text), "%s looks like it contains a credential (%s)" % (name, pattern.pattern))
+
+
 if __name__ == "__main__":
     unittest.main()
