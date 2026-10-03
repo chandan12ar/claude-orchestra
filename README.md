@@ -9,6 +9,10 @@ agent's output became which other agent's input.
 
 ![The Timeline view, dark theme: a live 13-agent run with a pending permission prompt, a failed agent, a possible loop and a stalled agent](docs/screenshots/timeline-dark.png)
 
+| Graph (who fed whom, critical path outlined) | Work Floor (what each agent is doing now) |
+|---|---|
+| ![Graph view, light theme](docs/screenshots/graph-light.png) | ![Work Floor, dark theme, grouped by role](docs/screenshots/workfloor-dark.png) |
+
 ## Try it without a real run
 
 ```bash
