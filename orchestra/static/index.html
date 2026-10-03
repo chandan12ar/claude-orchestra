@@ -15,6 +15,20 @@
     <button id="live-toggle" type="button" aria-pressed="true">Live</button>
     <button id="notify-toggle" type="button" aria-pressed="false">Notify</button>
     <button id="sound-toggle" type="button" aria-pressed="false" hidden>Sound</button>
+    <details id="sound-prefs" class="sound-prefs" hidden>
+      <summary aria-label="Sound options">Options</summary>
+      <div class="sound-prefs-body">
+        <label><input type="checkbox" id="sound-play-alert"> Claude needs you</label>
+        <label><input type="checkbox" id="sound-play-fail"> Something failed</label>
+        <label><input type="checkbox" id="sound-play-done"> Run finished</label>
+        <label><input type="checkbox" id="sound-quiet-on"> Quiet hours</label>
+        <span class="sound-quiet-range">
+          <input type="time" id="sound-quiet-from" aria-label="Quiet from">
+          to
+          <input type="time" id="sound-quiet-to" aria-label="Quiet until">
+        </span>
+      </div>
+    </details>
     <button id="pill-toggle" type="button" aria-pressed="false" hidden>Pill</button>
     <button id="copy-summary" type="button">Copy summary</button>
     <button id="replay-toggle" type="button" aria-pressed="false">Replay</button>

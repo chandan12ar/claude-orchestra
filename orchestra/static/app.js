@@ -54,6 +54,7 @@ const state = {
   soundMemo: null,       // per-session baseline so history never makes noise
   soundFleetMemo: null,
   lastSoundAt: 0,
+  soundPrefs: null,      // per-event mute + quiet hours; see normalizeSoundPrefs
   audio: null,
   pill: null,            // the open Picture-in-Picture window, if any
   stream: null,          // the open EventSource, if any
@@ -1286,6 +1287,47 @@ function topSound(names) {
   return best;
 }
 
+// Mute per event and quiet hours, kept in this browser only. Quiet hours silence
+// every event, including failures: if you want to be woken, leave them off.
+const SOUND_PREF_DEFAULT = { mute: { alert: false, fail: false, done: false }, quiet: { on: false, from: "22:00", to: "07:00" } };
+
+function clockMinutes(text) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(typeof text === "string" ? text : "");
+  if (!m || +m[1] > 23 || +m[2] > 59) return null;
+  return +m[1] * 60 + +m[2];
+}
+
+// Stored values are untrusted (any page script on this origin can write them):
+// anything that is not exactly what we write falls back to the default.
+function normalizeSoundPrefs(raw) {
+  const prefs = JSON.parse(JSON.stringify(SOUND_PREF_DEFAULT));
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return prefs;
+  if (raw.mute && typeof raw.mute === "object") {
+    for (const name of Object.keys(prefs.mute)) prefs.mute[name] = raw.mute[name] === true;
+  }
+  if (raw.quiet && typeof raw.quiet === "object") {
+    prefs.quiet.on = raw.quiet.on === true;
+    if (clockMinutes(raw.quiet.from) !== null) prefs.quiet.from = raw.quiet.from;
+    if (clockMinutes(raw.quiet.to) !== null) prefs.quiet.to = raw.quiet.to;
+  }
+  return prefs;
+}
+
+function inQuietHours(quiet, date) {
+  if (!quiet || !quiet.on) return false;
+  const from = clockMinutes(quiet.from);
+  const to = clockMinutes(quiet.to);
+  if (from === null || to === null || from === to) return false;
+  const now = date.getHours() * 60 + date.getMinutes();
+  return from < to ? (now >= from && now < to) : (now >= from || now < to);
+}
+
+// Applied BEFORE topSound(), so a muted "fail" does not hide an unmuted "alert".
+function audibleSounds(names, prefs, date) {
+  if (inQuietHours(prefs.quiet, date)) return [];
+  return names.filter((name) => !prefs.mute[name]);
+}
+
 // What should sound, given this poll of the viewed session? `memo` is the
 // baseline from the previous poll; the first call only records it.
 function computeSounds(run, memo) {
@@ -1364,14 +1406,21 @@ function playSound(name) {
 function checkSounds(run) {
   if (!state.soundMemo) state.soundMemo = { seeded: false, attKey: "", failed: new Set(), running: 0 };
   const names = computeSounds(run, state.soundMemo);
-  if (state.soundEnabled && names.length) playSound(topSound(names));
+  playAudible(names);
+}
+
+function playAudible(names) {
+  if (!state.soundEnabled) return;
+  if (!state.soundPrefs) state.soundPrefs = normalizeSoundPrefs(null);
+  const audible = audibleSounds(names, state.soundPrefs, new Date());
+  if (audible.length) playSound(topSound(audible));
 }
 
 function checkFleetSounds(fleet) {
   if (!state.soundFleetMemo) state.soundFleetMemo = { seeded: false, keys: {} };
   const viewing = state.run && state.run.session_id;
   const names = computeFleetSounds(fleet, viewing, state.soundFleetMemo);
-  if (state.soundEnabled && names.length) playSound(topSound(names));
+  playAudible(names);
 }
 
 function updateSoundButton() {
@@ -1400,6 +1449,45 @@ function setStoredSoundPref(enabled) {
       localStorage.setItem("orchestra-sound", enabled ? "1" : "0");
     }
   } catch (err) { /* blocked storage; not worth failing over */ }
+}
+
+function loadSoundPrefs() {
+  let raw = null;
+  try {
+    if (typeof localStorage !== "undefined") raw = JSON.parse(localStorage.getItem("orchestra-sound-prefs"));
+  } catch (err) { /* blocked or corrupt: defaults */ }
+  return normalizeSoundPrefs(raw);
+}
+
+function saveSoundPrefs(prefs) {
+  try {
+    if (typeof localStorage !== "undefined") localStorage.setItem("orchestra-sound-prefs", JSON.stringify(prefs));
+  } catch (err) { /* blocked storage; not worth failing over */ }
+}
+
+// The small "Sound options" panel: one checkbox per event, plus quiet hours.
+function setupSoundPrefs() {
+  const panel = $("sound-prefs");
+  if (!panel) return;
+  state.soundPrefs = loadSoundPrefs();
+  panel.hidden = false;
+  const prefs = state.soundPrefs;
+  const bind = (id, read, write) => {
+    const el = $(id);
+    if (!el) return;
+    read(el);
+    el.onchange = () => { write(el); saveSoundPrefs(prefs); };
+  };
+  for (const name of Object.keys(prefs.mute)) {
+    // The checkbox says "play this sound", the stored flag says "muted".
+    bind("sound-play-" + name, (el) => { el.checked = !prefs.mute[name]; },
+         (el) => { prefs.mute[name] = !el.checked; });
+  }
+  bind("sound-quiet-on", (el) => { el.checked = prefs.quiet.on; }, (el) => { prefs.quiet.on = el.checked; });
+  for (const key of ["from", "to"]) {
+    bind("sound-quiet-" + key, (el) => { el.value = prefs.quiet[key]; },
+         (el) => { if (clockMinutes(el.value) !== null) prefs.quiet[key] = el.value; });
+  }
 }
 
 // ------------------------------------------------------------------ replay
@@ -2173,6 +2261,7 @@ function init() {
       if (typeof localStorage !== "undefined") stored = localStorage.getItem("orchestra-sound") || "0";
     } catch (err) { /* off */ }
     soundBtn.hidden = false;
+    setupSoundPrefs();
     // A remembered "on" still needs a fresh click before the browser lets this
     // page make noise, so the first click after a reload re-arms it.
     state.soundEnabled = stored === "1";

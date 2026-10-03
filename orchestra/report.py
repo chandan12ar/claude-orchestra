@@ -25,6 +25,7 @@ _SHELL = """<!doctype html>
     <h1>Workflow</h1>
     <button id="pill-toggle" type="button" aria-pressed="false" hidden>Pill</button>
     <button id="sound-toggle" type="button" aria-pressed="false" hidden>Sound</button>
+    <details id="sound-prefs" hidden></details>
     <button id="copy-summary" type="button">Copy summary</button>
     <button id="replay-toggle" type="button" aria-pressed="false">Replay</button>
     <select id="export-select" aria-label="Export this run" hidden><option value="">Export…</option><option value="csv">CSV (agents)</option><option value="json">JSON (everything)</option></select>

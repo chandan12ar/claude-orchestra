@@ -61,7 +61,7 @@ CI run 23 (`1960490`) finished **green** (full test matrix on 3 OS x 3 Pythons +
 3. Decide the plugin name (`workflow` vs package `orchestra` vs repo `claude-orchestra`;
    a plugin name can't start with `claude-`).
 4. Later, owner's call: approvals (spike `PermissionRequest` first: runs before/alongside the
-   terminal dialog? timeout? subagents? auto mode?), other-agent adapters, per-event sound mute.
+   terminal dialog? timeout? subagents? auto mode?), other-agent adapters.
 
 ## 7. Practical notes for the next session
 - Tests: `python -m unittest discover -s tests -t .` (Node needed for the UI tests).
@@ -70,4 +70,4 @@ CI run 23 (`1960490`) finished **green** (full test matrix on 3 OS x 3 Pythons +
 - Windows pitfalls: always `encoding="utf-8"` for subprocess/open; set mtimes explicitly in tests.
 - Read CI after every push, before starting the next feature.
 - In shell commit messages avoid `$` in double quotes (it gets expanded).
-- Known small gaps: history records only viewed/scanned sessions; no per-event sound mute/quiet hours.
+- Known small gap: history records only viewed/scanned sessions.

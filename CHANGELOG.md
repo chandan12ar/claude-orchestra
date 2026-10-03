@@ -34,7 +34,8 @@ versions follow [SemVer](https://semver.org/) (the `version` in
   and alerts when exceeded. No prices are built in.
 - Sounds (off by default, synthesized with Web Audio, no audio files): a distinct
   tone when Claude needs you, when something fails, and when everything finishes
-  cleanly - for the open session and for other sessions in the fleet.
+  cleanly - for the open session and for other sessions in the fleet. An *Options*
+  panel mutes each event separately and sets quiet hours (overnight spans work).
 - Pill: a small always-on-top window (Document Picture-in-Picture, Chromium) showing
   what needs you across all sessions, plus a tab-title count and a favicon badge
   that work in every browser.

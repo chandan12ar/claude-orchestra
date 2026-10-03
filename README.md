@@ -78,7 +78,9 @@ cells a spreadsheet would execute as formulas are neutralised.
   gets a `(2) Workflow` tab title and a colored, counted favicon.
 - **Sounds** — optional (click *Sound*). Three synthesized tones: needs you,
   something failed, all done. History never makes noise; at most one sound per
-  update. No audio files, so nothing is fetched.
+  update. No audio files, so nothing is fetched. *Options* mutes any one of the
+  three and sets quiet hours (which silence all of them, failures included);
+  both are remembered in this browser only.
 - **Live** — updates arrive the moment a transcript or hook event changes
   (Server-Sent Events), not on a timer; polling is only a safety net.
 - **Attention banner** — what the session is blocked on right now: a permission

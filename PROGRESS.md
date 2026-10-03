@@ -22,7 +22,7 @@ feature; on failure record it here and stop. See `CLAUDE.md`.
 | 1.5a | Fleet backend (`/api/fleet`, cross-project recent sessions, urgency sort) | done |
 | 1.5b | Fleet UI (tab, badge, cross-session notifications) | done (verified in Chromium; fixed an empty-bar bug via global [hidden] rule) |
 | 2.1 | Pill (Picture-in-Picture) + tab badge | done (title, favicon, and PiP window verified in real Chromium; PiP is Chromium-only, button hidden elsewhere) |
-| 2.2 | Synthesized sounds | done (verified in Chromium: off=0 oscillators, chime=3, alert=2). Not built yet: per-event mute, quiet hours (client-only follow-up) |
+| 2.2 | Synthesized sounds | done (verified in Chromium: off=0 oscillators, chime=3, alert=2). Per-event mute and quiet hours added later (client-only, localStorage; verified in Chromium) |
 | 2.3.0 | FIX: token double-counting (per-entry vs per-message) | done (real transcript: old overcounted 2.6-3.1x) |
 | 2.3a | Cost + budget alert (incl. orchestrator tokens, per model) | done (verified in Chromium; hand-computed orchestrator cost matched) |
 | 2.3b | Runaway/loop detection | done (verified in Chromium: health box + drawer) |
@@ -65,7 +65,7 @@ plugin rename.
    plugin name. Decide before the user base grows (owner deferred it).
 5. **Pill browser support**: Document Picture-in-Picture is Chromium-only (a search
    result said Firefox 151; not verified). The tab-title/favicon badge works everywhere.
-6. **Small gaps**: sounds have no per-event mute or quiet hours; history is recorded only for
+6. **Small gaps**: history is recorded only for
    sessions that are viewed or scanned by the fleet, not every session.
 7. **Still deferred by decision**: dashboard approve/deny (needs the
    `PermissionRequest` spike first: does it run before/alongside the terminal

@@ -205,6 +205,7 @@ class TestSoundGuarantees(unittest.TestCase):
         from orchestra import report
         for html in (read("index.html"), report._SHELL):
             self.assertRegex(html, r'<button id="sound-toggle"[^>]*hidden')
+            self.assertRegex(html, r'<details id="sound-prefs"[^>]*hidden')
         js = read("app.js")
         self.assertIn("!state.offline && hasAudio", js)
 
