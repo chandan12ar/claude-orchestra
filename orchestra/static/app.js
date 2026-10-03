@@ -35,6 +35,9 @@ const state = {
   // traveling-dot animation instead of appearing as a plain static line.
   seenEdgeKeys: new Set(),
   graphSeeded: false,
+  // Pan/zoom of the Graph view. userSet is false until the person moves it, so a
+  // growing run keeps fitting the page instead of drifting out of view.
+  graphView: { k: 1, tx: 12, ty: 12, userSet: false, session: "", el: null },
   // Desktop notifications for "something happened while I wasn't watching."
   // notifySeeded guards the same way graphSeeded does: the first poll only
   // records what already exists (a pre-existing failure or an already-ended
@@ -2714,6 +2717,7 @@ function toast(message) {
 function init() {
   applyTheme(themeMode());
   setupPalette();
+  setupGraphInteractions();
   const themeBtn = $("theme-toggle");
   if (themeBtn) themeBtn.onclick = cycleTheme;
   $("live-toggle").onclick = (event) => {
@@ -3071,13 +3075,178 @@ function renderInsights(run) {
 
 // ----------------------------------------------------------------- graph
 
-const NODE_W = 200;
-const NODE_H = 50;
-const COL_GAP = 80;
-const ROW_GAP = 24;
+const NODE_W = 210;
+const NODE_H = 52;
+const COL_GAP = 84;
+const ROW_GAP = 22;
 const ACCENT_W = 4;
 const NODE_TEXT_X = 16;
 const EXACT_KINDS = ["spawn", "artifact", "message"];
+const GRAPH_MIN_K = 0.3;
+const GRAPH_MAX_K = 2.5;
+const GRAPH_SWEEPS = 8;
+
+// Columns by longest path over exact edges. An inferred edge never sets a rank, so
+// a bad guess cannot rearrange the whole picture. Columns are indexed 0..n-1 rather
+// than by raw rank: artifact edges can form a cycle, the loop is bounded by node
+// count, and a raw rank could climb past the number of columns actually occupied,
+// putting nodes outside the canvas with no visible cue that anything is missing.
+function graphRankColumns(nodes, structural) {
+  const rank = {};
+  nodes.forEach((n) => { rank[n.id] = 0; });
+  for (let pass = 0; pass < nodes.length; pass++) {
+    let moved = false;
+    for (const edge of structural) {
+      const want = rank[edge.src] + 1;
+      if (rank[edge.dst] < want) { rank[edge.dst] = want; moved = true; }
+    }
+    if (!moved) break;                  // also the cycle guard
+  }
+  const byRank = {};
+  for (const node of nodes) (byRank[rank[node.id]] = byRank[rank[node.id]] || []).push(node);
+  return Object.keys(byRank).map(Number).sort((a, b) => a - b).map((r, column) => {
+    byRank[r].sort((a, b) => ((a.startedAt || 0) - (b.startedAt || 0)) || (a.id < b.id ? -1 : 1));
+    byRank[r].forEach((n) => { n.column = column; });
+    return byRank[r];
+  });
+}
+
+// The duration-weighted longest chain, not the hop count: a 5-second agent and a
+// 5-minute agent are equally "one hop", but only one of them can be why the run
+// took as long as it did.
+function graphCriticalPath(nodes, byId, structural) {
+  const pathDuration = {};
+  const critPrev = {};
+  nodes.forEach((n) => { pathDuration[n.id] = n.duration || 0; critPrev[n.id] = null; });
+  for (let pass = 0; pass < nodes.length; pass++) {
+    let moved = false;
+    for (const edge of structural) {
+      const candidate = pathDuration[edge.src] + (byId[edge.dst].duration || 0);
+      if (candidate > pathDuration[edge.dst] + 1e-9) {
+        pathDuration[edge.dst] = candidate;
+        critPrev[edge.dst] = edge.src;
+        moved = true;
+      } else if (critPrev[edge.dst] === null && candidate >= pathDuration[edge.dst] - 1e-9) {
+        // A tie against the node's own-duration base case (its most common
+        // predecessor is "main", whose duration is always 0) must still record a
+        // predecessor, or the chain silently ends one hop short.
+        critPrev[edge.dst] = edge.src;
+      }
+    }
+    if (!moved) break;
+  }
+  let end = nodes[0].id;
+  for (const n of nodes) if (pathDuration[n.id] > pathDuration[end]) end = n.id;
+  const criticalNodes = new Set();
+  const criticalEdges = new Set();
+  for (let cur = end; cur && !criticalNodes.has(cur); cur = critPrev[cur]) {
+    criticalNodes.add(cur);
+    if (critPrev[cur]) criticalEdges.add(critPrev[cur] + "→" + cur);
+  }
+  return { criticalNodes, criticalEdges };
+}
+
+// Edge crossings between neighbouring columns: the number a person actually sees.
+function graphCountCrossings(columns, links) {
+  const pos = {};
+  const col = {};
+  columns.forEach((nodes, c) => nodes.forEach((n, i) => { pos[n.id] = i; col[n.id] = c; }));
+  const groups = {};
+  for (const l of links) {
+    if (col[l.src] === undefined || col[l.dst] !== col[l.src] + 1) continue;
+    (groups[col[l.src]] = groups[col[l.src]] || []).push([pos[l.src], pos[l.dst]]);
+  }
+  let total = 0;
+  for (const key in groups) {
+    const g = groups[key];
+    for (let i = 0; i < g.length; i++) {
+      for (let j = i + 1; j < g.length; j++) {
+        if ((g[i][0] - g[j][0]) * (g[i][1] - g[j][1]) < 0) total += 1;
+      }
+    }
+  }
+  return total;
+}
+
+// Layered ordering: alternate down and up sweeps, ordering each column by the mean
+// position of its neighbours, and keep the best ordering seen. Positions are
+// normalised per column so neighbours in columns of different heights compare fairly.
+function graphOrderColumns(columns, links) {
+  const up = {};
+  const down = {};
+  for (const l of links) {
+    (down[l.src] = down[l.src] || []).push(l.dst);
+    (up[l.dst] = up[l.dst] || []).push(l.src);
+  }
+  const norm = {};
+  const refresh = (c) => columns[c].forEach((n, i) => { norm[n.id] = (i + 0.5) / columns[c].length; });
+  columns.forEach((_, c) => refresh(c));
+  const sweep = (c, neighbours) => {
+    const keyed = columns[c].map((n, i) => {
+      const around = (neighbours[n.id] || []).filter((id) => norm[id] !== undefined);
+      const key = around.length ? around.reduce((s, id) => s + norm[id], 0) / around.length : norm[n.id];
+      return { n: n, key: key, i: i };
+    });
+    keyed.sort((a, b) => (a.key - b.key) || (a.i - b.i));
+    columns[c] = keyed.map((k) => k.n);
+    refresh(c);
+  };
+  let best = columns.map((nodes) => nodes.slice());
+  let bestCount = graphCountCrossings(columns, links);
+  for (let iter = 0; iter < GRAPH_SWEEPS && bestCount > 0; iter++) {
+    for (let c = 1; c < columns.length; c++) sweep(c, up);
+    for (let c = columns.length - 2; c >= 0; c--) sweep(c, down);
+    const count = graphCountCrossings(columns, links);
+    if (count < bestCount) { bestCount = count; best = columns.map((nodes) => nodes.slice()); }
+  }
+  best.forEach((nodes, c) => { columns[c] = nodes; });
+  columns.forEach((nodes) => nodes.forEach((n, i) => { n.row = i; }));
+  return bestCount;
+}
+
+// Vertical placement: each node wants to sit level with its neighbours, but nodes in
+// a column cannot overlap and must keep their order. That is an isotonic regression,
+// solved exactly by pooling adjacent violators, so flows run straight where they can.
+function graphPlaceRows(columns, links) {
+  const step = NODE_H + ROW_GAP;
+  const around = {};
+  for (const l of links) {
+    (around[l.src] = around[l.src] || []).push(l.dst);
+    (around[l.dst] = around[l.dst] || []).push(l.src);
+  }
+  const y = {};
+  columns.forEach((nodes) => nodes.forEach((n, i) => { y[n.id] = i * step; }));
+  const settle = (nodes) => {
+    const z = nodes.map((n, i) => {
+      const near = (around[n.id] || []).filter((id) => y[id] !== undefined);
+      const want = near.length ? near.reduce((s, id) => s + y[id], 0) / near.length : y[n.id];
+      return want - i * step;
+    });
+    const blocks = [];
+    for (const value of z) {
+      blocks.push({ sum: value, count: 1 });
+      while (blocks.length > 1 &&
+             blocks[blocks.length - 2].sum / blocks[blocks.length - 2].count >
+             blocks[blocks.length - 1].sum / blocks[blocks.length - 1].count) {
+        const last = blocks.pop();
+        blocks[blocks.length - 1].sum += last.sum;
+        blocks[blocks.length - 1].count += last.count;
+      }
+    }
+    let i = 0;
+    for (const block of blocks) {
+      for (let k = 0; k < block.count; k++, i++) y[nodes[i].id] = block.sum / block.count + i * step;
+    }
+  };
+  for (let pass = 0; pass < 6; pass++) {
+    const order = columns.map((_, c) => c);
+    if (pass % 2) order.reverse();
+    for (const c of order) settle(columns[c]);
+  }
+  let min = Infinity;
+  for (const id in y) min = Math.min(min, y[id]);
+  columns.forEach((nodes) => nodes.forEach((n) => { n.y = 20 + y[n.id] - min; }));
+}
 
 function layoutGraph(run) {
   const nodes = [{ id: "main", label: "orchestrator", status: "completed",
@@ -3095,101 +3264,125 @@ function layoutGraph(run) {
   }
   const byId = {};
   nodes.forEach((n) => { byId[n.id] = n; });
-  const edges = (run.edges || []).filter((e) => byId[e.src] && byId[e.dst]);
+  const edges = (run.edges || []).filter((e) => byId[e.src] && byId[e.dst]).map((e) => Object.assign({}, e));
+  const structural = edges.filter((e) => EXACT_KINDS.indexOf(e.kind) >= 0);
 
-  // Rank: longest path over exact edges. An inferred edge never sets a rank,
-  // so a bad guess cannot rearrange the whole picture.
-  const rank = {};
-  nodes.forEach((n) => { rank[n.id] = 0; });
-  const structural = edges.filter((e) => EXACT_KINDS.includes(e.kind));
-  for (let pass = 0; pass < nodes.length; pass++) {
-    let moved = false;
-    for (const edge of structural) {
-      const want = rank[edge.src] + 1;
-      if (rank[edge.dst] < want) { rank[edge.dst] = want; moved = true; }
-    }
-    if (!moved) break;  // also the cycle guard: bounded by node count
-  }
+  // Every agent is spawned by the orchestrator, so those edges are the same fan in
+  // every run and bury the real dependencies. Draw one only where it IS the
+  // explanation: an agent with no other incoming exact edge. Hovering the
+  // orchestrator brings the rest back.
+  const explained = new Set(structural.filter((e) => e.src !== "main").map((e) => e.dst));
+  edges.forEach((e) => { e.hidden = e.src === "main" && explained.has(e.dst); });
 
-  // Critical path: the duration-weighted longest chain, not the hop-count
-  // rank above. A 5-second agent and a 5-minute agent are equally "one hop,"
-  // but only one of them can be why the run took as long as it did. Same
-  // bounded-relaxation shape as the rank loop for the same cycle-safety.
-  const pathDuration = {};
-  const critPrev = {};
-  nodes.forEach((n) => { pathDuration[n.id] = n.duration || 0; critPrev[n.id] = null; });
-  for (let pass = 0; pass < nodes.length; pass++) {
-    let moved = false;
-    for (const edge of structural) {
-      const candidate = pathDuration[edge.src] + (byId[edge.dst].duration || 0);
-      if (candidate > pathDuration[edge.dst] + 1e-9) {
-        pathDuration[edge.dst] = candidate;
-        critPrev[edge.dst] = edge.src;
-        moved = true;
-      } else if (critPrev[edge.dst] === null && candidate >= pathDuration[edge.dst] - 1e-9) {
-        // A tie against the node's own-duration base case (its most common
-        // predecessor is "main", whose duration is always 0) must still
-        // record a predecessor, or the chain silently ends one hop short.
-        critPrev[edge.dst] = edge.src;
-      }
-    }
-    if (!moved) break;
-  }
-  let critEnd = nodes[0].id;
-  for (const n of nodes) {
-    if (pathDuration[n.id] > pathDuration[critEnd]) critEnd = n.id;
-  }
-  const criticalNodes = new Set();
-  const criticalEdges = new Set();
-  for (let cur = critEnd; cur; cur = critPrev[cur]) {
-    criticalNodes.add(cur);
-    if (critPrev[cur]) criticalEdges.add(critPrev[cur] + "→" + cur);
-  }
+  const { criticalNodes, criticalEdges } = graphCriticalPath(nodes, byId, structural);
+  const columns = graphRankColumns(nodes, structural);
+  const links = structural.filter((e) => e.src !== "main");
+  const crossings = graphOrderColumns(columns, links);
+  graphPlaceRows(columns, links);
 
-  const columns = {};
-  for (const node of nodes) {
-    node.rank = rank[node.id];
-    (columns[node.rank] = columns[node.rank] || []).push(node);
+  const rowsDrawn = columns.length;
+  columns.forEach((col, column) => col.forEach((node) => { node.x = 20 + column * (NODE_W + COL_GAP); }));
+  // The orchestrator sits level with the agents it launches directly.
+  if (columns[0] && columns[0].length === 1 && columns[0][0].isMain) {
+    const roots = edges.filter((e) => e.src === "main" && !e.hidden).map((e) => byId[e.dst].y);
+    if (roots.length) columns[0][0].y = roots.reduce((s, v) => s + v, 0) / roots.length;
   }
-  for (const key in columns) {
-    columns[key].sort((a, b) => (a.startedAt || 0) - (b.startedAt || 0));
-  }
+  let bottom = 0;
+  nodes.forEach((n) => { bottom = Math.max(bottom, n.y); });
+  return { nodes, edges, byId, crossings, criticalNodes, criticalEdges,
+           width: 40 + rowsDrawn * (NODE_W + COL_GAP) - COL_GAP, height: bottom + NODE_H + 40 };
+}
 
-  // Two barycenter sweeps: cheap, and enough for the fan-out shapes real
-  // orchestrations produce.
-  const ranks = Object.keys(columns).map(Number).sort((a, b) => a - b);
-  for (let sweep = 0; sweep < 2; sweep++) {
-    for (const r of ranks) {
-      const index = {};
-      (columns[r - 1] || []).forEach((n, i) => { index[n.id] = i; });
-      for (const node of columns[r]) {
-        const parents = structural
-          .filter((e) => e.dst === node.id && index[e.src] !== undefined)
-          .map((e) => index[e.src]);
-        node.bary = parents.length
-          ? parents.reduce((a, b) => a + b, 0) / parents.length
-          : Number.MAX_SAFE_INTEGER;
-      }
-      columns[r].sort((a, b) => (a.bary - b.bary) || 0);
-    }
-  }
+function graphClamp(k) {
+  return Math.max(GRAPH_MIN_K, Math.min(GRAPH_MAX_K, k));
+}
 
-  // Place by COLUMN INDEX, not by raw rank value. Artifact edges can form a
-  // cycle (two agents each reading what the other wrote), and the rank loop is
-  // bounded by node count rather than convergence, so a raw rank can climb far
-  // past the number of columns actually occupied — putting nodes outside the
-  // viewBox with no error and no visible cue that anything is missing.
-  ranks.forEach((r, column) => {
-    columns[r].forEach((node, i) => {
-      node.column = column;
-      node.x = 20 + column * (NODE_W + COL_GAP);
-      node.y = 20 + i * (NODE_H + ROW_GAP);
-    });
+function applyGraphView() {
+  const view = state.graphView;
+  if (view.el) view.el.setAttribute("transform", "translate(" + view.tx.toFixed(1) + "," + view.ty.toFixed(1) +
+    ") scale(" + view.k.toFixed(3) + ")");
+}
+
+function graphPoint(event) {
+  const svg = $("graph");
+  const rect = svg.getBoundingClientRect ? svg.getBoundingClientRect() : { left: 0, top: 0, width: 1, height: 1 };
+  const box = svg.viewBox && svg.viewBox.baseVal && svg.viewBox.baseVal.width ? svg.viewBox.baseVal : null;
+  const sx = box && rect.width ? box.width / rect.width : 1;
+  const sy = box && rect.height ? box.height / rect.height : 1;
+  return [(event.clientX - rect.left) * sx, (event.clientY - rect.top) * sy];
+}
+
+function zoomGraph(factor, cx, cy) {
+  const view = state.graphView;
+  const next = graphClamp(view.k * factor);
+  const f = next / view.k;
+  view.tx = cx - (cx - view.tx) * f;
+  view.ty = cy - (cy - view.ty) * f;
+  view.k = next;
+  view.userSet = true;
+  applyGraphView();
+}
+
+function fitGraph() {
+  state.graphView.userSet = false;
+  if (state.run) renderGraph(state.run);
+}
+
+// Pan and zoom: drag the background, Ctrl/Cmd+wheel (or pinch) to zoom, +/-/0 and the
+// arrow keys when the graph has focus, or the buttons. Plain wheel still scrolls the page.
+function setupGraphInteractions() {
+  const svg = $("graph");
+  if (!svg || !svg.addEventListener) return;
+  const centre = () => {
+    const w = svg.clientWidth || 900;
+    const h = Number(svg.getAttribute("height")) || 400;
+    return [w / 2, h / 2];
+  };
+  const zin = $("graph-zoom-in");
+  const zout = $("graph-zoom-out");
+  const fit = $("graph-fit");
+  if (zin) zin.onclick = () => zoomGraph(1.25, ...centre());
+  if (zout) zout.onclick = () => zoomGraph(0.8, ...centre());
+  if (fit) fit.onclick = fitGraph;
+  svg.addEventListener("wheel", (event) => {
+    if (!(event.ctrlKey || event.metaKey)) return;
+    event.preventDefault();
+    const [x, y] = graphPoint(event);
+    zoomGraph(event.deltaY < 0 ? 1.12 : 1 / 1.12, x, y);
+  }, { passive: false });
+  let drag = null;
+  svg.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || (event.target.closest && event.target.closest(".node, .edge"))) return;
+    const view = state.graphView;
+    drag = { x: event.clientX, y: event.clientY, tx: view.tx, ty: view.ty };
+    if (svg.setPointerCapture) svg.setPointerCapture(event.pointerId);
+    svg.classList.add("panning");
   });
-  const width = 40 + (ranks.length) * (NODE_W + COL_GAP);
-  const height = 40 + Math.max(...ranks.map((r) => columns[r].length)) *
-    (NODE_H + ROW_GAP);
-  return { nodes, edges, byId, width, height, criticalNodes, criticalEdges };
+  svg.addEventListener("pointermove", (event) => {
+    if (!drag) return;
+    const view = state.graphView;
+    view.tx = drag.tx + (event.clientX - drag.x);
+    view.ty = drag.ty + (event.clientY - drag.y);
+    view.userSet = true;
+    applyGraphView();
+  });
+  const stop = () => { drag = null; svg.classList.remove("panning"); };
+  svg.addEventListener("pointerup", stop);
+  svg.addEventListener("pointercancel", stop);
+  svg.addEventListener("keydown", (event) => {
+    const [cx, cy] = centre();
+    const view = state.graphView;
+    const pan = (dx, dy) => { view.tx += dx; view.ty += dy; view.userSet = true; applyGraphView(); };
+    if (event.key === "+" || event.key === "=") zoomGraph(1.25, cx, cy);
+    else if (event.key === "-" || event.key === "_") zoomGraph(0.8, cx, cy);
+    else if (event.key === "0") fitGraph();
+    else if (event.key === "ArrowLeft") pan(48, 0);
+    else if (event.key === "ArrowRight") pan(-48, 0);
+    else if (event.key === "ArrowUp") pan(0, 48);
+    else if (event.key === "ArrowDown") pan(0, -48);
+    else return;
+    event.preventDefault();
+  });
 }
 
 function renderGraph(run) {
@@ -3204,8 +3397,17 @@ function renderGraph(run) {
   const reducedMotion = typeof window.matchMedia === "function" &&
     window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const layout = layoutGraph(run);
-  const width = Math.max(svg.clientWidth || 900, layout.width);
-  const height = Math.max(layout.height, 200);
+
+  // Fit to width (but never below a readable size) until the person moves the view.
+  const view = state.graphView;
+  if (view.session !== state.sessionId) { view.session = state.sessionId; view.userSet = false; }
+  const width = svg.clientWidth || 900;
+  if (!view.userSet) {
+    view.k = Math.max(0.6, Math.min(1, (width - 24) / layout.width));
+    view.tx = 12;
+    view.ty = 12;
+  }
+  const height = Math.round(Math.min(Math.max(layout.height * view.k + 24, 300), 820));
   svg.setAttribute("height", height);
   svg.setAttribute("viewBox", "0 0 " + width + " " + height);
 
@@ -3215,13 +3417,20 @@ function renderGraph(run) {
     markerWidth: 7, markerHeight: 7, orient: "auto-start-reverse",
   }, "")).appendChild(svgEl("path", { d: "M0,0 L8,4 L0,8 z", class: "edge-arrow" }));
   svg.appendChild(defs);
+  svg.appendChild(svgEl("rect", { x: 0, y: 0, width: width, height: height, class: "graph-bg" }));
+  const viewport = svgEl("g", { class: "graph-viewport" });
+  svg.appendChild(viewport);
+  view.el = viewport;
+  applyGraphView();
 
-  const labelFont = bodyFont(11);
-  const subFont = bodyFont(9);
+  const labelFont = bodyFont(11.5);
+  const subFont = bodyFont(9.5);
   const textMax = NODE_W - NODE_TEXT_X - ACCENT_W - 12;
 
   const edgesByNode = {};
+  const neighbours = {};
   const edgeEls = [];
+  const hiddenEls = [];
   for (const edge of layout.edges) {
     const a = layout.byId[edge.src];
     const b = layout.byId[edge.dst];
@@ -3229,23 +3438,27 @@ function renderGraph(run) {
     const y1 = a.y + NODE_H / 2;
     const x2 = b.x;
     const y2 = b.y + NODE_H / 2;
-    const mid = (x1 + x2) / 2;
+    // A bend wide enough that an edge leaving a node clears its own column.
+    const bend = Math.max(36, Math.min((x2 - x1) / 2, 160));
     const isCritical = layout.criticalEdges.has(edge.src + "→" + edge.dst);
-    const d = "M" + x1 + "," + y1 + " C" + mid + "," + y1 + " " + mid + "," + y2 +
+    const d = "M" + x1 + "," + y1 + " C" + (x1 + bend) + "," + y1 + " " + (x2 - bend) + "," + y2 +
       " " + (x2 - 6) + "," + y2;
     const path = svgEl("path", {
       d: d,
       class: "edge" + (edge.confidence === "inferred" ? " edge-inferred" : "") +
         (edge.src === "main" ? " edge-main" : "") +
+        (edge.hidden ? " edge-hidden" : "") +
         (isCritical ? " edge-critical" : ""),
       "marker-end": "url(#arrow)",
     });
     path.appendChild(svgEl("title", {}, edge.kind + " (" + edge.confidence + ")"));
     path.onclick = () => showEvidence(edge);
-    svg.appendChild(path);
+    viewport.appendChild(path);
     edgeEls.push(path);
-    (edgesByNode[edge.src] = edgesByNode[edge.src] || []).push(path);
-    (edgesByNode[edge.dst] = edgesByNode[edge.dst] || []).push(path);
+    if (edge.hidden) hiddenEls.push(path);
+    for (const id of [edge.src, edge.dst]) (edgesByNode[id] = edgesByNode[id] || []).push(path);
+    (neighbours[edge.src] = neighbours[edge.src] || new Set()).add(edge.dst);
+    (neighbours[edge.dst] = neighbours[edge.dst] || new Set()).add(edge.src);
 
     // A brand-new edge key is a real event: this handoff was JUST detected
     // between polls. Flash a dot traveling the same path once, then let it
@@ -3253,7 +3466,7 @@ function renderGraph(run) {
     const edgeKey = edge.src + ">" + edge.dst + ">" + edge.kind;
     const isNewEdge = !firstRender && !state.seenEdgeKeys.has(edgeKey);
     state.seenEdgeKeys.add(edgeKey);
-    if (isNewEdge && !reducedMotion) {
+    if (isNewEdge && !reducedMotion && !edge.hidden) {
       const packet = svgEl("circle", { r: 4, class: "packet" });
       packet.appendChild(svgEl("animateMotion", {
         dur: "1s", begin: "0s", fill: "freeze", path: d,
@@ -3262,16 +3475,19 @@ function renderGraph(run) {
         attributeName: "opacity", from: "1", to: "0",
         begin: "0.7s", dur: "0.3s", fill: "freeze",
       }));
-      svg.appendChild(packet);
+      viewport.appendChild(packet);
     }
   }
 
+  const nodeEls = {};
   for (const node of layout.nodes) {
     const isCritical = layout.criticalNodes.has(node.id);
     const group = svgEl("g", { class: "node" + (node.isMain ? " main" : "") +
-      (isCritical ? " critical" : "") + (node.matches ? "" : " dim") });
+      (isCritical ? " critical" : "") + (node.matches ? "" : " dim") +
+      (state.selected === node.id ? " selected" : "") });
+    nodeEls[node.id] = group;
     group.appendChild(svgEl("rect", {
-      x: node.x, y: node.y, width: NODE_W, height: NODE_H, rx: 8, class: "card",
+      x: node.x, y: node.y, width: NODE_W, height: NODE_H, rx: 9, class: "card",
     }));
     if (!node.isMain) {
       group.appendChild(svgEl("rect", {
@@ -3280,33 +3496,46 @@ function renderGraph(run) {
       }));
       if (node.status === "running") {
         group.appendChild(svgEl("rect", {
-          x: node.x, y: node.y, width: NODE_W, height: NODE_H, rx: 8,
+          x: node.x, y: node.y, width: NODE_W, height: NODE_H, rx: 9,
           class: "node-ping",
         }));
       }
     }
     const tx = node.x + NODE_TEXT_X;
-    group.appendChild(svgEl("text", { x: tx, y: node.y + 21 },
+    group.appendChild(svgEl("text", { x: tx, y: node.y + 22 },
       fitText(node.label, textMax, labelFont)));
-    group.appendChild(svgEl("text", { x: tx, y: node.y + 35, class: "sub" },
-      fitText(node.status + " · " + node.sub, textMax, subFont)));
+    group.appendChild(svgEl("text", { x: tx, y: node.y + 38, class: "sub" },
+      fitText(node.status + " · " + node.sub, textMax - (node.duration ? 44 : 0), subFont)));
+    if (node.duration) {
+      group.appendChild(svgEl("text", { x: node.x + NODE_W - 10, y: node.y + 38, class: "sub node-time",
+        "text-anchor": "end" }, fmtDuration(node.duration)));
+    }
     group.appendChild(svgEl("title", {}, node.label + " — " + node.status));
     const connected = edgesByNode[node.id] || [];
     group.onmouseenter = () => {
+      if (node.isMain) hiddenEls.forEach((el) => el.classList.remove("edge-hidden"));
       if (!connected.length) return;
       const keep = new Set(connected);
       for (const el of edgeEls) el.classList.toggle("edge-dim", !keep.has(el));
+      // Focus: everything not directly connected steps back.
+      const near = neighbours[node.id] || new Set();
+      for (const id in nodeEls) nodeEls[id].classList.toggle("faded", id !== node.id && !near.has(id));
     };
     group.onmouseleave = () => {
+      if (node.isMain) hiddenEls.forEach((el) => el.classList.add("edge-hidden"));
       for (const el of edgeEls) el.classList.remove("edge-dim");
+      for (const id in nodeEls) nodeEls[id].classList.remove("faded");
     };
     if (!node.isMain) group.onclick = () => openDrawer(node.id);
-    svg.appendChild(group);
+    viewport.appendChild(group);
   }
 
-  const legend = "solid = exact  ·  dashed = inferred (click an edge for evidence, hover a node to trace it)" +
-    (layout.criticalNodes.size > 1 ? "  ·  accent = critical path (longest dependency chain by duration)" : "");
-  svg.appendChild(svgEl("text", { x: 20, y: height - 8, class: "legend" }, legend));
+  const legend = $("graph-legend");
+  if (legend) {
+    legend.textContent = "Solid edges are exact, dashed are inferred (click an edge for its evidence). " +
+      "Hover an agent to trace it" + (layout.edges.some((e) => e.hidden) ? ", or the orchestrator to see every launch" : "") +
+      "." + (layout.criticalNodes.size > 1 ? " Outlined: the critical path, the longest chain by duration." : "");
+  }
 
   // Hub files are context, not dependencies, so they are listed rather than
   // drawn. They go to the footer, not #edge-evidence, which showEvidence()

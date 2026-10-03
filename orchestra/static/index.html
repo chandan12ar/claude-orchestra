@@ -107,7 +107,15 @@ try { var t = localStorage.getItem("orchestra-theme");
     <svg id="timeline" role="img" aria-label="Agent timeline"></svg>
   </section>
   <section id="view-graph" class="view" hidden>
-    <svg id="graph" role="img" aria-label="Agent dependency graph"></svg>
+    <div class="graph-bar">
+      <p id="graph-legend" class="graph-legend"></p>
+      <div class="graph-tools" role="group" aria-label="Graph zoom">
+        <button id="graph-zoom-in" type="button" class="icon-btn" aria-label="Zoom in" title="Zoom in (+)">+</button>
+        <button id="graph-zoom-out" type="button" class="icon-btn" aria-label="Zoom out" title="Zoom out (-)">&minus;</button>
+        <button id="graph-fit" type="button" title="Fit to the page (0)">Fit</button>
+      </div>
+    </div>
+    <svg id="graph" role="group" tabindex="0" aria-label="Agent dependency graph. Drag to pan; plus, minus and zero zoom and fit."></svg>
     <div id="edge-evidence" class="evidence" hidden></div>
   </section>
   <section id="view-insights" class="view" hidden>
