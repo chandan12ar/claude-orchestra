@@ -61,6 +61,8 @@ const state = {
   audio: null,
   pill: null,            // the open Picture-in-Picture window, if any
   pillUi: null,          // the elements built inside it
+  pulseModel: null,      // what the live strip is showing
+  pulseShape: "",        // its structure, so it is rebuilt only when that changes
   stream: null,          // the open EventSource, if any
   streamLive: false,     // true only while that stream is connected
   refreshTimer: null,    // pending debounced refresh after a push
@@ -917,6 +919,7 @@ function renderWorkfloor(run) {
 // cheap local interval that only touches DOM text, never re-renders.
 function tickAgentClocks() {
   tickTransport();
+  tickPulse();
   if (state.view !== "workfloor" || state.offline) return;
   const now = Date.now() / 1000;
   for (const card of document.querySelectorAll('.agent-card[data-live="1"]')) {
@@ -1033,6 +1036,295 @@ function renderHeader(run) {
   add("cached", replaying ? "\u2014" : fmtPct(cacheHitRatio(t.tokens)), "cached");
   renderCostPart(run);
   $("conn").textContent = run.session_live ? "" : "session ended";
+}
+
+// ------------------------------------------------------------- live pulse strip
+//
+// A ticker for the run: how many agents are working, how fast tool calls land,
+// how many fresh tokens have been spent, and what just happened. Every line is a
+// real series from `insights.pulse`; nothing is smoothed or estimated, and the
+// y-axis always starts at zero so a small wobble never looks like a crash.
+
+const PULSE_W = 232;
+const PULSE_H = 46;
+const PULSE_PAD = 3;
+
+// Line, area and last point for evenly spaced values.
+function sparkGeometry(values, width, height, pad) {
+  const n = values.length;
+  if (!n) return null;
+  const top = Math.max(1, Math.max.apply(null, values));
+  const x = (i) => (n === 1 ? width : (i / (n - 1)) * width);
+  const y = (v) => height - pad - (v / top) * (height - 2 * pad);
+  let line = "";
+  for (let i = 0; i < n; i++) line += (i ? "L" : "M") + x(i).toFixed(1) + " " + y(values[i]).toFixed(1);
+  const area = line + "L" + x(n - 1).toFixed(1) + " " + height + "L" + x(0).toFixed(1) + " " + height + "Z";
+  return { line: line, area: area, last: [x(n - 1), y(values[n - 1])], top: top };
+}
+
+// The same for a step series [[time, level], ...] over a time window.
+function stepGeometry(series, start, end, width, height, pad) {
+  if (!series || !series.length) return null;
+  const span = Math.max(end - start, 1);
+  const top = Math.max(1, Math.max.apply(null, series.map((p) => p[1])));
+  const x = (t) => Math.min(width, Math.max(0, ((t - start) / span) * width));
+  const y = (v) => height - pad - (v / top) * (height - 2 * pad);
+  let line = "M" + x(series[0][0]).toFixed(1) + " " + y(0).toFixed(1);
+  let level = 0;
+  for (const point of series) {
+    line += "L" + x(point[0]).toFixed(1) + " " + y(level).toFixed(1);
+    level = point[1];
+    line += "L" + x(point[0]).toFixed(1) + " " + y(level).toFixed(1);
+  }
+  line += "L" + width + " " + y(level).toFixed(1);
+  const area = line + "L" + width + " " + height + "L" + x(series[0][0]).toFixed(1) + " " + height + "Z";
+  return { line: line, area: area, last: [width, y(level)], top: top };
+}
+
+// The level a step series held at time t (0 before its first point).
+function levelAt(series, t) {
+  let level = 0;
+  for (const point of series || []) {
+    if (point[0] > t) break;
+    level = point[1];
+  }
+  return level;
+}
+
+function pulseDelta(now, before, format) {
+  const diff = now - before;
+  if (diff === 0) return { dir: "flat", text: "no change" };
+  const amount = format ? format(Math.abs(diff)) : String(Math.abs(diff));
+  return { dir: diff > 0 ? "up" : "down", text: (diff > 0 ? "+" : "−") + amount };
+}
+
+// The strip's content as plain data, so it can be tested without a page.
+// Returns null when there is nothing to chart (no agent yet, a replay, or an
+// older server that does not send the series).
+function pulseModel(run) {
+  const pulse = run && run.insights && run.insights.pulse;
+  if (!pulse || run.replay_at !== undefined) return null;
+  const par = run.insights.parallelism;
+  const series = (par && par.series) || [];
+  const t = run.totals;
+  const running = t.running + (t.waiting || 0);
+  const ago = pulse.now - pulse.rate.window_s;
+  const tokensTotal = pulse.tokens.length ? pulse.tokens[pulse.tokens.length - 1] : 0;
+  const issues = t.failed + t.orphaned + t.stalled + (t.waiting || 0);
+  return {
+    live: pulse.live,
+    start: pulse.start,
+    end: pulse.end,
+    window: pulse.end - pulse.start,
+    tiles: [
+      { key: "running", label: "Agents running", value: String(running),
+        delta: pulseDelta(running, levelAt(series, ago)), note: "vs 1 min ago",
+        geo: stepGeometry(series, pulse.start, pulse.end, PULSE_W, PULSE_H, PULSE_PAD) },
+      { key: "calls", label: "Tool calls per minute", value: String(pulse.rate.calls_last),
+        delta: pulseDelta(pulse.rate.calls_last, pulse.rate.calls_prev), note: "vs the minute before",
+        geo: sparkGeometry(pulse.calls, PULSE_W, PULSE_H, PULSE_PAD) },
+      { key: "tokens", label: "Fresh tokens spent", value: fmtCount(tokensTotal),
+        delta: pulseDelta(pulse.rate.tokens_last, pulse.rate.tokens_prev, fmtCount), note: "per minute, vs before",
+        geo: sparkGeometry(pulse.tokens, PULSE_W, PULSE_H, PULSE_PAD) },
+    ],
+    health: { issues: issues, failed: t.failed + t.orphaned, stalled: t.stalled, waiting: t.waiting || 0 },
+    marks: pulse.markers.slice(-8).reverse(),
+  };
+}
+
+const PULSE_MARK = {
+  start: { glyph: "▶", word: "started" },
+  done: { glyph: "✓", word: "finished" },
+  fail: { glyph: "✕", word: "failed" },
+  stall: { glyph: "◷", word: "went quiet" },
+};
+
+function pulseTileHtml(tile) {
+  const geo = tile.geo;
+  const delta = tile.delta;
+  const arrow = delta.dir === "up" ? "▲" : delta.dir === "down" ? "▼" : "▬";
+  const label = tile.label + ": " + tile.value + ", " +
+    (delta.dir === "flat" ? "no change" : delta.text + " " + tile.note);
+  const chart = geo
+    ? '<svg class="pulse-chart" viewBox="0 0 ' + PULSE_W + " " + PULSE_H + '" preserveAspectRatio="none" role="img" aria-label="' +
+      esc(label) + '"><path class="pulse-area" d="' + geo.area + '"/><path class="pulse-line" d="' + geo.line + '"/></svg>' +
+      '<i class="pulse-dot" style="left:' + ((geo.last[0] / PULSE_W) * 100).toFixed(1) + "%;top:" +
+      ((geo.last[1] / PULSE_H) * 100).toFixed(1) + '%"></i><i class="pulse-cross" hidden></i>'
+    : "";
+  return '<div class="pulse-tile" data-k="' + tile.key + '" data-live="' + (tile.live ? 1 : 0) + '">' +
+    '<div class="pulse-top"><span class="pulse-label">' + esc(tile.label) + "</span>" +
+    '<span class="pulse-delta is-' + delta.dir + '" title="' + esc(tile.note) + '"><b aria-hidden="true">' + arrow +
+    "</b> " + esc(delta.text) + "</span></div>" +
+    '<div class="pulse-value" data-v="' + esc(tile.value) + '">' + esc(tile.value) + "</div>" +
+    '<div class="pulse-plot">' + chart + '<span class="pulse-tip" hidden></span></div></div>';
+}
+
+function pulseHealthHtml(health) {
+  const part = (n, word, cls) => (n ? '<span class="pulse-pill ' + cls + '"><i></i>' + n + " " + word + "</span>" : "");
+  const body = health.issues
+    ? part(health.failed, "failed", "p-failed") + part(health.stalled, "stalled", "p-stalled") +
+      part(health.waiting, "waiting on you", "p-waiting")
+    : '<span class="pulse-clear">All clear</span>';
+  return '<div class="pulse-tile pulse-health" data-k="health"><div class="pulse-top"><span class="pulse-label">Needs you</span></div>' +
+    '<div class="pulse-value" data-v="' + health.issues + '">' + health.issues + '</div>' +
+    '<div class="pulse-pills">' + body + "</div></div>";
+}
+
+function pulseTapeHtml(marks) {
+  if (!marks.length) return "";
+  const chips = marks.map((m) => {
+    const info = PULSE_MARK[m.kind] || PULSE_MARK.start;
+    return '<button type="button" class="pulse-chip is-' + m.kind + '" data-agent="' + esc(m.agent_id) + '" title="' +
+      esc(m.label + " " + info.word) + '"><i aria-hidden="true">' + info.glyph + '</i><span>' + esc(m.label) + "</span>" +
+      '<time data-t="' + m.t + '"></time></button>';
+  });
+  return '<div class="pulse-tape" aria-label="Recent events">' + chips.join("") + "</div>";
+}
+
+function pulseCollapsed() {
+  try { return typeof localStorage !== "undefined" && localStorage.getItem("cuelight-pulse") === "closed"; }
+  catch (err) { return false; }
+}
+
+function setPulseCollapsed(closed) {
+  try { if (typeof localStorage !== "undefined") localStorage.setItem("cuelight-pulse", closed ? "closed" : "open"); }
+  catch (err) { /* private window: the choice just does not persist */ }
+}
+
+// The tile's chart, value and arrow, refreshed without rebuilding the tile.
+function updatePulseTile(el, tile, live) {
+  const geo = tile.geo;
+  if (geo) {
+    const area = el.querySelector(".pulse-area");
+    const line = el.querySelector(".pulse-line");
+    const dot = el.querySelector(".pulse-dot");
+    if (area) area.setAttribute("d", geo.area);
+    if (line) line.setAttribute("d", geo.line);
+    if (dot) {
+      dot.style.left = ((geo.last[0] / PULSE_W) * 100).toFixed(1) + "%";
+      dot.style.top = ((geo.last[1] / PULSE_H) * 100).toFixed(1) + "%";
+    }
+    const chart = el.querySelector(".pulse-chart");
+    if (chart) {
+      chart.setAttribute("aria-label", tile.label + ": " + tile.value + ", " +
+        (tile.delta.dir === "flat" ? "no change" : tile.delta.text + " " + tile.note));
+    }
+  }
+  const value = el.querySelector(".pulse-value");
+  const was = value.getAttribute("data-v");
+  if (was !== tile.value) {
+    value.textContent = tile.value;
+    value.setAttribute("data-v", tile.value);
+    // A value that moved flashes once: a cue that it is live, never a sound or a loop.
+    if (live) {
+      value.classList.add("is-tick");
+      setTimeout(() => value.classList.remove("is-tick"), 700);
+    }
+  }
+  const delta = el.querySelector(".pulse-delta");
+  const arrow = tile.delta.dir === "up" ? "▲" : tile.delta.dir === "down" ? "▼" : "▬";
+  delta.className = "pulse-delta is-" + tile.delta.dir;
+  delta.innerHTML = '<b aria-hidden="true">' + arrow + "</b> " + esc(tile.delta.text);
+}
+
+function renderPulse(run) {
+  const box = $("pulse");
+  if (!box) return;
+  const model = pulseModel(run);
+  state.pulseModel = model;
+  if (!model) { box.hidden = true; box.innerHTML = ""; state.pulseShape = ""; return; }
+  box.hidden = false;
+  const closed = pulseCollapsed();
+  // What is on the page, apart from the numbers inside each chart. The charts
+  // are updated in place on every poll so the live dot keeps pulsing instead of
+  // restarting; the strip is rebuilt only when its shape really changes.
+  const shape = JSON.stringify([closed, model.live, model.tiles.map((t) => !!t.geo), model.health, model.marks]);
+  const sub = (model.live ? '<i class="pulse-live" aria-hidden="true"></i>live · ' : "") +
+    "last " + esc(fmtDuration(model.window));
+  if (shape !== state.pulseShape) {
+    state.pulseShape = shape;
+    const head = '<div class="pulse-head"><span class="pulse-title">Pulse</span><span class="pulse-sub">' + sub +
+      '</span><button type="button" class="pulse-toggle" aria-expanded="' + (closed ? "false" : "true") + '">' +
+      (closed ? "Show" : "Hide") + "</button></div>";
+    let body = "";
+    if (!closed) {
+      for (const tile of model.tiles) tile.live = model.live;
+      body = '<div class="pulse-tiles">' + model.tiles.map(pulseTileHtml).join("") + pulseHealthHtml(model.health) +
+        "</div>" + pulseTapeHtml(model.marks);
+    }
+    box.className = "pulse" + (closed ? " is-closed" : "");
+    box.innerHTML = head + body;
+  } else {
+    const subEl = box.querySelector(".pulse-sub");
+    if (subEl) subEl.innerHTML = sub;
+    if (!closed) {
+      for (const tile of model.tiles) {
+        const el = box.querySelector('.pulse-tile[data-k="' + tile.key + '"]');
+        if (el) updatePulseTile(el, tile, model.live);
+      }
+    }
+  }
+  tickPulse();
+}
+
+// Ages on the event tape count up between polls, like the transport clock.
+function tickPulse() {
+  const model = state.pulseModel;
+  if (!model) return;
+  const now = model.live ? Date.now() / 1000 : model.end;
+  for (const el of document.querySelectorAll("#pulse time[data-t]")) {
+    el.textContent = fmtDuration(Math.max(0, now - parseFloat(el.getAttribute("data-t")))) + " ago";
+  }
+}
+
+function setupPulse() {
+  const box = $("pulse");
+  if (!box) return;
+  box.addEventListener("click", (event) => {
+    const toggle = event.target.closest && event.target.closest(".pulse-toggle");
+    if (toggle) {
+      setPulseCollapsed(!pulseCollapsed());
+      state.pulseSig = "";
+      renderPulse(state.run);
+      return;
+    }
+    const chip = event.target.closest && event.target.closest(".pulse-chip");
+    if (chip) openDrawer(chip.getAttribute("data-agent"));
+  });
+  // Hover a chart to read the exact value under the pointer.
+  box.addEventListener("pointermove", (event) => {
+    const plot = event.target.closest && event.target.closest(".pulse-plot");
+    const model = state.pulseModel;
+    if (!plot || !model) {
+      for (const el of box.querySelectorAll(".pulse-tip, .pulse-cross")) el.hidden = true;
+      return;
+    }
+    const tile = plot.parentNode;
+    const geo = model.tiles.filter((t) => t.key === tile.getAttribute("data-k"))[0];
+    const pulse = state.run && state.run.insights && state.run.insights.pulse;
+    if (!geo || !pulse) return;
+    const rect = plot.getBoundingClientRect();
+    const frac = Math.min(1, Math.max(0, (event.clientX - rect.left) / Math.max(1, rect.width)));
+    const when = pulse.start + frac * (pulse.end - pulse.start);
+    let text;
+    if (geo.key === "running") {
+      text = levelAt((state.run.insights.parallelism || {}).series, when) + " running";
+    } else {
+      const values = geo.key === "calls" ? pulse.calls : pulse.tokens;
+      const v = values[Math.min(values.length - 1, Math.floor(frac * values.length))];
+      text = geo.key === "calls" ? v + " calls in this slice" : fmtCount(v) + " tokens by then";
+    }
+    const tip = plot.querySelector(".pulse-tip");
+    const cross = plot.querySelector(".pulse-cross");
+    tip.textContent = text + " · " + fmtDuration(when - pulse.start) + " in";
+    tip.hidden = false;
+    tip.style.left = Math.min(Math.max(frac * 100, 18), 82) + "%";
+    cross.hidden = false;
+    cross.style.left = (frac * 100).toFixed(1) + "%";
+  });
+  box.addEventListener("pointerleave", () => {
+    for (const el of box.querySelectorAll(".pulse-tip, .pulse-cross")) el.hidden = true;
+  });
 }
 
 function costText(cost) {
@@ -1376,6 +1668,7 @@ function render() {
     if (section) section.hidden = state.view !== name || none;
   }
   renderHeader(state.run);
+  renderPulse(state.run);
   updateChrome();
   renderAttention(state.run);
   renderHealth(state.run);
@@ -2994,6 +3287,7 @@ function init() {
   applyTheme(themeMode());
   setupFloorGroup();
   setupPalette();
+  setupPulse();
   setupGraphInteractions();
   const themeBtn = $("theme-toggle");
   if (themeBtn) themeBtn.onclick = cycleTheme;

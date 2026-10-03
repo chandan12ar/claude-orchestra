@@ -269,6 +269,7 @@ class RunBuilder:
             cost=(self._table.cost(digest.tokens_by_model)[0]
                   if self._table is not None else None),
             tool_calls=list(digest.tool_calls),
+            token_events=list(digest.token_events),
             files_written=list(digest.files_written),
             files_read=list(digest.files_read),
             transcript_path=log_path,

@@ -58,6 +58,67 @@ class TestParallelism(unittest.TestCase):
         self.assertLessEqual(len(series), insights.MAX_SERIES + 1)
 
 
+class TestPulse(unittest.TestCase):
+    """The live strip's series: real counts on one shared window."""
+
+    def pulse(self, *agents, now=100, live=True):
+        r = run_of(*agents)
+        r.session_live = live
+        return insights.compute(r, now=now)["pulse"]
+
+    def test_none_without_any_agent(self):
+        self.assertIsNone(insights.compute(run_of(), now=1)["pulse"])
+
+    def test_every_series_shares_one_window_and_length(self):
+        p = self.pulse(agent("a", 0, 10), agent("b", 5, 40), now=60)
+        self.assertEqual((p["start"], p["end"]), (0, 60))        # live: the right edge is now
+        self.assertEqual(len(p["calls"]), p["buckets"])
+        self.assertEqual(len(p["tokens"]), p["buckets"])
+
+    def test_an_ended_session_stops_at_its_last_event(self):
+        p = self.pulse(agent("a", 0, 10), now=500, live=False)
+        self.assertEqual(p["end"], 10)
+
+    def test_tool_calls_land_in_the_right_bucket_and_are_counted_per_minute(self):
+        a = agent("a", 0, 96, tool_calls=[ToolCall("Read", "x", 0.5), ToolCall("Read", "y", 95.0),
+                                          ToolCall("Bash", "z", 80.0)])
+        p = self.pulse(a, now=96)
+        self.assertEqual(sum(p["calls"]), 3)
+        self.assertEqual(p["calls"][0], 1)
+        self.assertEqual(p["calls"][-1], 1)
+        self.assertEqual(p["rate"]["calls_last"], 2)             # 95.0 and 80.0 are inside the last 60 s
+        self.assertEqual(p["rate"]["calls_prev"], 1)             # 0.5 is not: older than 120 s ago
+
+    def test_tokens_are_cumulative_and_end_at_the_total(self):
+        a = agent("a", 0, 100, token_events=[(10.0, 100), (50.0, 250), (99.0, 50)])
+        p = self.pulse(a, now=100)
+        self.assertEqual(p["tokens"][-1], 400)
+        self.assertEqual(p["tokens"], sorted(p["tokens"]))
+        self.assertEqual(p["rate"]["tokens_last"], 300)          # events at 50 and 99 are in the last 60 s
+
+    def test_events_outside_the_window_are_ignored(self):
+        a = agent("a", 10, 20, tool_calls=[ToolCall("Read", "x", 5.0)], token_events=[(5.0, 99)])
+        p = self.pulse(a, now=20)
+        self.assertEqual((sum(p["calls"]), p["tokens"][-1]), (0, 0))
+
+    def test_markers_name_starts_finishes_failures_and_stalls(self):
+        done = agent("d", 0, 10, status="completed", description="Did it")
+        bad = agent("b", 0, 12, status="failed", description="Broke")
+        stuck = agent("s", 0, None, status="stalled", description="Stuck", last_activity_at=30.0)
+        p = self.pulse(done, bad, stuck, now=60)
+        kinds = sorted((m["kind"], m["label"]) for m in p["markers"])
+        self.assertEqual(kinds, [("done", "Did it"), ("fail", "Broke"), ("stall", "Stuck"),
+                                 ("start", "Broke"), ("start", "Did it"), ("start", "Stuck")])
+        self.assertEqual([m["t"] for m in p["markers"]], sorted(m["t"] for m in p["markers"]))
+
+    def test_markers_are_bounded_and_scrubbed(self):
+        many = [agent("a%d" % i, i, i + 1, status="completed",
+                      description="key sk-ant-api03-" + "A" * 40) for i in range(100)]
+        p = self.pulse(*many, now=500)
+        self.assertLessEqual(len(p["markers"]), insights.PULSE_MARKERS)
+        self.assertNotIn("sk-ant-api03-AAAA", str(p["markers"]))
+
+
 class TestCriticalPath(unittest.TestCase):
     def test_longest_chain_wins_over_longest_agent(self):
         # a(0-10) -> b(10-30)  is 30s of chain; c(0-25) alone is 25s.
