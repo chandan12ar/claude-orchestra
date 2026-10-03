@@ -816,6 +816,46 @@ pure functions in `app.js`, tested under node.
 - **History** (`history.py`): opt-in sqlite, **metrics only**, `0600`, pruned by
   age and count; off creates nothing.
 
+### Insights, search, demo (`insights.py`, `search.py`, `demo.py`)
+- **Insights** is a pure function of the `Run`, filled in by `RunBuilder` and carried
+  in the summary payload (so a static report and an export have it too). Parallelism
+  is a sweep over round start/end events (ends sort before starts, so back-to-back
+  agents do not read as overlap). The **critical path** is the duration-weighted
+  longest chain over *exact* edges only (`spawn`, `artifact`, `message`), counting only
+  the time an agent adds beyond its predecessor's end, on forward-in-time edges, so a
+  cycle can never loop it. Every list is capped; every transcript string is scrubbed.
+- **Search** (`GET /api/search?q=`) matches the **scrubbed** text, never the raw
+  transcript: matching raw text and scrubbing only the output would let a caller
+  probe a redacted secret one character at a time. Identical calls by one agent
+  collapse into one counted row. A static report searches the details baked into it
+  (`localSearch`).
+- **Demo** (`python -m orchestra --demo`) builds a fixed, seeded 13-agent scenario in a
+  temp directory (own `CLAUDE_CONFIG_DIR`, state dir and price file), then a simulator
+  thread appends tool calls to the running agents and re-asserts a pending permission
+  prompt after each tick. Nothing is written outside the temp directory, which is
+  removed on exit.
+
+### Graph and Work Floor
+- **Graph layout** (`layoutGraph`) is a pure function split into `graphRankColumns`
+  (longest path over exact edges; columns indexed, never raw rank), `graphOrderColumns`
+  (alternating down/up barycentre sweeps on per-column normalised positions, best
+  crossing count kept), `graphPlaceRows` (exact isotonic regression by pooling adjacent
+  violators: each node level with its neighbours, no overlap, order kept) and
+  `graphCriticalPath`. The orchestrator's spawn edge to an agent is hidden whenever that
+  agent has another incoming exact edge. Pan/zoom is a transform on one viewport group.
+- **Work Floor** cards show `last_tool` and the `activity` bins from the light payload.
+  The floor records a signature of everything it draws and skips the rebuild when it is
+  unchanged, so running sprites are not restarted every poll.
+
+### Front-end design system
+One stylesheet of tokens (`style.css`): a monochrome interface where **status is the
+only chroma**, designed for light and dark together (`data-theme` or the system
+setting, applied before first paint). Colour is never the only signal. The
+`tests/test_contrast.py` suite reads the real tokens and enforces WCAG 4.5:1 for
+text and 3:1 for marks in both themes. The report page shell is derived from
+`index.html` at import (`report._build_shell`), with every substitution asserted, so
+there is one shell. Deep links are `#view=<tab>&agent=<id>`.
+
 ### Security notes for the live layer
 Hook text and spool contents are untrusted: `Event.from_dict` validates strictly,
 event text reaches the page via `textContent`, and `esc()` escapes quotes so a
@@ -848,6 +888,9 @@ orchestra/
   events.py         agent-neutral Event schema + the on-disk spool
   hook.py           the async Claude Code hook entrypoint
   livestate.py      ground-truth session/agent state from events + transcripts
+  insights.py       run-level analytics: parallelism, critical path, tools, tokens, files
+  search.py         agents / tool calls / files search over the scrubbed run
+  demo.py           the synthetic 13-agent run behind --demo
   pricing.py        user-supplied price table -> cost
   runaway.py        possible-loop detection
   export.py         CSV / JSON export

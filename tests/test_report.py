@@ -63,3 +63,21 @@ class TestWriteReport(ReportTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestScriptInjectionCannotEscapeTheReport(unittest.TestCase):
+    """A brief that mentions </script> must not close the report's inline script."""
+
+    def test_a_hostile_description_and_result_stay_inside_the_data(self):
+        from orchestra.model import Agent, Round, Run
+        from orchestra.report import render_report
+        evil = "</script><script>alert(1)</script><!--"
+        agent = Agent(agent_id="a1", description=evil, status="completed", result=evil, brief=evil,
+                      rounds=[Round(started_at=1.0, ended_at=2.0)])
+        run = Run(session_id="s", agents=[agent])
+        html = render_report(run, {"a1": agent.to_detail_dict()})
+        self.assertNotIn("<script>alert(1)", html)
+        # Exactly the page's own three scripts (theme, data, app) and nothing the text added.
+        self.assertEqual(html.count("<script>"), 3)
+        self.assertEqual(html.count("</script>"), 3)
+        self.assertIn("\u003c/script>", html)             # the hostile text survives, defanged

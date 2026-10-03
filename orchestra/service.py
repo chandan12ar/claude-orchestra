@@ -9,6 +9,7 @@ from typing import Any, Callable, Dict, List, Optional
 from orchestra import constants as C
 from orchestra.build import RunBuilder
 from orchestra import export as export_mod
+from orchestra import search as search_mod
 from orchestra.events import EventSpool
 from orchestra.history import HistoryStore
 from orchestra.pricing import PriceSource
@@ -174,6 +175,9 @@ class OrchestraService:
         if self.history is not None:
             self.history.maybe_record(summary)
         return summary
+
+    def search(self, query: str, session_id: str = "") -> Dict[str, Any]:
+        return search_mod.search(self._builder(session_id).refresh(), query)
 
     def history_list(self, limit: int = 50) -> Dict[str, Any]:
         if self.history is None:

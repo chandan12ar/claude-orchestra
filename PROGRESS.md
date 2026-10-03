@@ -152,3 +152,31 @@ and the full local suite passes on every later commit (665 tests at 438d5fa). Th
 cross-OS result for commits after e96913c is therefore UNVERIFIED until billing is fixed
 and the runs are re-run (`gh run rerun <id>`). The Windows-specific risk is low for the
 latest changes but not zero (new node-based tests use explicit utf-8).
+
+## Branch `feature/enterprise-ux` (stacked on `feature/live-events`, 2026-10-03)
+
+Research first (what Langfuse/LangSmith/AgentOps and the open-source Claude Code
+dashboards such as agents-observe and Claude-Code-Agent-Monitor offer, and what
+users ask for on HN), then built the gaps. Every item has tests; the suite is at
+734+ and the UI was checked in a real Chromium (light, dark, phone width).
+
+| Item | State |
+|---|---|
+| `--demo` synthetic 13-agent run (+ simulator, + pending permission prompt) | done |
+| Insights backend (`insights.py`) and tab (parallelism, critical path, tools, cache, spend, files) | done |
+| `/api/search` + command palette + keyboard shortcuts + help | done |
+| Design system: tokens, light/dark/auto, transport header, alert chips, drawer, timeline comb + critical outline + now marker | done |
+| Report shell derived from `index.html` (no more drift) | done |
+| Contrast guard (`tests/test_contrast.py`), empty/loading states, tab arrow keys | done |
+| README + screenshots, CHANGELOG `[Unreleased]`, ARCHITECTURE section | done |
+
+Also done later the same day: a layered, interactive Graph (tested layout functions,
+pan/zoom/fit, hover focus) and a richer Work Floor (last tool call, sparkline, group by
+role/status, no needless rebuilds).
+
+Not done / ideas worth a later pass (none are blocked):
+- Activity tab has no text filter of its own (the palette searches tool calls).
+- Graph edges that skip columns still cross intermediate nodes (long-edge routing).
+- `plugin.json` is 0.3.0 (bumped at merge).
+- CI could not run on GitHub at first (account billing). After the repo went public it
+  ran: all 10 jobs green on Linux, macOS and Windows (Python 3.9, 3.12, 3.13).

@@ -35,6 +35,9 @@ const state = {
   // traveling-dot animation instead of appearing as a plain static line.
   seenEdgeKeys: new Set(),
   graphSeeded: false,
+  // Pan/zoom of the Graph view. userSet is false until the person moves it, so a
+  // growing run keeps fitting the page instead of drifting out of view.
+  graphView: { k: 1, tx: 12, ty: 12, userSet: false, session: "", el: null },
   // Desktop notifications for "something happened while I wasn't watching."
   // notifySeeded guards the same way graphSeeded does: the first poll only
   // records what already exists (a pre-existing failure or an already-ended
@@ -72,6 +75,8 @@ const state = {
   // silently, only later deltas earn the one-shot activity pulse.
   floorActivity: {},
   floorSeeded: false,
+  floorGroup: "type",     // "type" (by role) or "status" (who needs a look first)
+  floorSig: "",           // what the floor last drew; an unchanged floor is not rebuilt
   // agent_id -> its last-seen status and a celebrate-until timestamp (ms),
   // so a live transition into "completed" gets a one-shot jump burst
   // instead of every render re-triggering it.
@@ -465,7 +470,7 @@ function renderConflicts(run) {
     const item = document.createElement("li");
     const labels = c.writer_ids.map((id) => (byId[id] && byId[id].description) || id);
     item.textContent = c.path + " — written by " + labels.join(", ");
-    item.style.cursor = "pointer";
+    item.setAttribute("data-kind", "conflict");
     item.onclick = () => openDrawer(c.writer_ids[0]);
     list.appendChild(item);
   }
@@ -733,29 +738,80 @@ function humanizeAgentType(agentType) {
   return last.replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+// Who needs a look first. Used to sort a group and to order the "by status" floor.
+const FLOOR_STATUS_ORDER = ["failed", "stalled", "waiting", "orphaned", "running", "completed", "unknown"];
+const FLOOR_STATUS_LABEL = { failed: "Failed", stalled: "Stalled", waiting: "Waiting on you", orphaned: "Orphaned",
+  running: "Running", completed: "Completed", unknown: "Unknown" };
+
+function floorRank(agent) {
+  const at = FLOOR_STATUS_ORDER.indexOf(agent.status);
+  return at < 0 ? FLOOR_STATUS_ORDER.length : at;
+}
+
+// What a tool call acted on, short enough for a card: a file by its name, anything
+// else (a command, a query, a URL) as written.
+function toolTargetLabel(tool) {
+  if (!tool || !tool.target) return "";
+  return ["Read", "Write", "Edit", "NotebookEdit", "NotebookRead"].indexOf(tool.name) >= 0
+    ? baseName(tool.target) : tool.target;
+}
+
+// The same comb the timeline draws, as a sparkline: where the agent was busy.
+function sparkHtml(bins) {
+  if (!bins || !bins.length) return "";
+  const peak = Math.max.apply(null, bins);
+  return '<span class="spark" aria-hidden="true">' + bins.map((b) =>
+    '<i' + (b ? "" : ' class="z"') + ' style="height:' + (b ? Math.max(22, Math.round((b / peak) * 100)) : 8) + '%"></i>').join("") +
+    "</span>";
+}
+
+function floorSignature(run, celebrating) {
+  return JSON.stringify([state.floorGroup, state.filterText, Array.from(state.filterStatuses),
+    state.offline, celebrating,
+    run.agents.map((a) => [a.agent_id, a.status, a.tool_call_count, agentTokenTotal(a.tokens), a.ended_at,
+      a.last_tool ? a.last_tool.name + a.last_tool.target : "", (a.activity || []).join(","),
+      agentMatchesFilter(a)])]);
+}
+
 function renderWorkfloor(run) {
   const box = $("workfloor");
   if (!box) return;
-  stopAgentSprites();
   if (!run.agents.length) {
+    stopAgentSprites();
     box.innerHTML = '<div class="ticker-empty">No agents in this session yet.</div>';
+    state.floorSig = "";
     return;
   }
+  // Nothing visible changed since the last render: leave the DOM and the running
+  // sprites alone. (Rebuilding every few seconds restarted every animation.)
+  const celebrating = Object.keys(state.agentCelebrateUntil)
+    .filter((id) => state.agentCelebrateUntil[id] > Date.now()).sort();
+  const signature = floorSignature(run, celebrating);
+  if (signature === state.floorSig && box.innerHTML) return;
+  state.floorSig = signature;
+  stopAgentSprites();
+
   const now = Date.now() / 1000;
   const seeded = state.floorSeeded;
   const nextActivity = {};
   const spriteStates = {}; // agent_id -> {row, fps}, resolved here so the DOM pass below just wires canvases
 
-  // Group by role (agent_type), each group its own floor section, sorted by
-  // label — "Ungrouped" (inline launches with no declared type) always last,
-  // since it's a catch-all rather than a real role.
+  // Group by role (agent_type) or by status. Roles sort by label, "Ungrouped" (inline
+  // launches with no declared type) last since it is a catch-all; statuses sort by
+  // who needs a look first. Inside a group the agents that need attention come first.
+  const byStatus = state.floorGroup === "status";
   const groups = new Map(); // label -> agents[]
   for (const agent of run.agents) {
-    const label = humanizeAgentType(agent.agent_type);
+    const label = byStatus ? (FLOOR_STATUS_LABEL[agent.status] || "Unknown") : humanizeAgentType(agent.agent_type);
     if (!groups.has(label)) groups.set(label, []);
     groups.get(label).push(agent);
   }
+  for (const list of groups.values()) {
+    list.sort((a, b) => (floorRank(a) - floorRank(b)) || ((a.started_at || 0) - (b.started_at || 0)));
+  }
+  const statusLabels = FLOOR_STATUS_ORDER.map((s) => FLOOR_STATUS_LABEL[s]);
   const groupLabels = Array.from(groups.keys()).sort((a, b) => {
+    if (byStatus) return statusLabels.indexOf(a) - statusLabels.indexOf(b);
     if (a === "Ungrouped") return 1;
     if (b === "Ungrouped") return -1;
     return a.localeCompare(b);
@@ -781,8 +837,8 @@ function renderWorkfloor(run) {
       state.agentCelebrateUntil[id] = Date.now() + AGENT_CELEBRATE_MS;
     }
     state.agentPrevStatus[id] = status;
-    const celebrating = (state.agentCelebrateUntil[id] || 0) > Date.now();
-    spriteStates[id] = celebrating ? AGENT_CELEBRATE_STATE : (AGENT_SPRITE_STATE[status] || AGENT_SPRITE_STATE.unknown);
+    const celebrate = (state.agentCelebrateUntil[id] || 0) > Date.now();
+    spriteStates[id] = celebrate ? AGENT_CELEBRATE_STATE : (AGENT_SPRITE_STATE[status] || AGENT_SPRITE_STATE.unknown);
 
     // Same "open round" test Timeline uses for its dashed bar-open bars:
     // stalled and orphaned agents have gone quiet, but their round never
@@ -795,12 +851,14 @@ function renderWorkfloor(run) {
     const asOf = state.offline ? (agent.last_activity_at || agent.started_at) : now;
     const label = agent.description || agent.agent_id;
     const clockText = live ? fmtDuration(asOf - agent.started_at) : fmtDuration(agent.duration_s);
+    const tool = agent.last_tool;
+    const doing = tool ? tool.name + " " + toolTargetLabel(tool) : "";
     const ariaLabel = label + ", " + status + ", " + fmtTokens(agent.tokens) + " tokens, " +
-      (live ? clockText + " so far" : clockText + " total");
+      (live ? clockText + " so far" : clockText + " total") + (doing ? ", last " + doing : "");
     const quiet = status === "orphaned" || status === "unknown";
 
     return '<div class="agent-card' + (agentMatchesFilter(agent) ? "" : " agent-dim") +
-      (quiet ? " agent-quiet" : "") + '" data-agent="' + esc(id) + '"' +
+      (quiet ? " agent-quiet" : "") + '" data-agent="' + esc(id) + '" data-status="' + esc(status) + '"' +
       (live && !state.offline ? ' data-live="1" data-started="' + agent.started_at + '"' : "") +
       ' role="group" tabindex="0" aria-label="' + esc(ariaLabel) + '">' +
       '<div class="agent-stage' + (pulse ? " pulse" : "") + '">' +
@@ -808,10 +866,13 @@ function renderWorkfloor(run) {
       '</div>' +
       '<div class="agent-name" title="' + esc(label) + '">' + esc(label) + '</div>' +
       '<div class="agent-meta">' + esc(agent.agent_type + " · " + fmtModelShort(agent.model)) + '</div>' +
-      '<div class="agent-status s-' + status + '">' + esc(status) + '</div>' +
-      '<div class="agent-clock">' + esc(clockText) + '</div>' +
+      '<div class="agent-line"><span class="agent-status s-' + esc(status) + '">' + esc(status) + '</span>' +
+        '<span class="agent-clock">' + esc(clockText) + '</span></div>' +
+      '<div class="agent-now" title="' + esc(doing) + '">' + (tool
+        ? '<b>' + esc(tool.name) + '</b> ' + esc(toolTargetLabel(tool)) : '<span class="agent-idle">no tool calls yet</span>') + '</div>' +
+      sparkHtml(agent.activity) +
       '<div class="agent-tokens" title="' + esc(fmtTokenMix(agent.tokens)) + '">' +
-        esc(fmtTokens(agent.tokens)) + ' tok</div>' +
+        esc(fmtTokens(agent.tokens)) + ' tok · ' + toolCount + (toolCount === 1 ? ' call' : ' calls') + '</div>' +
     '</div>';
   }
 
@@ -854,6 +915,7 @@ function renderWorkfloor(run) {
 // Code's own live timer, without waiting on the 2s data poll for it — a
 // cheap local interval that only touches DOM text, never re-renders.
 function tickAgentClocks() {
+  tickTransport();
   if (state.view !== "workfloor" || state.offline) return;
   const now = Date.now() / 1000;
   for (const card of document.querySelectorAll('.agent-card[data-live="1"]')) {
@@ -915,28 +977,59 @@ function fitText(text, maxWidth, font) {
 
 // ---------------------------------------------------------------- header
 
+// A transport-style clock: HH:MM:SS, so the run reads like a recording.
+function fmtTimecode(seconds) {
+  if (seconds === null || seconds === undefined || !isFinite(seconds)) return "--:--:--";
+  const total = Math.max(0, Math.floor(seconds));
+  const pad = (n) => (n < 10 ? "0" : "") + n;
+  return pad(Math.floor(total / 3600)) + ":" + pad(Math.floor((total % 3600) / 60)) + ":" + pad(total % 60);
+}
+
+function transportSeconds(run) {
+  if (run.replay_at !== undefined) return run.replay_at - (run.started_at || run.replay_at);
+  if (run.session_live && !state.offline && run.started_at) return Date.now() / 1000 - run.started_at;
+  const wall = run.totals ? run.totals.wall_time_s : null;
+  return wall === undefined ? null : wall;
+}
+
+function tickTransport() {
+  const el = $("transport-time");
+  if (el && state.run) el.textContent = fmtTimecode(transportSeconds(state.run));
+}
+
+const STAT_DOTS = ["running", "waiting", "done", "failed"];
+
 function renderHeader(run) {
   const t = run.totals;
-  $("totals").innerHTML = "";
-  const parts = [
-    ["agents", t.agents],
-    ["running", t.running],
-    ...(t.waiting ? [["waiting", t.waiting]] : []),
-    ["done", t.completed],
-    ["failed", t.failed + t.orphaned],
-    ["tokens", run.replay_at !== undefined ? "\u2014" : fmtTokens(t.tokens)],
-    ["cached", run.replay_at !== undefined ? "\u2014" : fmtPct(cacheHitRatio(t.tokens))],
-    ["wall", fmtDuration(t.wall_time_s)],
-  ];
+  const box = $("totals");
+  box.innerHTML = "";
+  const replaying = run.replay_at !== undefined;
+  const live = run.session_live && !replaying && !state.offline;
+  const add = (key, value, label, cls, valueId) => {
+    const span = document.createElement("span");
+    span.className = cls || "";
+    span.setAttribute("data-k", key);
+    span.setAttribute("data-n", String(value));
+    // key, value and label are program-made (counts, fmt* output, fixed words),
+    // never transcript text, so they are safe to concatenate into markup.
+    span.innerHTML = "<strong" + (valueId ? ' id="' + valueId + '"' : "") + ">" + value +
+      "</strong><em>" + (STAT_DOTS.indexOf(key) >= 0 ? '<i class="dot"></i>' : "") + label + "</em>";
+    box.appendChild(span);
+  };
+  add("time", fmtTimecode(transportSeconds(run)),
+    live ? "live" : replaying ? "replay" : "wall time",
+    "transport" + (live ? " is-live" : ""), "transport-time");
+  add("agents", t.agents, "agents");
+  add("running", t.running, "running");
+  if (t.waiting) add("waiting", t.waiting, "waiting");
+  add("done", t.completed, "done");
+  add("failed", t.failed + t.orphaned, "failed");
+  add("tokens", replaying ? "\u2014" : fmtTokens(t.tokens), "tokens");
   if (run.orchestrator) {
     // The per-agent "tokens" above exclude the orchestrator; say so, don't hide it.
-    parts.splice(parts.length - 2, 0, ["orchestrator", fmtTokens(run.orchestrator.tokens)]);
+    add("orchestrator", fmtTokens(run.orchestrator.tokens), "orchestrator");
   }
-  for (const [label, value] of parts) {
-    const span = document.createElement("span");
-    span.innerHTML = "<strong>" + value + "</strong> " + label;
-    $("totals").appendChild(span);
-  }
+  add("cached", replaying ? "\u2014" : fmtPct(cacheHitRatio(t.tokens)), "cached");
   renderCostPart(run);
   $("conn").textContent = run.session_live ? "" : "session ended";
 }
@@ -951,20 +1044,29 @@ function renderCostPart(run) {
   const cost = run.cost;
   if (!cost) return;
   const span = document.createElement("span");
+  span.setAttribute("data-k", "cost");
   if (cost.enabled) {
     const strong = document.createElement("strong");
     strong.textContent = costText(cost);
     span.appendChild(strong);
-    const label = document.createElement("span");
+    const label = document.createElement("em");
     label.textContent = cost.partial ? " cost (partial)" : " cost";
     span.appendChild(label);
     if (cost.budget && cost.budget.state !== "ok") span.className = "cost-" + cost.budget.state;
+    if (cost.budget) {
+      const meter = document.createElement("span");
+      meter.className = "meter";
+      const fill = document.createElement("i");
+      fill.style.width = Math.min(100, Math.round(cost.budget.ratio * 100)) + "%";
+      meter.appendChild(fill);
+      span.appendChild(meter);
+    }
     const notes = [];
     if (cost.partial) notes.push("No price for: " + cost.unpriced_models.join(", "));
     if (cost.budget) notes.push(Math.round(cost.budget.ratio * 100) + "% of budget");
     notes.push("agents " + fmtMoney(cost.agents, cost.currency) +
       " + orchestrator " + fmtMoney(cost.orchestrator, cost.currency));
-    span.title = notes.join(" · ");
+    span.title = notes.join(" \u00b7 ");
   } else if (cost.error) {
     span.className = "cost-warn";
     span.textContent = cost.error;
@@ -979,10 +1081,11 @@ function renderHealth(run) {
   for (const agent of run.agents) {
     const label = agent.description || agent.agent_id;
     if (["waiting", "stalled", "failed", "orphaned"].includes(agent.status)) {
-      items.push({ id: agent.agent_id, text: agent.status.toUpperCase() + " — " + label });
+      items.push({ id: agent.agent_id, kind: agent.status,
+        text: agent.status.toUpperCase() + " — " + label });
     }
     if (agent.loop) {
-      items.push({ id: agent.agent_id,
+      items.push({ id: agent.agent_id, kind: "loop",
         text: "POSSIBLE LOOP — " + label + ": " + loopText(agent.loop) });
     }
   }
@@ -995,7 +1098,7 @@ function renderHealth(run) {
   for (const entry of items) {
     const item = document.createElement("li");
     item.textContent = entry.text;
-    item.style.cursor = "pointer";
+    item.setAttribute("data-kind", entry.kind);
     item.onclick = () => openDrawer(entry.id);
     list.appendChild(item);
   }
@@ -1082,6 +1185,27 @@ function timeWindow(run) {
   return [min, max];
 }
 
+// A comb of ticks along the foot of each bar: where the agent was actually calling
+// tools. A burst, a long gap, or one repeated pattern is visible without opening it.
+function drawActivityComb(row, agent, x, y, t1) {
+  const bins = agent.activity;
+  if (!bins || !bins.length || agent.started_at === null || agent.started_at === undefined) return;
+  const end = agent.ended_at !== null && agent.ended_at !== undefined ? agent.ended_at
+    : (agent.last_activity_at || t1);
+  if (end <= agent.started_at) return;
+  const peak = Math.max.apply(null, bins);
+  const open = agent.ended_at === null || agent.ended_at === undefined;
+  bins.forEach((count, k) => {
+    if (!count) return;
+    const tx = x(agent.started_at + ((k + 0.5) / bins.length) * (end - agent.started_at));
+    row.appendChild(svgEl("line", {
+      x1: tx, x2: tx, y1: y + 20, y2: y + ROW_H - 8.5,
+      class: "bar-tick" + (open ? " bar-tick-open" : ""),
+      "stroke-opacity": (0.4 + 0.6 * (count / peak)).toFixed(2),
+    }));
+  });
+}
+
 function renderTimeline(run) {
   const svg = $("timeline");
   svg.innerHTML = "";
@@ -1096,8 +1220,12 @@ function renderTimeline(run) {
   const x = (t) => LEFT + ((t - t0) / (t1 - t0)) * plot;
   const rowOf = {};
   agents.forEach((agent, i) => { rowOf[agent.agent_id] = i; });
-  const labelFont = bodyFont(11);
-  const metaFont = bodyFont(10);
+  const labelFont = bodyFont(12);
+  const metaFont = bodyFont(10.5);
+  // The longest dependency chain, from run insights: these bars get an outline.
+  const crit = new Set();
+  const cp = run.insights && run.insights.critical_path;
+  if (cp && cp.chain && cp.chain.length > 1) cp.chain.forEach((c) => crit.add(c.agent_id));
   const labelMax = LEFT - LABEL_X - DOT_R * 2 - 14;
 
   // Zebra striping first, fully behind everything, so long rows stay easy to
@@ -1171,36 +1299,59 @@ function renderTimeline(run) {
       const bx = x(start);
       const bw = Math.max(4, x(Math.max(end, start)) - bx);
       const bar = svgEl("rect", {
-        x: bx, y: y + 8, width: bw, height: ROW_H - 16, rx: 3,
-        class: "bar s-" + agent.status + (round.ended_at === null ? " bar-open" : ""),
+        x: bx, y: y + 8, width: bw, height: ROW_H - 16, rx: 4,
+        class: "bar s-" + agent.status + (round.ended_at === null ? " bar-open" : "") +
+          (crit.has(agent.agent_id) ? " bar-critical" : ""),
       });
       bar.appendChild(svgEl("title", {},
-        label + " — " + agent.status + " — " + fmtDuration(agent.duration_s)));
+        label + " — " + agent.status + " — " + fmtDuration(agent.duration_s) +
+        (crit.has(agent.agent_id) ? " — on the critical path" : "")));
       row.appendChild(bar);
+      if (bw > 70 && round.ended_at !== null) {
+        row.appendChild(svgEl("text", { x: bx + 8, y: y + 18, class: "bar-text" },
+          fmtDuration(end - start)));
+      }
     }
+    drawActivityComb(row, agent, x, y, t1);
     row.onclick = () => openDrawer(agent.agent_id);
     svg.appendChild(row);
   });
+
+  if (crit.size) {
+    svg.appendChild(svgEl("text", { x: LABEL_X, y: PAD - 4, class: "timeline-legend" },
+      "outlined bars: critical path"));
+  }
+  if (run.session_live && run.replay_at === undefined && !state.offline) {
+    const nx = Math.min(x(t1), width - PAD);
+    svg.appendChild(svgEl("line", { x1: nx, y1: PAD - 6, x2: nx, y2: height - PAD, class: "playhead" }));
+    svg.appendChild(svgEl("text", { x: nx - 4, y: PAD - 4, "text-anchor": "end", class: "playhead-label" }, "now"));
+  }
 }
 
 // ------------------------------------------------------------ view state
 
+const VIEWS = ["timeline", "graph", "insights", "activity", "workfloor", "fleet", "history"];
+
 function setView(view) {
+  if (VIEWS.indexOf(view) < 0) view = "timeline";
   // Leaving Work Floor: stop every mounted sprite's rAF loop rather than let
   // it keep animating an off-screen, hidden canvas indefinitely.
-  if (state.view === "workfloor" && view !== "workfloor") stopAgentSprites();
+  if (state.view === "workfloor" && view !== "workfloor") {
+    stopAgentSprites();
+    state.floorSig = "";     // the sprites are stopped, so the floor must be rebuilt on return
+  }
   state.view = view;
-  $("view-timeline").hidden = view !== "timeline";
-  $("view-graph").hidden = view !== "graph";
-  $("view-activity").hidden = view !== "activity";
-  $("view-workfloor").hidden = view !== "workfloor";
-  $("view-fleet").hidden = view !== "fleet";
-  $("view-history").hidden = view !== "history";
+  for (const name of VIEWS) {
+    const section = $("view-" + name);
+    if (section) section.hidden = view !== name;
+  }
   for (const tab of document.querySelectorAll(".tab")) {
     const active = tab.dataset.view === view;
     tab.classList.toggle("active", active);
     tab.setAttribute("aria-selected", String(active));
+    tab.setAttribute("tabindex", active ? "0" : "-1");
   }
+  writeHash();
   render();
   // Refresh immediately on switching in, rather than waiting up to POLL_MS
   // for the next cycle to notice the tab is now visible.
@@ -1208,8 +1359,21 @@ function setView(view) {
   if (view === "history") loadHistory();
 }
 
+const AGENT_VIEWS = ["timeline", "graph", "insights", "activity", "workfloor"];
+
 function render() {
   if (!state.run) return;
+  const boot = $("boot");
+  if (boot) boot.hidden = true;
+  // A run with no agents has nothing for the agent views to draw: say so once,
+  // instead of showing five empty panels.
+  const none = state.run.agents.length === 0 && state.run.replay_at === undefined;
+  const empty = $("empty-state");
+  if (empty) empty.hidden = !(none && AGENT_VIEWS.indexOf(state.view) >= 0);
+  for (const name of AGENT_VIEWS) {
+    const section = $("view-" + name);
+    if (section) section.hidden = state.view !== name || none;
+  }
   renderHeader(state.run);
   updateChrome();
   renderAttention(state.run);
@@ -1218,11 +1382,13 @@ function render() {
   renderFilterChips();
   renderFilterCount(state.run);
   renderDiagnostics(state.run);
+  if (none && AGENT_VIEWS.indexOf(state.view) >= 0) return;
   if (state.view === "timeline") renderTimeline(state.run);
   else if (state.view === "graph") renderGraph(state.run);
   else if (state.view === "workfloor") renderWorkfloor(state.run);
   else if (state.view === "fleet") renderFleet();
   else if (state.view === "history") renderHistory();
+  else if (state.view === "insights") renderInsights(state.run);
   else renderTicker();
 }
 
@@ -1240,6 +1406,7 @@ async function poll(generation) {
   } catch (err) {
     if (generation !== state.generation) return;
     $("conn").textContent = "reconnecting…";
+    if (!state.run && $("boot-text")) $("boot-text").textContent = "Can’t reach the dashboard yet. Retrying…";
     state.backoff = Math.min(state.backoff * 2, 30000);
     if (state.live) setTimeout(() => poll(generation), state.backoff);
     return;
@@ -1542,6 +1709,7 @@ function agentAt(agent, t) {
     // drawn to. A finished one keeps its own last activity.
     last_activity_at: open ? t : Math.min(agent.last_activity_at || ended, t),
     tokens: {}, cost: null, loop: null, tool_call_count: 0, files_written_count: 0,
+    activity: [], last_tool: null,
   });
 }
 
@@ -1564,7 +1732,7 @@ function deriveRunAt(run, t) {
     batches: run.batches.map((b) => Object.assign({}, b, {
       agent_ids: b.agent_ids.filter((id) => present.has(id)) })).filter((b) => b.agent_ids.length),
     hub_files: [], write_conflicts: [],
-    live: null, cost: null, orchestrator: null,
+    live: null, cost: null, orchestrator: null, insights: null,
     session_live: t < replayBounds(run).end,
     ended_at: t >= replayBounds(run).end ? run.ended_at : null,
     replay_at: t,
@@ -2211,7 +2379,409 @@ async function loadSessions() {
   } catch (err) { /* picker is optional; the run view still works */ }
 }
 
+// ------------------------------------------------------- command palette
+//
+// One box for "take me there": agents and commands answer instantly from the run
+// already on the page; tool calls and files come from /api/search (or, in a static
+// report, from the details baked into it). Keyboard first: Ctrl/Cmd+K or /.
+
+const PALETTE_VIEWS = [
+  ["timeline", "Timeline", "1"], ["graph", "Graph", "2"], ["insights", "Insights", "3"],
+  ["activity", "Activity", "4"], ["workfloor", "Work Floor", "5"], ["fleet", "Fleet", "6"],
+  ["history", "History", "7"],
+];
+const palette = { open: false, query: "", items: [], index: 0, remote: null, seq: 0, timer: null, opener: null };
+const PALETTE_SEARCH_DELAY_MS = 160;
+
+function isMac() {
+  return typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || "");
+}
+
+function viewAvailable(view) {
+  return !(state.offline && (view === "fleet" || view === "history"));
+}
+
+function matchTerms(query) {
+  return String(query || "").toLowerCase().split(/\s+/).filter(Boolean).slice(0, 6);
+}
+
+function matchesAll(terms, text) {
+  const haystack = String(text).toLowerCase();
+  return terms.every((t) => haystack.indexOf(t) >= 0);
+}
+
+// Escaped first, marked second: a hostile agent name can never become markup.
+function highlight(text, terms) {
+  if (!terms.length) return esc(text);
+  const pattern = new RegExp("(" + terms.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")", "ig");
+  return String(text).split(pattern).map((part, i) => (i % 2 ? "<mark>" + esc(part) + "</mark>" : esc(part))).join("");
+}
+
+function baseName(path) {
+  return String(path).replace(/[\\/]+$/, "").replace(/^.*[\\/]/, "") || String(path);
+}
+
+function paletteCommands() {
+  const cmds = [];
+  for (const [view, label, key] of PALETTE_VIEWS) {
+    if (viewAvailable(view)) {
+      cmds.push({ group: "Go to", title: label, hint: key, run: () => setView(view) });
+    }
+  }
+  const live = $("live-toggle");
+  if (live && !live.hidden) {
+    cmds.push({ group: "Actions", title: state.live ? "Pause live updates" : "Resume live updates", hint: "L",
+      run: () => live.click() });
+  }
+  cmds.push({ group: "Actions", title: "Replay the run", hint: "R", run: () => toggleReplay() });
+  cmds.push({ group: "Actions", title: "Copy run summary", run: () => copySummary() });
+  if (!state.offline) {
+    cmds.push({ group: "Actions", title: "Export agents as CSV", run: () => downloadExport("csv") });
+    cmds.push({ group: "Actions", title: "Export everything as JSON", run: () => downloadExport("json") });
+  }
+  const sound = $("sound-toggle");
+  if (sound && !sound.hidden) cmds.push({ group: "Actions", title: "Toggle sound", run: () => sound.click() });
+  cmds.push({ group: "Actions", title: "Change theme", hint: "T", run: () => cycleTheme() });
+  cmds.push({ group: "Actions", title: "Keyboard shortcuts", hint: "?", run: () => openHelp() });
+  return cmds;
+}
+
+function agentItem(agent) {
+  const bits = [agent.agent_type, fmtModelShort(agent.model), agent.status].filter(Boolean);
+  return { title: agent.description || agent.agent_id, sub: bits.join(" · "), dot: statusVar(agent.status),
+    hint: agent.duration_s !== null && agent.duration_s !== undefined ? fmtDuration(agent.duration_s) : "",
+    run: () => openDrawer(agent.agent_id) };
+}
+
+function buildPaletteItems() {
+  const terms = matchTerms(palette.query);
+  const run = state.run;
+  const agents = run ? run.agents : [];
+  const items = [];
+  const add = (group, list) => list.forEach((item) => { item.group = group; items.push(item); });
+  const commands = paletteCommands().filter((c) => !terms.length || matchesAll(terms, c.group + " " + c.title));
+  if (!terms.length) {
+    add("Go to", commands.filter((c) => c.group === "Go to"));
+    const needs = agents.filter((a) => ["failed", "stalled", "waiting", "orphaned"].indexOf(a.status) >= 0 || a.loop);
+    add("Needs attention", needs.slice(0, 6).map(agentItem));
+    add("Actions", commands.filter((c) => c.group === "Actions"));
+    return items;
+  }
+  add("Agents", agents.filter((a) => matchesAll(terms, [a.description, a.agent_id, a.agent_type, a.model, a.status,
+    a.objective].join(" "))).slice(0, 8).map(agentItem));
+  const remote = palette.remote && palette.remote.query === palette.query.trim() ? palette.remote.data : null;
+  if (remote) {
+    add("Tool calls", remote.tools.slice(0, 8).map((t) => ({
+      title: t.tool + "  " + baseName(t.target), sub: t.target || t.description,
+      hint: (t.count > 1 ? "×" + t.count + "  " : "") + t.description,
+      run: () => openDrawer(t.agent_id) })));
+    add("Files", remote.files.slice(0, 6).map((f) => {
+      const first = (f.writers[0] || f.readers[0]);
+      const parts = [];
+      if (f.writers.length) parts.push(f.writers.length + (f.writers.length === 1 ? " writer" : " writers"));
+      if (f.readers.length) parts.push(f.readers.length + (f.readers.length === 1 ? " reader" : " readers"));
+      return { title: baseName(f.path), sub: f.path, hint: parts.join(", "), run: () => openDrawer(first) };
+    }));
+  }
+  add("Commands", commands.slice(0, 6));
+  return items;
+}
+
+function renderPalette() {
+  const list = $("palette-list");
+  const input = $("palette-input");
+  if (!list) return;
+  const terms = matchTerms(palette.query);
+  palette.items = buildPaletteItems();
+  palette.index = Math.min(palette.index, Math.max(0, palette.items.length - 1));
+  if (!palette.items.length) {
+    const searching = palette.query.trim().length >= 2 && !palette.remote && !state.offline;
+    list.innerHTML = '<div class="palette-empty">' + (searching ? "Searching…"
+      : palette.query.trim() ? "Nothing matches “" + esc(palette.query.trim()) + "”." : "Nothing to show yet.") + "</div>";
+    if (input) input.removeAttribute("aria-activedescendant");
+    return;
+  }
+  let html = "";
+  let group = "";
+  palette.items.forEach((item, i) => {
+    if (item.group !== group) {
+      group = item.group;
+      html += '<div class="pal-group" role="presentation">' + esc(group) + "</div>";
+    }
+    html += '<button type="button" class="pal-item" role="option" id="pal-' + i + '" data-i="' + i +
+      '" aria-selected="' + (i === palette.index) + '" tabindex="-1">' +
+      (item.dot ? '<span class="pal-dot" style="background:' + item.dot + '"></span>' : "") +
+      '<span class="pal-main"><span class="pal-title">' + highlight(item.title, terms) + "</span>" +
+      (item.sub ? '<span class="pal-sub">' + highlight(item.sub, terms) + "</span>" : "") + "</span>" +
+      (item.hint ? '<span class="pal-hint">' + esc(item.hint) + "</span>" : "") + "</button>";
+  });
+  list.innerHTML = html;
+  if (input) input.setAttribute("aria-activedescendant", "pal-" + palette.index);
+}
+
+function setPaletteIndex(next, scroll) {
+  if (!palette.items.length) return;
+  const count = palette.items.length;
+  palette.index = (next + count) % count;
+  const list = $("palette-list");
+  for (const el of list.querySelectorAll(".pal-item")) {
+    const on = Number(el.getAttribute("data-i")) === palette.index;
+    el.setAttribute("aria-selected", String(on));
+    if (on && scroll && el.scrollIntoView) el.scrollIntoView({ block: "nearest" });
+  }
+  const input = $("palette-input");
+  if (input) input.setAttribute("aria-activedescendant", "pal-" + palette.index);
+}
+
+function runPaletteItem(index) {
+  const item = palette.items[index];
+  if (!item) return;
+  closePalette(true);
+  item.run();
+}
+
+// A static report has no server to ask, so it searches the details baked into it.
+function localSearch(query) {
+  const terms = matchTerms(query);
+  const out = { query: query, agents: [], tools: [], files: [], truncated: false };
+  const details = (typeof window !== "undefined" && window.ORCHESTRA_DETAILS) || {};
+  const files = {};
+  for (const id of Object.keys(details)) {
+    const agent = details[id];
+    for (const call of agent.tool_calls || []) {
+      if (matchesAll(terms, call.name + " " + call.target + " " + agent.description) && out.tools.length < 60) {
+        out.tools.push({ agent_id: id, description: agent.description, tool: call.name,
+          target: call.target, timestamp: call.timestamp, count: 1 });
+      }
+    }
+    for (const [role, paths] of [["writers", agent.files_written || []], ["readers", agent.files_read || []]]) {
+      for (const path of paths) {
+        if (!matchesAll(terms, path)) continue;
+        const slot = files[path] || (files[path] = { path: path, writers: [], readers: [] });
+        slot[role].push(id);
+      }
+    }
+  }
+  out.tools.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+  out.files = Object.keys(files).map((p) => files[p]).slice(0, 15);
+  return out;
+}
+
+function schedulePaletteSearch() {
+  if (palette.timer) clearTimeout(palette.timer);
+  const query = palette.query.trim();
+  if (query.length < 2) { palette.remote = null; return; }
+  palette.timer = setTimeout(async () => {
+    const seq = ++palette.seq;
+    let data = null;
+    try {
+      data = state.offline ? localSearch(query) : await api("/api/search?q=" + encodeURIComponent(query));
+    } catch (err) { data = null; }
+    if (seq !== palette.seq || !palette.open || !data) return;
+    palette.remote = { query: query, data: data };
+    renderPalette();
+  }, PALETTE_SEARCH_DELAY_MS);
+}
+
+function openPalette(prefill) {
+  const root = $("palette");
+  if (!root || palette.open) return;
+  closeHelp();
+  palette.open = true;
+  palette.opener = document.activeElement;
+  palette.query = prefill || "";
+  palette.index = 0;
+  palette.remote = null;
+  root.hidden = false;
+  const input = $("palette-input");
+  input.value = palette.query;
+  renderPalette();
+  input.focus();
+}
+
+function closePalette(keepFocus) {
+  if (!palette.open) return;
+  palette.open = false;
+  palette.seq += 1;
+  if (palette.timer) clearTimeout(palette.timer);
+  $("palette").hidden = true;
+  const back = palette.opener;
+  palette.opener = null;
+  if (!keepFocus && back && back.focus) back.focus();
+}
+
+const SHORTCUTS = [
+  [["Ctrl K", "/"], "Search agents, tool calls, files and commands"],
+  [["1", "–", "7"], "Switch view"],
+  [["L"], "Pause or resume live updates"],
+  [["R"], "Replay the run"],
+  [["F"], "Filter agents"],
+  [["T"], "Change theme"],
+  [["?"], "Show this list"],
+  [["Esc"], "Close a dialog or the agent panel"],
+];
+
+function helpOpen() {
+  const root = $("help");
+  return !!root && !root.hidden;
+}
+
+function openHelp() {
+  const root = $("help");
+  if (!root) return;
+  closePalette(true);
+  const list = $("help-list");
+  list.innerHTML = SHORTCUTS.map(([keys, label]) =>
+    "<dt>" + keys.map((k) => "<kbd>" + esc(isMac() ? k.replace("Ctrl", "⌘") : k) + "</kbd>").join("") +
+    "</dt><dd>" + esc(label) + "</dd>").join("");
+  palette.opener = document.activeElement;
+  root.hidden = false;
+}
+
+function closeHelp() {
+  const root = $("help");
+  if (!root || root.hidden) return;
+  root.hidden = true;
+  const back = palette.opener;
+  palette.opener = null;
+  if (back && back.focus) back.focus();
+}
+
+function isTyping(target) {
+  const tag = target && target.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || !!(target && target.isContentEditable);
+}
+
+function onGlobalKey(event) {
+  if (event.key === "Escape") {
+    if (palette.open) { closePalette(); return; }
+    if (helpOpen()) { closeHelp(); return; }
+  }
+  if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key && event.key.toLowerCase() === "k") {
+    event.preventDefault();
+    if (palette.open) closePalette(); else openPalette();
+    return;
+  }
+  if (event.ctrlKey || event.metaKey || event.altKey) return;
+  if (palette.open || helpOpen() || isTyping(event.target)) return;
+  const key = event.key;
+  if (key === "/") { event.preventDefault(); openPalette(); return; }
+  if (key === "?") { event.preventDefault(); openHelp(); return; }
+  if (key === "t" || key === "T") { cycleTheme(); return; }
+  if (key === "r" || key === "R") { toggleReplay(); return; }
+  if (key === "f" || key === "F") {
+    const filter = $("filter-text");
+    if (filter) { event.preventDefault(); filter.focus(); }
+    return;
+  }
+  if (key === "l" || key === "L") {
+    const live = $("live-toggle");
+    if (live && !live.hidden) live.click();
+    return;
+  }
+  const index = "1234567".indexOf(key);
+  if (index >= 0 && key.length === 1 && viewAvailable(PALETTE_VIEWS[index][0])) setView(PALETTE_VIEWS[index][0]);
+}
+
+function setupPalette() {
+  const input = $("palette-input");
+  const root = $("palette");
+  const list = $("palette-list");
+  const trigger = $("palette-open");
+  if (trigger) {
+    trigger.onclick = () => openPalette();
+    const hint = trigger.querySelector ? trigger.querySelector("kbd") : null;
+    if (hint) hint.textContent = isMac() ? "⌘ K" : "Ctrl K";
+  }
+  const help = $("help-open");
+  if (help) help.onclick = () => openHelp();
+  const helpRoot = $("help");
+  if (helpRoot) helpRoot.onmousedown = (event) => { if (event.target === helpRoot) closeHelp(); };
+  if (root) root.onmousedown = (event) => { if (event.target === root) closePalette(); };
+  if (input) {
+    input.oninput = () => {
+      palette.query = input.value;
+      palette.index = 0;
+      renderPalette();
+      schedulePaletteSearch();
+    };
+    input.onkeydown = (event) => {
+      const key = event.key;
+      if (key === "ArrowDown") { event.preventDefault(); setPaletteIndex(palette.index + 1, true); }
+      else if (key === "ArrowUp") { event.preventDefault(); setPaletteIndex(palette.index - 1, true); }
+      else if (key === "Home") { event.preventDefault(); setPaletteIndex(0, true); }
+      else if (key === "End") { event.preventDefault(); setPaletteIndex(palette.items.length - 1, true); }
+      else if (key === "Enter") { event.preventDefault(); runPaletteItem(palette.index); }
+      else if (key === "Tab") { event.preventDefault(); }       // a one-field dialog: focus stays put
+      else return;
+      event.stopPropagation();
+    };
+  }
+  if (list) {
+    list.onclick = (event) => {
+      const el = event.target.closest ? event.target.closest(".pal-item") : null;
+      if (el) runPaletteItem(Number(el.getAttribute("data-i")));
+    };
+    list.onmousemove = (event) => {
+      const el = event.target.closest ? event.target.closest(".pal-item") : null;
+      if (el && Number(el.getAttribute("data-i")) !== palette.index) setPaletteIndex(Number(el.getAttribute("data-i")), false);
+    };
+  }
+  document.addEventListener("keydown", onGlobalKey);
+}
+
+// -------------------------------------------------------------- theme + toast
+
+function themeMode() {
+  try {
+    const stored = localStorage.getItem("orchestra-theme");
+    if (stored === "light" || stored === "dark") return stored;
+  } catch (err) { /* blocked storage: follow the system */ }
+  return "auto";
+}
+
+function applyTheme(mode) {
+  const root = typeof document !== "undefined" ? document.documentElement : null;
+  if (root && root.setAttribute) {
+    if (mode === "auto") root.removeAttribute("data-theme");
+    else root.setAttribute("data-theme", mode);
+  }
+  try {
+    if (mode === "auto") localStorage.removeItem("orchestra-theme");
+    else localStorage.setItem("orchestra-theme", mode);
+  } catch (err) { /* blocked storage: not worth failing over */ }
+  const btn = $("theme-toggle");
+  if (btn) {
+    const label = "Theme: " + (mode === "auto" ? "automatic" : mode);
+    btn.setAttribute("aria-label", label);
+    btn.title = label;
+  }
+}
+
+function cycleTheme() {
+  const order = ["auto", "light", "dark"];
+  const next = order[(order.indexOf(themeMode()) + 1) % order.length];
+  applyTheme(next);
+  toast("Theme: " + (next === "auto" ? "automatic" : next));
+}
+
+let toastTimer = null;
+function toast(message) {
+  const el = $("toast");
+  if (!el) return;
+  el.textContent = message;
+  el.hidden = false;
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.hidden = true; }, 2200);
+}
+
 function init() {
+  applyTheme(themeMode());
+  setupFloorGroup();
+  setupPalette();
+  setupGraphInteractions();
+  const themeBtn = $("theme-toggle");
+  if (themeBtn) themeBtn.onclick = cycleTheme;
   $("live-toggle").onclick = (event) => {
     state.live = !state.live;
     event.target.setAttribute("aria-pressed", String(state.live));
@@ -2287,6 +2857,20 @@ function init() {
   }
   for (const tab of document.querySelectorAll(".tab")) {
     tab.onclick = () => setView(tab.dataset.view);
+    // Arrow keys move between tabs, as in any tablist; Tab leaves the list.
+    tab.onkeydown = (event) => {
+      const shown = Array.from(document.querySelectorAll(".tab")).filter((t) => !t.hidden);
+      const at = shown.indexOf(tab);
+      let next = -1;
+      if (event.key === "ArrowRight") next = (at + 1) % shown.length;
+      else if (event.key === "ArrowLeft") next = (at - 1 + shown.length) % shown.length;
+      else if (event.key === "Home") next = 0;
+      else if (event.key === "End") next = shown.length - 1;
+      if (next < 0) return;
+      event.preventDefault();
+      shown[next].focus();
+      setView(shown[next].dataset.view);
+    };
   }
   $("filter-text").oninput = (event) => {
     state.filterText = event.target.value;
@@ -2321,23 +2905,410 @@ function init() {
   // A #agent=<id> link (pasted from a health-box item, a ticker row, or an
   // earlier session) opens straight to that agent's drawer. openDrawer fetches
   // independently of run state, so this doesn't need to wait for the first poll.
-  const hash = location.hash || "";
-  if (hash.indexOf("#agent=") === 0) {
-    openDrawer(decodeURIComponent(hash.slice("#agent=".length)));
+  const linked = parseHash();
+  if (linked.view && VIEWS.indexOf(linked.view) >= 0 &&
+      !(state.offline && (linked.view === "fleet" || linked.view === "history"))) {
+    setView(linked.view);
   }
+  if (linked.agent) openDrawer(linked.agent);
 }
 
 document.addEventListener("DOMContentLoaded", init);
 
+// -------------------------------------------------------------- insights
+//
+// Run-level answers, computed server-side (orchestra/insights.py) and drawn here:
+// how parallel the run was, which chain of agents set its length, which tools
+// and files dominated, and how well the prompt cache worked.
+
+const BUCKET_VARS = { Read: "tool-read", Edit: "tool-edit", Bash: "tool-bash", Task: "tool-task", Other: "tool-other" };
+
+function statusVar(status) {
+  const known = ["running", "completed", "failed", "stalled", "orphaned", "waiting"];
+  return "var(--" + (known.indexOf(status) >= 0 ? status : "unknown") + ")";
+}
+
+function insMetric(value, label) {
+  return '<div class="metric"><strong>' + esc(value) + "</strong><span>" + esc(label) + "</span></div>";
+}
+
+function insCard(title, sub, body, cls) {
+  return '<section class="card' + (cls ? " " + cls : "") + '"><h3>' + esc(title) + "</h3>" +
+    (sub ? '<p class="card-sub">' + esc(sub) + "</p>" : "") + body + "</section>";
+}
+
+function insEmpty(text) {
+  return '<p class="card-empty">' + esc(text) + "</p>";
+}
+
+// One ranked row: a name, a bar sized against the largest value, and a figure.
+function insRank(rows) {
+  const max = Math.max.apply(null, rows.map((r) => r.value).concat([1e-9]));
+  return '<div class="rank">' + rows.map((r) =>
+    '<div class="rank-row"' + (r.agent ? ' data-agent="' + esc(r.agent) + '" role="button" tabindex="0"' : "") + ">" +
+    '<span class="rank-name" title="' + esc(r.title || r.name) + '">' + esc(r.name) +
+    (r.note ? "<small>" + esc(r.note) + "</small>" : "") + "</span>" +
+    '<span class="rank-track"><i style="width:' + Math.max(2, (r.value / max) * 100).toFixed(1) +
+    "%" + (r.color ? ";background:" + r.color : "") + '"></i></span>' +
+    '<span class="rank-val">' + esc(r.label) + "</span></div>").join("") + "</div>";
+}
+
+function insStepChart(p, width) {
+  const H = 150;
+  const left = 26;
+  const right = 6;
+  const top = 10;
+  const bottom = 22;
+  const plotW = Math.max(60, width - left - right);
+  const plotH = H - top - bottom;
+  const t0 = p.start;
+  const span = Math.max(p.end - p.start, 1e-6);
+  const x = (t) => left + ((t - t0) / span) * plotW;
+  const peak = Math.max(p.peak, 1);
+  const y = (n) => top + plotH - (n / peak) * plotH;
+  let d = "M" + x(p.series[0][0]).toFixed(1) + "," + y(0).toFixed(1);
+  for (let i = 0; i < p.series.length; i++) {
+    const [t, n] = p.series[i];
+    d += " L" + x(t).toFixed(1) + "," + (i ? y(p.series[i - 1][1]) : y(0)).toFixed(1) +
+      " L" + x(t).toFixed(1) + "," + y(n).toFixed(1);
+  }
+  d += " L" + x(p.end).toFixed(1) + "," + y(p.series[p.series.length - 1][1]).toFixed(1) +
+    " L" + x(p.end).toFixed(1) + "," + y(0).toFixed(1) + " Z";
+  let grid = "";
+  const stride = Math.max(1, Math.ceil(peak / 5));   // whole agents only: 0, 2, 4, 6
+  for (let n = 0; n <= peak; n += stride) {
+    grid += '<line class="ins-grid-line" x1="' + left + '" x2="' + (left + plotW) + '" y1="' + y(n).toFixed(1) +
+      '" y2="' + y(n).toFixed(1) + '"/><text class="ins-axis" x="' + (left - 6) + '" y="' + (y(n) + 3.5).toFixed(1) +
+      '" text-anchor="end">' + n + "</text>";
+  }
+  const ticks = [0, 0.5, 1].map((f) =>
+    '<text class="ins-axis" x="' + (left + f * plotW).toFixed(1) + '" y="' + (H - 5) + '" text-anchor="' +
+    (f === 0 ? "start" : f === 1 ? "end" : "middle") + '">' + esc(fmtDuration(f * span)) + "</text>").join("");
+  const avgY = y(Math.min(p.average, peak)).toFixed(1);
+  return '<svg class="ins-chart" viewBox="0 0 ' + width + " " + H + '" width="' + width + '" height="' + H +
+    '" role="img" aria-label="Agents running over time. Peak ' + p.peak + ", average " + p.average.toFixed(1) + '.">' +
+    grid + '<path class="ins-area" d="' + d + '"/>' +
+    '<line class="ins-avg" x1="' + left + '" x2="' + (left + plotW) + '" y1="' + avgY + '" y2="' + avgY + '"/>' +
+    '<text class="ins-avg-label" x="' + (left + plotW - 4) + '" y="' + (Number(avgY) - 5) +
+    '" text-anchor="end">average ' + p.average.toFixed(1) + "</text>" + ticks + "</svg>";
+}
+
+function insParallelism(ins, width) {
+  const p = ins.parallelism;
+  if (!p) return insCard("Parallelism", "", insEmpty("No agent has started yet."), "wide");
+  const metrics = '<div class="metrics">' + insMetric(p.peak, "peak agents at once") +
+    insMetric(p.average.toFixed(1), "average running") +
+    insMetric(fmtPct(p.solo_share), "of the run with a single agent") +
+    insMetric(fmtDuration(p.idle_s), "with nothing running") + "</div>";
+  return insCard("Parallelism",
+    "How many agents were running at each moment. A run that is mostly one agent is a run that could be split.",
+    metrics + insStepChart(p, width), "wide");
+}
+
+function insCritical(ins) {
+  const c = ins.critical_path;
+  if (!c) return insCard("Critical path", "", insEmpty("No dependency chain yet."), "wide");
+  const max = Math.max.apply(null, c.chain.map((s) => s.duration_s).concat([1e-9]));
+  const steps = c.chain.map((s) =>
+    '<div class="chain-step" data-agent="' + esc(s.agent_id) + '" role="button" tabindex="0">' +
+    "<b>" + esc(s.description || s.agent_id) + "</b>" +
+    "<span>" + esc(s.status) + " · " + esc(fmtDuration(s.duration_s)) + "</span>" +
+    '<span class="bar-mini" style="color:' + statusVar(s.status) + '"><i style="width:' +
+    Math.max(4, (s.duration_s / max) * 100).toFixed(0) + '%"></i></span></div>').join("");
+  const sub = c.chain.length > 1
+    ? "These agents set the length of the run: " + fmtDuration(c.duration_s) + ", " + fmtPct(c.share) +
+      " of the wall time. Making any other agent faster will not finish the run sooner."
+    : "No agent waited on another, so the longest single agent sets the length of the run.";
+  return insCard("Critical path", sub, '<div class="chain">' + steps + "</div>", "wide");
+}
+
+function insTools(ins) {
+  const t = ins.tools;
+  if (!t || !t.total) return insCard("Tool use", "", insEmpty("No tool calls yet."));
+  const split = '<div class="split">' + t.buckets.map((b) =>
+    '<span style="width:' + (b.share * 100).toFixed(1) + "%;background:var(--" + BUCKET_VARS[b.name] + ')" title="' +
+    esc(b.name + " " + b.count) + '"></span>').join("") + "</div>" +
+    '<div class="legend-row">' + t.buckets.map((b) =>
+      '<span><i class="swatch" style="background:var(--' + BUCKET_VARS[b.name] + ')"></i>' +
+      esc(b.name) + " " + fmtCount(b.count) + "</span>").join("") + "</div>";
+  const rows = insRank(t.by_tool.map((r) => ({
+    name: r.name, value: r.count, label: fmtCount(r.count),
+    note: r.agents + (r.agents === 1 ? " agent" : " agents"), color: "var(--" + BUCKET_VARS[r.bucket] + ")" })));
+  const meta = [t.total + " calls"];
+  if (t.per_minute) meta.push(t.per_minute.toFixed(1) + " per minute");
+  if (t.busiest) meta.push("busiest: " + (t.busiest.description || t.busiest.agent_id) + " (" + t.busiest.calls + ")");
+  return insCard("Tool use", meta.join(" · "), split + rows);
+}
+
+function insTokens(ins, run) {
+  const k = ins.tokens;
+  const ratio = k.cache_hit_ratio;
+  let body = "";
+  if (ratio === null || ratio === undefined) {
+    body += insEmpty("No token usage recorded yet.");
+  } else {
+    body += '<div class="ratio"><strong>' + esc(fmtPct(ratio)) + "</strong><span>of input served from the prompt cache</span></div>" +
+      '<div class="ratio-track"><i style="width:' + (ratio * 100).toFixed(1) + '%"></i></div>';
+  }
+  if (k.top_agents.length) {
+    body += "<h4>Who used the most fresh tokens</h4>" + insRank(k.top_agents.map((a) => ({
+      name: a.description || a.agent_id, agent: a.agent_id, value: a.fresh,
+      label: fmtCount(a.fresh) + " · " + fmtPct(a.share) })));
+  }
+  if (k.by_model.length) {
+    const currency = run.cost && run.cost.currency;
+    body += "<h4>By model</h4>" + insRank(k.by_model.map((m) => ({
+      name: fmtModelShort(m.model), title: m.model, value: m.fresh,
+      label: fmtCount(m.fresh) + (m.cost !== null && m.cost !== undefined && currency ? " · " + fmtMoney(m.cost, currency) : "") })));
+  }
+  return insCard("Tokens and cache",
+    "Fresh tokens are what was actually processed (input, output and new cache writes), not read back from the cache.", body);
+}
+
+function insFiles(ins) {
+  const f = ins.files;
+  let body = "";
+  if (f.contended.length) {
+    body += "<h4>Written by more than one agent</h4>" + insRank(f.contended.map((r) => ({
+      name: r.path.replace(/^.*[\\/]/, ""), title: r.path, value: r.agents, label: r.agents + " writers", color: "var(--failed)" })));
+  }
+  if (f.read.length) {
+    body += "<h4>Read by the most agents</h4>" + insRank(f.read.map((r) => ({
+      name: r.path.replace(/^.*[\\/]/, ""), title: r.path, value: r.agents, label: r.agents + " readers" })));
+  }
+  if (!body) body = insEmpty("No file is shared between agents yet.");
+  return insCard("Files",
+    f.files_written + " written, " + f.files_read + " read. A file with several writers is a correctness risk.", body, "wide");
+}
+
+function insSlowest(ins) {
+  if (!ins.slowest.length) return insCard("Longest-running agents", "", insEmpty("Nothing has finished yet."));
+  return insCard("Longest-running agents", "Time spent in a round, whether or not the agent was on the critical path.",
+    insRank(ins.slowest.map((a) => ({
+      name: a.description || a.agent_id, agent: a.agent_id, value: a.duration_s,
+      label: fmtDuration(a.duration_s), color: statusVar(a.status) }))));
+}
+
+// Where the money went, from the cost block and per-agent costs already in the run.
+function insSpend(run) {
+  const cost = run.cost;
+  if (!cost || !cost.enabled) return "";
+  const minutes = Math.max((transportSeconds(run) || 0) / 60, 1 / 60);
+  const rate = cost.total / minutes;
+  const metrics = [insMetric(fmtMoney(cost.total, cost.currency), "spent so far"),
+    insMetric(fmtMoney(rate, cost.currency) + "/min", "average burn")];
+  let note = "Agents " + fmtMoney(cost.agents, cost.currency) + ", orchestrator " +
+    fmtMoney(cost.orchestrator, cost.currency) + ".";
+  let meter = "";
+  if (cost.budget) {
+    const left = cost.budget.limit - cost.total;
+    metrics.push(insMetric(fmtPct(cost.budget.ratio), "of the " + fmtMoney(cost.budget.limit, cost.currency) + " budget"));
+    if (left <= 0) note = "Over budget by " + fmtMoney(-left, cost.currency) + ". " + note;
+    else if (run.session_live && rate > 0) note = "At this pace the budget runs out in " + fmtDuration((left / rate) * 60) + ". " + note;
+    meter = '<div class="ratio-track"><i style="width:' + Math.min(100, cost.budget.ratio * 100).toFixed(1) +
+      "%;background:var(--" + (cost.budget.state === "exceeded" ? "failed" : cost.budget.state === "warn" ? "stalled" : "completed") + ')"></i></div>';
+  }
+  const paid = run.agents.filter((a) => a.cost > 0).sort((a, b) => b.cost - a.cost).slice(0, 8);
+  const rows = paid.length ? "<h4>Most expensive agents</h4>" + insRank(paid.map((a) => ({
+    name: a.description || a.agent_id, agent: a.agent_id, value: a.cost,
+    label: fmtMoney(a.cost, cost.currency) }))) : "";
+  return insCard("Spend", note, '<div class="metrics">' + metrics.join("") + "</div>" + meter + rows);
+}
+
+function renderInsights(run) {
+  const box = $("insights");
+  if (!box) return;
+  const ins = run.insights;
+  if (!ins) {
+    box.innerHTML = insCard("Insights",
+      run.replay_at !== undefined ? "Insights describe the whole run. Leave replay to see them." :
+        "Insights are not available for this run yet.", "", "wide");
+    return;
+  }
+  const width = Math.max(320, (box.clientWidth || 960) - 38);
+  box.innerHTML = insParallelism(ins, width) + insCritical(ins) + insTools(ins) +
+    insTokens(ins, run) + insSpend(run) + insSlowest(ins) + insFiles(ins);
+  for (const el of box.querySelectorAll("[data-agent]")) {
+    const open = () => openDrawer(el.getAttribute("data-agent"));
+    el.onclick = open;
+    el.onkeydown = (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); open(); } };
+  }
+}
+
 // ----------------------------------------------------------------- graph
 
-const NODE_W = 200;
-const NODE_H = 50;
-const COL_GAP = 80;
-const ROW_GAP = 24;
+const NODE_W = 210;
+const NODE_H = 52;
+const COL_GAP = 84;
+const ROW_GAP = 22;
 const ACCENT_W = 4;
 const NODE_TEXT_X = 16;
 const EXACT_KINDS = ["spawn", "artifact", "message"];
+const GRAPH_MIN_K = 0.3;
+const GRAPH_MAX_K = 2.5;
+const GRAPH_SWEEPS = 8;
+
+// Columns by longest path over exact edges. An inferred edge never sets a rank, so
+// a bad guess cannot rearrange the whole picture. Columns are indexed 0..n-1 rather
+// than by raw rank: artifact edges can form a cycle, the loop is bounded by node
+// count, and a raw rank could climb past the number of columns actually occupied,
+// putting nodes outside the canvas with no visible cue that anything is missing.
+function graphRankColumns(nodes, structural) {
+  const rank = {};
+  nodes.forEach((n) => { rank[n.id] = 0; });
+  for (let pass = 0; pass < nodes.length; pass++) {
+    let moved = false;
+    for (const edge of structural) {
+      const want = rank[edge.src] + 1;
+      if (rank[edge.dst] < want) { rank[edge.dst] = want; moved = true; }
+    }
+    if (!moved) break;                  // also the cycle guard
+  }
+  const byRank = {};
+  for (const node of nodes) (byRank[rank[node.id]] = byRank[rank[node.id]] || []).push(node);
+  return Object.keys(byRank).map(Number).sort((a, b) => a - b).map((r, column) => {
+    byRank[r].sort((a, b) => ((a.startedAt || 0) - (b.startedAt || 0)) || (a.id < b.id ? -1 : 1));
+    byRank[r].forEach((n) => { n.column = column; });
+    return byRank[r];
+  });
+}
+
+// The duration-weighted longest chain, not the hop count: a 5-second agent and a
+// 5-minute agent are equally "one hop", but only one of them can be why the run
+// took as long as it did.
+function graphCriticalPath(nodes, byId, structural) {
+  const pathDuration = {};
+  const critPrev = {};
+  nodes.forEach((n) => { pathDuration[n.id] = n.duration || 0; critPrev[n.id] = null; });
+  for (let pass = 0; pass < nodes.length; pass++) {
+    let moved = false;
+    for (const edge of structural) {
+      const candidate = pathDuration[edge.src] + (byId[edge.dst].duration || 0);
+      if (candidate > pathDuration[edge.dst] + 1e-9) {
+        pathDuration[edge.dst] = candidate;
+        critPrev[edge.dst] = edge.src;
+        moved = true;
+      } else if (critPrev[edge.dst] === null && candidate >= pathDuration[edge.dst] - 1e-9) {
+        // A tie against the node's own-duration base case (its most common
+        // predecessor is "main", whose duration is always 0) must still record a
+        // predecessor, or the chain silently ends one hop short.
+        critPrev[edge.dst] = edge.src;
+      }
+    }
+    if (!moved) break;
+  }
+  let end = nodes[0].id;
+  for (const n of nodes) if (pathDuration[n.id] > pathDuration[end]) end = n.id;
+  const criticalNodes = new Set();
+  const criticalEdges = new Set();
+  for (let cur = end; cur && !criticalNodes.has(cur); cur = critPrev[cur]) {
+    criticalNodes.add(cur);
+    if (critPrev[cur]) criticalEdges.add(critPrev[cur] + "→" + cur);
+  }
+  return { criticalNodes, criticalEdges };
+}
+
+// Edge crossings between neighbouring columns: the number a person actually sees.
+function graphCountCrossings(columns, links) {
+  const pos = {};
+  const col = {};
+  columns.forEach((nodes, c) => nodes.forEach((n, i) => { pos[n.id] = i; col[n.id] = c; }));
+  const groups = {};
+  for (const l of links) {
+    if (col[l.src] === undefined || col[l.dst] !== col[l.src] + 1) continue;
+    (groups[col[l.src]] = groups[col[l.src]] || []).push([pos[l.src], pos[l.dst]]);
+  }
+  let total = 0;
+  for (const key in groups) {
+    const g = groups[key];
+    for (let i = 0; i < g.length; i++) {
+      for (let j = i + 1; j < g.length; j++) {
+        if ((g[i][0] - g[j][0]) * (g[i][1] - g[j][1]) < 0) total += 1;
+      }
+    }
+  }
+  return total;
+}
+
+// Layered ordering: alternate down and up sweeps, ordering each column by the mean
+// position of its neighbours, and keep the best ordering seen. Positions are
+// normalised per column so neighbours in columns of different heights compare fairly.
+function graphOrderColumns(columns, links) {
+  const up = {};
+  const down = {};
+  for (const l of links) {
+    (down[l.src] = down[l.src] || []).push(l.dst);
+    (up[l.dst] = up[l.dst] || []).push(l.src);
+  }
+  const norm = {};
+  const refresh = (c) => columns[c].forEach((n, i) => { norm[n.id] = (i + 0.5) / columns[c].length; });
+  columns.forEach((_, c) => refresh(c));
+  const sweep = (c, neighbours) => {
+    const keyed = columns[c].map((n, i) => {
+      const around = (neighbours[n.id] || []).filter((id) => norm[id] !== undefined);
+      const key = around.length ? around.reduce((s, id) => s + norm[id], 0) / around.length : norm[n.id];
+      return { n: n, key: key, i: i };
+    });
+    keyed.sort((a, b) => (a.key - b.key) || (a.i - b.i));
+    columns[c] = keyed.map((k) => k.n);
+    refresh(c);
+  };
+  let best = columns.map((nodes) => nodes.slice());
+  let bestCount = graphCountCrossings(columns, links);
+  for (let iter = 0; iter < GRAPH_SWEEPS && bestCount > 0; iter++) {
+    for (let c = 1; c < columns.length; c++) sweep(c, up);
+    for (let c = columns.length - 2; c >= 0; c--) sweep(c, down);
+    const count = graphCountCrossings(columns, links);
+    if (count < bestCount) { bestCount = count; best = columns.map((nodes) => nodes.slice()); }
+  }
+  best.forEach((nodes, c) => { columns[c] = nodes; });
+  columns.forEach((nodes) => nodes.forEach((n, i) => { n.row = i; }));
+  return bestCount;
+}
+
+// Vertical placement: each node wants to sit level with its neighbours, but nodes in
+// a column cannot overlap and must keep their order. That is an isotonic regression,
+// solved exactly by pooling adjacent violators, so flows run straight where they can.
+function graphPlaceRows(columns, links) {
+  const step = NODE_H + ROW_GAP;
+  const around = {};
+  for (const l of links) {
+    (around[l.src] = around[l.src] || []).push(l.dst);
+    (around[l.dst] = around[l.dst] || []).push(l.src);
+  }
+  const y = {};
+  columns.forEach((nodes) => nodes.forEach((n, i) => { y[n.id] = i * step; }));
+  const settle = (nodes) => {
+    const z = nodes.map((n, i) => {
+      const near = (around[n.id] || []).filter((id) => y[id] !== undefined);
+      const want = near.length ? near.reduce((s, id) => s + y[id], 0) / near.length : y[n.id];
+      return want - i * step;
+    });
+    const blocks = [];
+    for (const value of z) {
+      blocks.push({ sum: value, count: 1 });
+      while (blocks.length > 1 &&
+             blocks[blocks.length - 2].sum / blocks[blocks.length - 2].count >
+             blocks[blocks.length - 1].sum / blocks[blocks.length - 1].count) {
+        const last = blocks.pop();
+        blocks[blocks.length - 1].sum += last.sum;
+        blocks[blocks.length - 1].count += last.count;
+      }
+    }
+    let i = 0;
+    for (const block of blocks) {
+      for (let k = 0; k < block.count; k++, i++) y[nodes[i].id] = block.sum / block.count + i * step;
+    }
+  };
+  for (let pass = 0; pass < 6; pass++) {
+    const order = columns.map((_, c) => c);
+    if (pass % 2) order.reverse();
+    for (const c of order) settle(columns[c]);
+  }
+  let min = Infinity;
+  for (const id in y) min = Math.min(min, y[id]);
+  columns.forEach((nodes) => nodes.forEach((n) => { n.y = 20 + y[n.id] - min; }));
+}
 
 function layoutGraph(run) {
   const nodes = [{ id: "main", label: "orchestrator", status: "completed",
@@ -2355,101 +3326,141 @@ function layoutGraph(run) {
   }
   const byId = {};
   nodes.forEach((n) => { byId[n.id] = n; });
-  const edges = (run.edges || []).filter((e) => byId[e.src] && byId[e.dst]);
+  const edges = (run.edges || []).filter((e) => byId[e.src] && byId[e.dst]).map((e) => Object.assign({}, e));
+  const structural = edges.filter((e) => EXACT_KINDS.indexOf(e.kind) >= 0);
 
-  // Rank: longest path over exact edges. An inferred edge never sets a rank,
-  // so a bad guess cannot rearrange the whole picture.
-  const rank = {};
-  nodes.forEach((n) => { rank[n.id] = 0; });
-  const structural = edges.filter((e) => EXACT_KINDS.includes(e.kind));
-  for (let pass = 0; pass < nodes.length; pass++) {
-    let moved = false;
-    for (const edge of structural) {
-      const want = rank[edge.src] + 1;
-      if (rank[edge.dst] < want) { rank[edge.dst] = want; moved = true; }
-    }
-    if (!moved) break;  // also the cycle guard: bounded by node count
-  }
+  // Every agent is spawned by the orchestrator, so those edges are the same fan in
+  // every run and bury the real dependencies. Draw one only where it IS the
+  // explanation: an agent with no other incoming exact edge. Hovering the
+  // orchestrator brings the rest back.
+  const explained = new Set(structural.filter((e) => e.src !== "main").map((e) => e.dst));
+  edges.forEach((e) => { e.hidden = e.src === "main" && explained.has(e.dst); });
 
-  // Critical path: the duration-weighted longest chain, not the hop-count
-  // rank above. A 5-second agent and a 5-minute agent are equally "one hop,"
-  // but only one of them can be why the run took as long as it did. Same
-  // bounded-relaxation shape as the rank loop for the same cycle-safety.
-  const pathDuration = {};
-  const critPrev = {};
-  nodes.forEach((n) => { pathDuration[n.id] = n.duration || 0; critPrev[n.id] = null; });
-  for (let pass = 0; pass < nodes.length; pass++) {
-    let moved = false;
-    for (const edge of structural) {
-      const candidate = pathDuration[edge.src] + (byId[edge.dst].duration || 0);
-      if (candidate > pathDuration[edge.dst] + 1e-9) {
-        pathDuration[edge.dst] = candidate;
-        critPrev[edge.dst] = edge.src;
-        moved = true;
-      } else if (critPrev[edge.dst] === null && candidate >= pathDuration[edge.dst] - 1e-9) {
-        // A tie against the node's own-duration base case (its most common
-        // predecessor is "main", whose duration is always 0) must still
-        // record a predecessor, or the chain silently ends one hop short.
-        critPrev[edge.dst] = edge.src;
-      }
-    }
-    if (!moved) break;
-  }
-  let critEnd = nodes[0].id;
-  for (const n of nodes) {
-    if (pathDuration[n.id] > pathDuration[critEnd]) critEnd = n.id;
-  }
-  const criticalNodes = new Set();
-  const criticalEdges = new Set();
-  for (let cur = critEnd; cur; cur = critPrev[cur]) {
-    criticalNodes.add(cur);
-    if (critPrev[cur]) criticalEdges.add(critPrev[cur] + "→" + cur);
-  }
+  const { criticalNodes, criticalEdges } = graphCriticalPath(nodes, byId, structural);
+  const columns = graphRankColumns(nodes, structural);
+  const links = structural.filter((e) => e.src !== "main");
+  const crossings = graphOrderColumns(columns, links);
+  graphPlaceRows(columns, links);
 
-  const columns = {};
-  for (const node of nodes) {
-    node.rank = rank[node.id];
-    (columns[node.rank] = columns[node.rank] || []).push(node);
+  const rowsDrawn = columns.length;
+  columns.forEach((col, column) => col.forEach((node) => { node.x = 20 + column * (NODE_W + COL_GAP); }));
+  // The orchestrator sits level with the agents it launches directly.
+  if (columns[0] && columns[0].length === 1 && columns[0][0].isMain) {
+    const roots = edges.filter((e) => e.src === "main" && !e.hidden).map((e) => byId[e.dst].y);
+    if (roots.length) columns[0][0].y = roots.reduce((s, v) => s + v, 0) / roots.length;
   }
-  for (const key in columns) {
-    columns[key].sort((a, b) => (a.startedAt || 0) - (b.startedAt || 0));
-  }
+  let bottom = 0;
+  nodes.forEach((n) => { bottom = Math.max(bottom, n.y); });
+  return { nodes, edges, byId, crossings, criticalNodes, criticalEdges,
+           width: 40 + rowsDrawn * (NODE_W + COL_GAP) - COL_GAP, height: bottom + NODE_H + 40 };
+}
 
-  // Two barycenter sweeps: cheap, and enough for the fan-out shapes real
-  // orchestrations produce.
-  const ranks = Object.keys(columns).map(Number).sort((a, b) => a - b);
-  for (let sweep = 0; sweep < 2; sweep++) {
-    for (const r of ranks) {
-      const index = {};
-      (columns[r - 1] || []).forEach((n, i) => { index[n.id] = i; });
-      for (const node of columns[r]) {
-        const parents = structural
-          .filter((e) => e.dst === node.id && index[e.src] !== undefined)
-          .map((e) => index[e.src]);
-        node.bary = parents.length
-          ? parents.reduce((a, b) => a + b, 0) / parents.length
-          : Number.MAX_SAFE_INTEGER;
-      }
-      columns[r].sort((a, b) => (a.bary - b.bary) || 0);
-    }
-  }
+function graphClamp(k) {
+  return Math.max(GRAPH_MIN_K, Math.min(GRAPH_MAX_K, k));
+}
 
-  // Place by COLUMN INDEX, not by raw rank value. Artifact edges can form a
-  // cycle (two agents each reading what the other wrote), and the rank loop is
-  // bounded by node count rather than convergence, so a raw rank can climb far
-  // past the number of columns actually occupied — putting nodes outside the
-  // viewBox with no error and no visible cue that anything is missing.
-  ranks.forEach((r, column) => {
-    columns[r].forEach((node, i) => {
-      node.column = column;
-      node.x = 20 + column * (NODE_W + COL_GAP);
-      node.y = 20 + i * (NODE_H + ROW_GAP);
-    });
+function applyGraphView() {
+  const view = state.graphView;
+  if (view.el) view.el.setAttribute("transform", "translate(" + view.tx.toFixed(1) + "," + view.ty.toFixed(1) +
+    ") scale(" + view.k.toFixed(3) + ")");
+}
+
+function graphPoint(event) {
+  const svg = $("graph");
+  const rect = svg.getBoundingClientRect ? svg.getBoundingClientRect() : { left: 0, top: 0, width: 1, height: 1 };
+  const box = svg.viewBox && svg.viewBox.baseVal && svg.viewBox.baseVal.width ? svg.viewBox.baseVal : null;
+  const sx = box && rect.width ? box.width / rect.width : 1;
+  const sy = box && rect.height ? box.height / rect.height : 1;
+  return [(event.clientX - rect.left) * sx, (event.clientY - rect.top) * sy];
+}
+
+function zoomGraph(factor, cx, cy) {
+  const view = state.graphView;
+  const next = graphClamp(view.k * factor);
+  const f = next / view.k;
+  view.tx = cx - (cx - view.tx) * f;
+  view.ty = cy - (cy - view.ty) * f;
+  view.k = next;
+  view.userSet = true;
+  applyGraphView();
+}
+
+function fitGraph() {
+  state.graphView.userSet = false;
+  if (state.run) renderGraph(state.run);
+}
+
+// Pan and zoom: drag the background, Ctrl/Cmd+wheel (or pinch) to zoom, +/-/0 and the
+// arrow keys when the graph has focus, or the buttons. Plain wheel still scrolls the page.
+function setupFloorGroup() {
+  const select = $("floor-group");
+  if (!select) return;
+  try {
+    const stored = localStorage.getItem("orchestra-floor-group");
+    if (stored === "type" || stored === "status") state.floorGroup = stored;
+  } catch (err) { /* blocked storage: use the default */ }
+  select.value = state.floorGroup;
+  select.onchange = () => {
+    state.floorGroup = select.value === "status" ? "status" : "type";
+    try { localStorage.setItem("orchestra-floor-group", state.floorGroup); } catch (err) { /* ignore */ }
+    state.floorSig = "";
+    if (state.run) renderWorkfloor(state.run);
+  };
+}
+
+function setupGraphInteractions() {
+  const svg = $("graph");
+  if (!svg || !svg.addEventListener) return;
+  const centre = () => {
+    const w = svg.clientWidth || 900;
+    const h = Number(svg.getAttribute("height")) || 400;
+    return [w / 2, h / 2];
+  };
+  const zin = $("graph-zoom-in");
+  const zout = $("graph-zoom-out");
+  const fit = $("graph-fit");
+  if (zin) zin.onclick = () => zoomGraph(1.25, ...centre());
+  if (zout) zout.onclick = () => zoomGraph(0.8, ...centre());
+  if (fit) fit.onclick = fitGraph;
+  svg.addEventListener("wheel", (event) => {
+    if (!(event.ctrlKey || event.metaKey)) return;
+    event.preventDefault();
+    const [x, y] = graphPoint(event);
+    zoomGraph(event.deltaY < 0 ? 1.12 : 1 / 1.12, x, y);
+  }, { passive: false });
+  let drag = null;
+  svg.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || (event.target.closest && event.target.closest(".node, .edge"))) return;
+    const view = state.graphView;
+    drag = { x: event.clientX, y: event.clientY, tx: view.tx, ty: view.ty };
+    if (svg.setPointerCapture) svg.setPointerCapture(event.pointerId);
+    svg.classList.add("panning");
   });
-  const width = 40 + (ranks.length) * (NODE_W + COL_GAP);
-  const height = 40 + Math.max(...ranks.map((r) => columns[r].length)) *
-    (NODE_H + ROW_GAP);
-  return { nodes, edges, byId, width, height, criticalNodes, criticalEdges };
+  svg.addEventListener("pointermove", (event) => {
+    if (!drag) return;
+    const view = state.graphView;
+    view.tx = drag.tx + (event.clientX - drag.x);
+    view.ty = drag.ty + (event.clientY - drag.y);
+    view.userSet = true;
+    applyGraphView();
+  });
+  const stop = () => { drag = null; svg.classList.remove("panning"); };
+  svg.addEventListener("pointerup", stop);
+  svg.addEventListener("pointercancel", stop);
+  svg.addEventListener("keydown", (event) => {
+    const [cx, cy] = centre();
+    const view = state.graphView;
+    const pan = (dx, dy) => { view.tx += dx; view.ty += dy; view.userSet = true; applyGraphView(); };
+    if (event.key === "+" || event.key === "=") zoomGraph(1.25, cx, cy);
+    else if (event.key === "-" || event.key === "_") zoomGraph(0.8, cx, cy);
+    else if (event.key === "0") fitGraph();
+    else if (event.key === "ArrowLeft") pan(48, 0);
+    else if (event.key === "ArrowRight") pan(-48, 0);
+    else if (event.key === "ArrowUp") pan(0, 48);
+    else if (event.key === "ArrowDown") pan(0, -48);
+    else return;
+    event.preventDefault();
+  });
 }
 
 function renderGraph(run) {
@@ -2464,8 +3475,17 @@ function renderGraph(run) {
   const reducedMotion = typeof window.matchMedia === "function" &&
     window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const layout = layoutGraph(run);
-  const width = Math.max(svg.clientWidth || 900, layout.width);
-  const height = Math.max(layout.height, 200);
+
+  // Fit to width (but never below a readable size) until the person moves the view.
+  const view = state.graphView;
+  if (view.session !== state.sessionId) { view.session = state.sessionId; view.userSet = false; }
+  const width = svg.clientWidth || 900;
+  if (!view.userSet) {
+    view.k = Math.max(0.6, Math.min(1, (width - 24) / layout.width));
+    view.tx = 12;
+    view.ty = 12;
+  }
+  const height = Math.round(Math.min(Math.max(layout.height * view.k + 24, 300), 820));
   svg.setAttribute("height", height);
   svg.setAttribute("viewBox", "0 0 " + width + " " + height);
 
@@ -2475,13 +3495,20 @@ function renderGraph(run) {
     markerWidth: 7, markerHeight: 7, orient: "auto-start-reverse",
   }, "")).appendChild(svgEl("path", { d: "M0,0 L8,4 L0,8 z", class: "edge-arrow" }));
   svg.appendChild(defs);
+  svg.appendChild(svgEl("rect", { x: 0, y: 0, width: width, height: height, class: "graph-bg" }));
+  const viewport = svgEl("g", { class: "graph-viewport" });
+  svg.appendChild(viewport);
+  view.el = viewport;
+  applyGraphView();
 
-  const labelFont = bodyFont(11);
-  const subFont = bodyFont(9);
+  const labelFont = bodyFont(11.5);
+  const subFont = bodyFont(9.5);
   const textMax = NODE_W - NODE_TEXT_X - ACCENT_W - 12;
 
   const edgesByNode = {};
+  const neighbours = {};
   const edgeEls = [];
+  const hiddenEls = [];
   for (const edge of layout.edges) {
     const a = layout.byId[edge.src];
     const b = layout.byId[edge.dst];
@@ -2489,22 +3516,27 @@ function renderGraph(run) {
     const y1 = a.y + NODE_H / 2;
     const x2 = b.x;
     const y2 = b.y + NODE_H / 2;
-    const mid = (x1 + x2) / 2;
+    // A bend wide enough that an edge leaving a node clears its own column.
+    const bend = Math.max(36, Math.min((x2 - x1) / 2, 160));
     const isCritical = layout.criticalEdges.has(edge.src + "→" + edge.dst);
-    const d = "M" + x1 + "," + y1 + " C" + mid + "," + y1 + " " + mid + "," + y2 +
+    const d = "M" + x1 + "," + y1 + " C" + (x1 + bend) + "," + y1 + " " + (x2 - bend) + "," + y2 +
       " " + (x2 - 6) + "," + y2;
     const path = svgEl("path", {
       d: d,
       class: "edge" + (edge.confidence === "inferred" ? " edge-inferred" : "") +
+        (edge.src === "main" ? " edge-main" : "") +
+        (edge.hidden ? " edge-hidden" : "") +
         (isCritical ? " edge-critical" : ""),
       "marker-end": "url(#arrow)",
     });
     path.appendChild(svgEl("title", {}, edge.kind + " (" + edge.confidence + ")"));
     path.onclick = () => showEvidence(edge);
-    svg.appendChild(path);
+    viewport.appendChild(path);
     edgeEls.push(path);
-    (edgesByNode[edge.src] = edgesByNode[edge.src] || []).push(path);
-    (edgesByNode[edge.dst] = edgesByNode[edge.dst] || []).push(path);
+    if (edge.hidden) hiddenEls.push(path);
+    for (const id of [edge.src, edge.dst]) (edgesByNode[id] = edgesByNode[id] || []).push(path);
+    (neighbours[edge.src] = neighbours[edge.src] || new Set()).add(edge.dst);
+    (neighbours[edge.dst] = neighbours[edge.dst] || new Set()).add(edge.src);
 
     // A brand-new edge key is a real event: this handoff was JUST detected
     // between polls. Flash a dot traveling the same path once, then let it
@@ -2512,7 +3544,7 @@ function renderGraph(run) {
     const edgeKey = edge.src + ">" + edge.dst + ">" + edge.kind;
     const isNewEdge = !firstRender && !state.seenEdgeKeys.has(edgeKey);
     state.seenEdgeKeys.add(edgeKey);
-    if (isNewEdge && !reducedMotion) {
+    if (isNewEdge && !reducedMotion && !edge.hidden) {
       const packet = svgEl("circle", { r: 4, class: "packet" });
       packet.appendChild(svgEl("animateMotion", {
         dur: "1s", begin: "0s", fill: "freeze", path: d,
@@ -2521,16 +3553,19 @@ function renderGraph(run) {
         attributeName: "opacity", from: "1", to: "0",
         begin: "0.7s", dur: "0.3s", fill: "freeze",
       }));
-      svg.appendChild(packet);
+      viewport.appendChild(packet);
     }
   }
 
+  const nodeEls = {};
   for (const node of layout.nodes) {
     const isCritical = layout.criticalNodes.has(node.id);
     const group = svgEl("g", { class: "node" + (node.isMain ? " main" : "") +
-      (isCritical ? " critical" : "") + (node.matches ? "" : " dim") });
+      (isCritical ? " critical" : "") + (node.matches ? "" : " dim") +
+      (state.selected === node.id ? " selected" : "") });
+    nodeEls[node.id] = group;
     group.appendChild(svgEl("rect", {
-      x: node.x, y: node.y, width: NODE_W, height: NODE_H, rx: 8, class: "card",
+      x: node.x, y: node.y, width: NODE_W, height: NODE_H, rx: 9, class: "card",
     }));
     if (!node.isMain) {
       group.appendChild(svgEl("rect", {
@@ -2539,33 +3574,46 @@ function renderGraph(run) {
       }));
       if (node.status === "running") {
         group.appendChild(svgEl("rect", {
-          x: node.x, y: node.y, width: NODE_W, height: NODE_H, rx: 8,
+          x: node.x, y: node.y, width: NODE_W, height: NODE_H, rx: 9,
           class: "node-ping",
         }));
       }
     }
     const tx = node.x + NODE_TEXT_X;
-    group.appendChild(svgEl("text", { x: tx, y: node.y + 21 },
+    group.appendChild(svgEl("text", { x: tx, y: node.y + 22 },
       fitText(node.label, textMax, labelFont)));
-    group.appendChild(svgEl("text", { x: tx, y: node.y + 35, class: "sub" },
-      fitText(node.status + " · " + node.sub, textMax, subFont)));
+    group.appendChild(svgEl("text", { x: tx, y: node.y + 38, class: "sub" },
+      fitText(node.status + " · " + node.sub, textMax - (node.duration ? 44 : 0), subFont)));
+    if (node.duration) {
+      group.appendChild(svgEl("text", { x: node.x + NODE_W - 10, y: node.y + 38, class: "sub node-time",
+        "text-anchor": "end" }, fmtDuration(node.duration)));
+    }
     group.appendChild(svgEl("title", {}, node.label + " — " + node.status));
     const connected = edgesByNode[node.id] || [];
     group.onmouseenter = () => {
+      if (node.isMain) hiddenEls.forEach((el) => el.classList.remove("edge-hidden"));
       if (!connected.length) return;
       const keep = new Set(connected);
       for (const el of edgeEls) el.classList.toggle("edge-dim", !keep.has(el));
+      // Focus: everything not directly connected steps back.
+      const near = neighbours[node.id] || new Set();
+      for (const id in nodeEls) nodeEls[id].classList.toggle("faded", id !== node.id && !near.has(id));
     };
     group.onmouseleave = () => {
+      if (node.isMain) hiddenEls.forEach((el) => el.classList.add("edge-hidden"));
       for (const el of edgeEls) el.classList.remove("edge-dim");
+      for (const id in nodeEls) nodeEls[id].classList.remove("faded");
     };
     if (!node.isMain) group.onclick = () => openDrawer(node.id);
-    svg.appendChild(group);
+    viewport.appendChild(group);
   }
 
-  const legend = "solid = exact  ·  dashed = inferred (click an edge for evidence, hover a node to trace it)" +
-    (layout.criticalNodes.size > 1 ? "  ·  accent = critical path (longest dependency chain by duration)" : "");
-  svg.appendChild(svgEl("text", { x: 20, y: height - 8, class: "legend" }, legend));
+  const legend = $("graph-legend");
+  if (legend) {
+    legend.textContent = "Solid edges are exact, dashed are inferred (click an edge for its evidence). " +
+      "Hover an agent to trace it" + (layout.edges.some((e) => e.hidden) ? ", or the orchestrator to see every launch" : "") +
+      "." + (layout.criticalNodes.size > 1 ? " Outlined: the critical path, the longest chain by duration." : "");
+  }
 
   // Hub files are context, not dependencies, so they are listed rather than
   // drawn. They go to the footer, not #edge-evidence, which showEvidence()
@@ -2617,13 +3665,35 @@ function esc(text) {
   return div.innerHTML.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
-// Deep-linkable: #agent=<id> is set while the drawer is open (replaceState,
-// not location.hash=, so opening agents one after another doesn't spam back
-// history) so a health-box, ticker, or conflict-list link is pasteable.
-function setAgentHash(agentId) {
+// Deep-linkable: #view=<tab>&agent=<id> reflects what is on screen (replaceState,
+// not location.hash=, so browsing around doesn't spam back history), so any view
+// or open agent is a pasteable link. The old #agent=<id> form still opens.
+function parseHash() {
+  const out = { view: "", agent: "" };
+  const raw = ((typeof location !== "undefined" && location.hash) || "").replace(/^#/, "");
+  for (const part of raw.split("&")) {
+    const at = part.indexOf("=");
+    if (at < 0) continue;
+    let value = "";
+    try { value = decodeURIComponent(part.slice(at + 1)); } catch (err) { value = ""; }
+    const key = part.slice(0, at);
+    if (key === "view") out.view = value;
+    if (key === "agent") out.agent = value;
+  }
+  return out;
+}
+
+function writeHash() {
   if (typeof history === "undefined" || !history.replaceState) return;
-  const hash = agentId ? "#agent=" + encodeURIComponent(agentId) : "";
-  history.replaceState(null, "", (location.pathname || "") + (location.search || "") + hash);
+  const parts = [];
+  if (state.view && state.view !== "timeline") parts.push("view=" + encodeURIComponent(state.view));
+  if (state.selected) parts.push("agent=" + encodeURIComponent(state.selected));
+  history.replaceState(null, "", (location.pathname || "") + (location.search || "") +
+    (parts.length ? "#" + parts.join("&") : ""));
+}
+
+function setAgentHash(agentId) {
+  writeHash();
 }
 
 const DRAWER_TRANSITION_MS = 220;
@@ -2694,25 +3764,31 @@ async function openDrawer(agentId) {
     .map((t) => esc(t.name) + "  " + esc(t.target)).join("\n");
 
   drawer.innerHTML =
-    '<button class="close" type="button" id="drawer-close">Close</button>' +
+    '<div class="drawer-head">' +
+    '<button class="close" type="button" id="drawer-close" aria-label="Close">&times;</button>' +
     "<h2>" + esc(agent.description || agent.agent_id) + "</h2>" +
-    '<div class="source-note">' + esc(agent.agent_id) + "</div>" +
+    '<div class="drawer-sub"><span class="status-pill s-' + esc(agent.status) + '">' +
+    esc(agent.status) + "</span><span>" + esc(agent.agent_type) + "</span><code>" +
+    esc(agent.agent_id) + "</code></div></div>" +
+    '<div class="drawer-body">' +
     "<dl>" + rows.map(([k, v]) =>
       "<dt>" + esc(k) + "</dt><dd>" + esc(v) + "</dd>").join("") + "</dl>" +
     "<h3>Tool mix</h3>" + (renderToolMix(agent.tool_calls) || '<p class="source-note">no tool calls yet</p>') +
-    "<h3>Objective</h3><pre>" + esc(agent.objective || "—") + "</pre>" +
+    "<h3>Objective</h3><pre>" + esc(agent.objective || "\u2014") + "</pre>" +
     '<div class="source-note">' + esc(agent.objective_source) + "</div>" +
-    "<h3>Expected output</h3><pre>" + esc(agent.expected_output || "—") + "</pre>" +
+    "<h3>Expected output</h3><pre>" + esc(agent.expected_output || "\u2014") + "</pre>" +
     '<div class="source-note">' + esc(agent.expected_output_source) + "</div>" +
     "<h3>Returned result</h3><pre>" + esc(agent.result || "(still running)") + "</pre>" +
     "<details><summary>Full brief</summary><pre>" + esc(agent.brief) + "</pre></details>" +
     "<details><summary>Tool calls (last 40)</summary><pre>" + tools + "</pre></details>" +
-    "<h3>Files written</h3><pre>" + esc(agent.files_written.join("\n") || "—") + "</pre>" +
-    "<h3>Files read</h3><pre>" + esc(agent.files_read.join("\n") || "—") + "</pre>";
+    "<h3>Files written</h3><pre>" + esc(agent.files_written.join("\n") || "\u2014") + "</pre>" +
+    "<h3>Files read</h3><pre>" + esc(agent.files_read.join("\n") || "\u2014") + "</pre>" +
+    "</div>";
 
   $("drawer-close").onclick = closeDrawer;
 }
 
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") closeDrawer();
+  // Escape closes the topmost thing only: a dialog first, then the agent panel.
+  if (event.key === "Escape" && !palette.open && !helpOpen()) closeDrawer();
 });

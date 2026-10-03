@@ -8,6 +8,10 @@ from orchestra.redact import scrub, scrub_obj
 
 
 LIGHT_TEXT_CAP = 200
+# The timeline draws a comb of ticks along each bar: tool calls per slice of the
+# agent's life. Fixed width, so the payload stays small however long an agent runs.
+ACTIVITY_BINS = 28
+LAST_TOOL_CAP = 80
 
 
 def _cap(text: Optional[str], limit: int = LIGHT_TEXT_CAP) -> str:
@@ -89,6 +93,28 @@ class Agent:
             return None
         return self.ended_at - self.started_at
 
+    def _activity(self) -> List[int]:
+        """Tool calls per equal slice of this agent's span; [] when there is nothing to show."""
+        start = self.started_at
+        end = self.ended_at if self.ended_at is not None else self.last_activity_at
+        if start is None or end is None or end <= start:
+            return []
+        span = end - start
+        bins = [0] * ACTIVITY_BINS
+        for call in self.tool_calls:
+            at = call.timestamp
+            if at is None or at < start or at > end:
+                continue
+            bins[min(ACTIVITY_BINS - 1, int((at - start) / span * ACTIVITY_BINS))] += 1
+        return bins if any(bins) else []
+
+    def _last_tool(self) -> Optional[Dict[str, str]]:
+        """What the agent did most recently: the Work Floor's "doing now" line."""
+        if not self.tool_calls:
+            return None
+        call = self.tool_calls[-1]
+        return {"name": call.name, "target": _cap(scrub(call.target), LAST_TOOL_CAP)}
+
     def _loop_dict(self) -> Optional[Dict[str, Any]]:
         if not self.loop:
             return None
@@ -120,6 +146,8 @@ class Agent:
             "objective": _cap(scrub(self.objective.text)),
             "files_written_count": len(self.files_written),
             "tool_call_count": len(self.tool_calls),
+            "activity": self._activity(),
+            "last_tool": self._last_tool(),
         }
 
     def to_detail_dict(self) -> Dict[str, Any]:
@@ -212,6 +240,9 @@ class Run:
     orchestrator: Optional[Dict[str, Any]] = None
     # Money, when a price table is configured; see RunBuilder._cost_block.
     cost: Optional[Dict[str, Any]] = None
+    # Run-level analytics (orchestra.insights.compute): parallelism, critical path,
+    # tool mix, token efficiency, file hotspots. None until the builder fills it.
+    insights: Optional[Dict[str, Any]] = None
 
     def agent(self, agent_id: str) -> Optional[Agent]:
         for a in self.agents:
@@ -251,4 +282,5 @@ class Run:
             "live": self.live,
             "orchestrator": self.orchestrator,
             "cost": self.cost,
+            "insights": self.insights,
         }

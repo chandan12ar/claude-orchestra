@@ -7,6 +7,24 @@ whole orchestration: how many agents ran, what each was asked to do, what each
 was expected to produce, which are still going, which are stuck, and which
 agent's output became which other agent's input.
 
+![The Timeline view, dark theme: a live 13-agent run with a pending permission prompt, a failed agent, a possible loop and a stalled agent](docs/screenshots/timeline-dark.png)
+
+| Graph (who fed whom, critical path outlined) | Work Floor (what each agent is doing now) |
+|---|---|
+| ![Graph view, light theme](docs/screenshots/graph-light.png) | ![Work Floor, dark theme, grouped by role](docs/screenshots/workfloor-dark.png) |
+
+## Try it without a real run
+
+```bash
+python -m orchestra --demo
+```
+
+Serves a scripted 13-agent run (parallel waves, a nested agent, handoffs, a failure,
+a possible loop, a stalled agent, a write conflict, a pending permission prompt and
+demo prices) from a throwaway directory, and keeps the running agents moving so the
+live views have something to show. It never touches your real `~/.claude`; Ctrl+C
+removes everything it made.
+
 ## Install
 
 ```bash
@@ -32,6 +50,19 @@ cells a spreadsheet would execute as formulas are neutralised.
 
 ## What you get
 
+- **Insights** — the questions a run raises once it is over (or half over):
+  how parallel it really was, **the critical path** (the chain of agents that set
+  its length; speeding up anything else will not finish it sooner), which tools
+  and files dominated, the prompt-cache hit rate, who used the most fresh tokens,
+  and, with a price file, where the money went and when a budget runs out at the
+  current burn rate.
+- **Search and shortcuts** — `Ctrl/Cmd+K` (or `/`) opens one box for agents,
+  tool calls, files and commands. Number keys switch views; `L` pauses live
+  updates, `R` replays, `T` changes the theme, `?` lists every shortcut. Shortcuts
+  never fire while you are typing. Search matches the redacted text only.
+- **Light, dark or automatic** — designed together, with text and status colours
+  held to WCAG 4.5:1 by a test; follows reduced-motion; usable at phone width.
+
 - **Timeline** — one row per agent: a status dot, a duration bar, parallel
   waves banded together. A still-running agent's dot pulses and its bar
   breathes, so "in progress" is never just a color you have to notice.
@@ -39,14 +70,17 @@ cells a spreadsheet would execute as formulas are neutralised.
   message); dashed edges are inferred from text reuse and carry the snippet
   that produced them, so you can judge them yourself. The longest
   duration-weighted chain — the actual bottleneck, not just the longest hop
-  count — is highlighted, and a newly-detected handoff flashes a dot
+  count — is highlighted. Drag to pan, Ctrl/Cmd+wheel or the buttons to zoom,
+  `0` to fit; hover an agent to fade everything unrelated to it. A newly-detected handoff flashes a dot
   traveling the edge the moment it happens.
 - **Activity** — a merged, live, newest-first feed of tool calls across every
   running agent, click-through to the agent it came from.
 - **Work Floor** — every agent as a small pixel-art sprite, animated by its
   status (idle, running, waving on completion, a one-shot jump burst the
   moment it finishes), tinted a stable per-agent hue so a busy floor still
-  reads as distinct agents at a glance.
+  reads as distinct agents at a glance. Each card also shows what the agent is
+  doing right now (its last tool call) and where it has been busy; group the
+  floor by role or by status, with the agents that need a look first.
 - **Drawer** — each agent's brief, its extracted objective and expected
   output, its returned result, its exact model version, a cache-hit
   breakdown, a tool-mix fingerprint (Read/Edit/Bash/Task at a glance), every
@@ -64,7 +98,7 @@ cells a spreadsheet would execute as formulas are neutralised.
 - **Possible loops** — a still-running agent that has repeated the same tool
   call several times (or strictly alternated between two) is listed with the
   evidence. Reported as *possible*: legitimate polling looks the same.
-- **Deep links** — every agent has a `#agent=<id>` URL, pasteable into a PR
+- **Deep links** — every view and agent has a URL (`#view=insights&agent=<id>`), pasteable into a PR
   or a Slack thread, that opens straight to its drawer.
 - **Notifications** — an optional desktop alert when an agent fails, the
   session ends, or Claude is waiting on your permission, for when you're not

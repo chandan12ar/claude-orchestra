@@ -119,8 +119,8 @@ class TestReportActuallyRenders(unittest.TestCase):
         js = self.html
         referenced = set(re.findall(r'\$\("([^"]+)"\)', js))
         present = set(re.findall(r'id="([^"]+)"', js))
-        # drawer-close is created dynamically by openDrawer.
-        missing = referenced - present - {"drawer-close"}
+        # Created dynamically: drawer-close by openDrawer, transport-time by renderHeader.
+        missing = referenced - present - {"drawer-close", "transport-time"}
         self.assertEqual(missing, set(),
                          "report shell is missing ids app.js uses: {}".format(missing))
 

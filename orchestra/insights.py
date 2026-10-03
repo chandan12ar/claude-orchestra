@@ -1,0 +1,256 @@
+"""Run-level analytics: what a person asks once the run is over (or half over).
+
+The timeline shows *what happened*. These numbers answer *why it took this long
+and where the money went*: how parallel the run really was, which chain of agents
+set its length, which tools and files dominated, and how well the prompt cache
+worked. Everything is derived from the same ``Run`` the dashboard already has, so
+it is exact where the data is exact and says nothing where it is not.
+
+Pure function of a Run: no I/O. Output is bounded (every list is capped) and every
+string that came from a transcript is scrubbed, like the rest of the payload.
+"""
+
+from typing import Any, Dict, List, Optional, Tuple
+
+from orchestra.model import Agent, Run
+from orchestra.redact import scrub
+
+# Mirrors the dashboard's tool taxonomy (app.js TOOL_BUCKETS), so a colour means the
+# same thing in the drawer, the ticker and here.
+_BUCKETS = (
+    ("Read", ("Read", "Grep", "Glob", "NotebookRead", "WebFetch", "WebSearch")),
+    ("Edit", ("Edit", "Write", "NotebookEdit")),
+    ("Bash", ("Bash", "PowerShell")),
+    ("Task", ("Task", "Agent")),
+)
+# The same exact-evidence kinds the graph ranks by; an inferred edge never decides
+# what counts as the critical path.
+_EXACT_EDGE_KINDS = ("spawn", "artifact", "message")
+
+MAX_SERIES = 400
+MAX_CHAIN = 12
+TOP = 8
+
+
+def bucket_of(tool: str) -> str:
+    for label, names in _BUCKETS:
+        if tool in names:
+            return label
+    return "Other"
+
+
+def _intervals(agent: Agent, now: float) -> List[Tuple[float, float]]:
+    """The spans an agent was actually running; an open round runs until `now`."""
+    out = []
+    for r in agent.rounds:
+        if r.started_at is None:
+            continue
+        end = r.ended_at if r.ended_at is not None else now
+        if end >= r.started_at:
+            out.append((r.started_at, end))
+    return out
+
+
+def _parallelism(run: Run, now: float) -> Optional[Dict[str, Any]]:
+    events: List[Tuple[float, int]] = []
+    busy = 0.0
+    for agent in run.agents:
+        for start, end in _intervals(agent, now):
+            events.append((start, 1))
+            events.append((end, -1))
+            busy += end - start
+    if not events:
+        return None
+    # Ends sort before starts at the same instant, so back-to-back agents do not
+    # read as one extra concurrent agent.
+    events.sort(key=lambda e: (e[0], e[1]))
+    t0, t1 = events[0][0], events[-1][0]
+    wall = max(t1 - t0, 0.0)
+    series: List[List[float]] = []
+    level = peak = 0
+    idle = solo = 0.0
+    prev_t = t0
+    for t, delta in events:
+        span = t - prev_t
+        if level == 0:
+            idle += span
+        elif level == 1:
+            solo += span
+        prev_t = t
+        level += delta
+        peak = max(peak, level)
+        if series and series[-1][0] == t:
+            series[-1][1] = level
+        else:
+            series.append([t, level])
+    if len(series) > MAX_SERIES:               # keep the shape, drop the detail
+        step = len(series) / MAX_SERIES
+        series = [series[int(i * step)] for i in range(MAX_SERIES)] + [series[-1]]
+    return {"peak": peak,
+            "average": (busy / wall) if wall > 0 else float(peak),
+            "busy_s": busy, "wall_s": wall,
+            "idle_s": idle, "solo_s": solo,
+            "solo_share": (solo / wall) if wall > 0 else 0.0,
+            "series": series, "start": t0, "end": t1}
+
+
+def _duration(agent: Agent, now: float) -> float:
+    return sum(end - start for start, end in _intervals(agent, now))
+
+
+def _critical_path(run: Run, now: float) -> Optional[Dict[str, Any]]:
+    by_id = {a.agent_id: a for a in run.agents}
+    spans: Dict[str, Tuple[float, float]] = {}
+    for agent in run.agents:
+        iv = _intervals(agent, now)
+        if iv:
+            spans[agent.agent_id] = (min(s for s, _ in iv), max(e for _, e in iv))
+    if not spans:
+        return None
+    preds: Dict[str, List[str]] = {}
+    for edge in run.edges:
+        if edge.kind in _EXACT_EDGE_KINDS and edge.src in spans and edge.dst in spans:
+            # Only forward-in-time edges: a stray cycle can never loop the walk.
+            if spans[edge.src][0] <= spans[edge.dst][0] and edge.src != edge.dst:
+                preds.setdefault(edge.dst, []).append(edge.src)
+    order = sorted(spans, key=lambda a: (spans[a][0], spans[a][1]))
+    score: Dict[str, float] = {}
+    prev: Dict[str, Optional[str]] = {}
+    for aid in order:
+        start, end = spans[aid]
+        best, best_prev = end - start, None
+        for p in preds.get(aid, []):
+            if p not in score:
+                continue
+            # Count only the time this agent adds beyond its predecessor's end.
+            added = max(0.0, end - max(start, spans[p][1]))
+            if score[p] + added > best + 1e-9:
+                best, best_prev = score[p] + added, p
+        score[aid], prev[aid] = best, best_prev
+    tail = max(order, key=lambda a: (score[a], spans[a][1]))
+    chain: List[str] = []
+    cur: Optional[str] = tail
+    while cur is not None and len(chain) < MAX_CHAIN * 4:
+        chain.append(cur)
+        cur = prev[cur]
+    chain.reverse()
+    wall = max(e for _, e in spans.values()) - min(s for s, _ in spans.values())
+    return {"duration_s": score[tail],
+            "share": (score[tail] / wall) if wall > 0 else 0.0,
+            "length": len(chain),
+            "chain": [{"agent_id": a, "description": scrub(by_id[a].description),
+                       "status": by_id[a].status, "start": spans[a][0], "end": spans[a][1],
+                       "duration_s": spans[a][1] - spans[a][0]}
+                      for a in chain[-MAX_CHAIN:]]}
+
+
+def _tools(run: Run, now: float) -> Dict[str, Any]:
+    counts: Dict[str, int] = {}
+    agents_using: Dict[str, set] = {}
+    buckets: Dict[str, int] = {}
+    busiest: Optional[Tuple[int, Agent]] = None
+    total = 0
+    for agent in run.agents:
+        n = len(agent.tool_calls)
+        total += n
+        if n and (busiest is None or n > busiest[0]):
+            busiest = (n, agent)
+        for call in agent.tool_calls:
+            counts[call.name or "?"] = counts.get(call.name or "?", 0) + 1
+            agents_using.setdefault(call.name or "?", set()).add(agent.agent_id)
+            b = bucket_of(call.name)
+            buckets[b] = buckets.get(b, 0) + 1
+    ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:TOP]
+    stamps = [c.timestamp for a in run.agents for c in a.tool_calls if c.timestamp]
+    span_min = ((max(stamps) - min(stamps)) / 60.0) if len(stamps) > 1 else 0.0
+    return {"total": total,
+            "by_tool": [{"name": scrub(n), "count": c, "agents": len(agents_using[n]),
+                         "bucket": bucket_of(n), "share": c / total if total else 0.0}
+                        for n, c in ranked],
+            "buckets": [{"name": label, "count": buckets[label],
+                         "share": buckets[label] / total if total else 0.0}
+                        for label in ("Read", "Edit", "Bash", "Task", "Other") if label in buckets],
+            "per_minute": (total / span_min) if span_min > 0 else None,
+            "busiest": ({"agent_id": busiest[1].agent_id,
+                         "description": scrub(busiest[1].description), "calls": busiest[0]}
+                        if busiest else None)}
+
+
+def _fresh(tokens: Dict[str, int]) -> int:
+    """Tokens that were actually processed this run, not served from the cache."""
+    return (tokens.get("input", 0) + tokens.get("output", 0)
+            + tokens.get("cache_create", 0))
+
+
+def _tokens(run: Run, table: Any) -> Dict[str, Any]:
+    kinds: Dict[str, int] = {}
+    for agent in run.agents:
+        for k, v in agent.tokens.items():
+            kinds[k] = kinds.get(k, 0) + v
+    orch = (run.orchestrator or {}).get("tokens") or {}
+    for k, v in orch.items():
+        kinds[k] = kinds.get(k, 0) + v
+    read = kinds.get("cache_read", 0)
+    denom = kinds.get("input", 0) + read + kinds.get("cache_create", 0)
+    fresh_total = sum(_fresh(a.tokens) for a in run.agents)
+    top = sorted(run.agents, key=lambda a: -_fresh(a.tokens))[:TOP]
+    models: Dict[str, Dict[str, int]] = {}
+    for agent in run.agents:
+        for model, toks in agent.tokens_by_model.items():
+            slot = models.setdefault(model or "(unknown)", {})
+            for k, v in toks.items():
+                slot[k] = slot.get(k, 0) + v
+    orch_model = (run.orchestrator or {}).get("model")
+    by_model = []
+    for model, toks in models.items():
+        cost = table.cost({model: toks})[0] if table is not None and table.price_for(model) else None
+        by_model.append({"model": scrub(model), "fresh": _fresh(toks),
+                         "cache_read": toks.get("cache_read", 0), "cost": cost})
+    by_model.sort(key=lambda m: -m["fresh"])
+    return {"by_kind": kinds,
+            "cache_hit_ratio": (read / denom) if denom else None,
+            "fresh_total": fresh_total,
+            "top_agents": [{"agent_id": a.agent_id, "description": scrub(a.description),
+                            "fresh": _fresh(a.tokens), "cost": a.cost,
+                            "share": (_fresh(a.tokens) / fresh_total) if fresh_total else 0.0}
+                           for a in top if _fresh(a.tokens) > 0],
+            "by_model": by_model[:TOP],
+            "orchestrator": {"model": scrub(orch_model or ""), "fresh": _fresh(orch),
+                             "cost": (run.orchestrator or {}).get("cost")} if orch else None}
+
+
+def _files(run: Run) -> Dict[str, Any]:
+    writers: Dict[str, set] = {}
+    readers: Dict[str, set] = {}
+    for agent in run.agents:
+        for path in agent.files_written:
+            writers.setdefault(path, set()).add(agent.agent_id)
+        for path in agent.files_read:
+            readers.setdefault(path, set()).add(agent.agent_id)
+
+    def top(table: Dict[str, set], minimum: int) -> List[Dict[str, Any]]:
+        rows = [(p, len(a)) for p, a in table.items() if len(a) >= minimum]
+        rows.sort(key=lambda r: (-r[1], r[0]))
+        return [{"path": scrub(p), "agents": n} for p, n in rows[:TOP]]
+
+    return {"written": top(writers, 1), "contended": top(writers, 2),
+            "read": top(readers, 2),
+            "files_written": len(writers), "files_read": len(readers)}
+
+
+def _slowest(run: Run, now: float) -> List[Dict[str, Any]]:
+    rows = [(a, _duration(a, now)) for a in run.agents]
+    rows = [r for r in rows if r[1] > 0]
+    rows.sort(key=lambda r: -r[1])
+    return [{"agent_id": a.agent_id, "description": scrub(a.description),
+             "status": a.status, "duration_s": d} for a, d in rows[:5]]
+
+
+def compute(run: Run, now: float, table: Any = None) -> Dict[str, Any]:
+    """The Insights payload for a run. `table` is the optional PriceTable."""
+    return {"parallelism": _parallelism(run, now),
+            "critical_path": _critical_path(run, now),
+            "tools": _tools(run, now),
+            "tokens": _tokens(run, table),
+            "files": _files(run),
+            "slowest": _slowest(run, now)}
