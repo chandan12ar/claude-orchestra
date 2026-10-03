@@ -95,7 +95,7 @@ def run_json(summary: Dict[str, Any]) -> str:
 def filename(summary: Dict[str, Any], extension: str) -> str:
     safe = "".join(ch for ch in str(summary.get("session_id", ""))
                    if ch.isalnum() or ch in "-_")[:16] or "session"
-    return "workflow-{}.{}".format(safe, extension)
+    return "cuelight-{}.{}".format(safe, extension)
 
 
 FORMATS = {"csv": ("text/csv; charset=utf-8", agents_csv),

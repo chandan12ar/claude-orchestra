@@ -58,7 +58,10 @@ def default_path() -> str:
     else:
         base = os.environ.get("XDG_DATA_HOME") or os.path.join(
             os.path.expanduser("~"), ".local", "share")
-    return os.path.join(base, "workflow", "history.sqlite")
+    path = os.path.join(base, "cuelight", "history.sqlite")
+    legacy = os.path.join(base, "workflow", "history.sqlite")
+    # Before 0.4.0 the product was "Workflow": keep appending to history already recorded there.
+    return legacy if not os.path.exists(path) and os.path.exists(legacy) else path
 
 
 def metrics_from_summary(summary: Dict[str, Any]) -> Dict[str, Any]:

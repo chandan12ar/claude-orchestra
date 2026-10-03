@@ -120,13 +120,13 @@ class TestTabTitle(unittest.TestCase):
         return evaluate('tabTitle({kind: "%s", count: %d})' % (kind, count))
 
     def test_count_leads_when_something_needs_you(self):
-        self.assertEqual(self.title("permission", 2), "(2) Workflow")
+        self.assertEqual(self.title("permission", 2), "(2) Cuelight")
 
     def test_running_gets_a_play_marker(self):
-        self.assertEqual(self.title("running", 0), "▶ Workflow")
+        self.assertEqual(self.title("running", 0), "▶ Cuelight")
 
     def test_idle_is_plain(self):
-        self.assertEqual(self.title("idle", 0), "Workflow")
+        self.assertEqual(self.title("idle", 0), "Cuelight")
 
 
 class TestPillWiring(unittest.TestCase):

@@ -1,17 +1,21 @@
-# Workflow
+# Cuelight
 
-See what your Claude Code subagents are actually doing.
+Know the moment your Claude Code agents need you.
 
-Workflow reads the transcripts Claude Code already writes and reconstructs the
+A cue light is the lamp a stage manager switches on to tell a performer *now*. Cuelight
+does that for your agents: it tells you when one is waiting on you, has failed, or has gone
+quiet, and shows the whole run behind it.
+
+It reads the transcripts Claude Code already writes and reconstructs the
 whole orchestration: how many agents ran, what each was asked to do, what each
 was expected to produce, which are still going, which are stuck, and which
 agent's output became which other agent's input.
 
-![The Timeline view, dark theme: a live 13-agent run with a pending permission prompt, a failed agent, a possible loop and a stalled agent](docs/screenshots/timeline-dark.png)
+![The Timeline view, dark theme: a live 13-agent run with a pending permission prompt, a failed agent, a possible loop and a stalled agent](docs/evidence/screenshots/02-timeline-dark.png)
 
 | Graph (who fed whom, critical path outlined) | Work Floor (what each agent is doing now) |
 |---|---|
-| ![Graph view, light theme](docs/screenshots/graph-light.png) | ![Work Floor, dark theme, grouped by role](docs/screenshots/workfloor-dark.png) |
+| ![Graph view, light theme](docs/evidence/screenshots/05-graph-light.png) | ![Work Floor, light theme, grouped by role](docs/evidence/screenshots/07-workfloor-by-role-light.png) |
 
 ## Try it without a real run
 
@@ -28,8 +32,8 @@ removes everything it made.
 ## Install
 
 ```bash
-/plugin marketplace add <this repo>
-/plugin install workflow
+/plugin marketplace add chandan12ar/cuelight
+/plugin install cuelight
 ```
 
 Requires Python 3.9 or newer. Nothing else — no pip install, no npm, no build.
@@ -38,9 +42,9 @@ Requires Python 3.9 or newer. Nothing else — no pip install, no npm, no build.
 
 | Command | What it does |
 |---|---|
-| `/workflow:open` | Start the dashboard and open it |
-| `/workflow:open stop` | Shut the server down |
-| `/workflow:open report` | Write a self-contained HTML snapshot you can share |
+| `/cuelight:open` | Start the dashboard and open it |
+| `/cuelight:open stop` | Shut the server down |
+| `/cuelight:open report` | Write a self-contained HTML snapshot you can share |
 
 From a terminal, outside Claude Code:
 `python -m orchestra --session <id> --export csv|json [--out PATH]` writes the
@@ -109,7 +113,7 @@ cells a spreadsheet would execute as formulas are neutralised.
   Click one to jump to it.
 - **Pill** — a small always-on-top window (Chrome/Edge: click *Pill*) showing
   what needs you across all sessions, with a dot per agent. Every browser also
-  gets a `(2) Workflow` tab title and a colored, counted favicon.
+  gets a `(2) Cuelight` tab title and a colored, counted favicon.
 - **Sounds** — optional (click *Sound*). Three synthesized tones: needs you,
   something failed, all done. History never makes noise; at most one sound per
   update. No audio files, so nothing is fetched. *Options* mutes any one of the
@@ -126,7 +130,7 @@ cells a spreadsheet would execute as formulas are neutralised.
 
 Installing the plugin also registers small **async** Claude Code hooks for seven
 events: session start/end, subagent start/stop, notifications, API failures and
-turn end. They are what let Workflow say an agent is *waiting for your
+turn end. They are what let Cuelight say an agent is *waiting for your
 permission*, or that it died to a rate limit — facts a transcript cannot show.
 
 - Each hook records one line to `<state dir>/events/<session>.jsonl` and exits.
@@ -142,10 +146,10 @@ permission*, or that it died to a rate limit — facts a transcript cannot show.
 
 ## Cost and budget
 
-Workflow shows what a run cost **only if you give it prices** — prices change
+Cuelight shows what a run cost **only if you give it prices** — prices change
 and differ by contract, so none are built in. Copy
 [`docs/prices.example.json`](docs/prices.example.json) to
-`~/.config/workflow/prices.json` (Windows: `%APPDATA%\workflow\prices.json`, or
+`~/.config/cuelight/prices.json` (Windows: `%APPDATA%\cuelight\prices.json`, or
 point `ORCHESTRA_PRICES` at any file), replace the illustrative numbers with
 yours, and the header gains a cost figure. The file is re-read when it changes.
 
@@ -165,13 +169,13 @@ This is the one feature that keeps data after a session is gone, so it is off by
 default and stores the least that answers the question: **metrics only** —
 counts, durations, tokens, cost, and the project directory. No prompts, briefs,
 results, task descriptions, or file paths. It lives in
-`~/.local/share/workflow/history.sqlite` (Windows: `%LOCALAPPDATA%\workflow`),
+`~/.local/share/cuelight/history.sqlite` (Windows: `%LOCALAPPDATA%\cuelight`),
 mode `0600`, is pruned after 90 days / 500 runs, and deleting that file erases
 it. A database problem never breaks the dashboard.
 
 ## Privacy
 
-Workflow is local, and does not control Claude Code: it only observes.
+Cuelight is local, and does not control Claude Code: it only observes.
 
 - The server binds `127.0.0.1` only, and every API call requires a token minted
   at launch.
@@ -199,13 +203,13 @@ ignored in favour of the default.
 | `ORCHESTRA_MAX_BUILDERS` | 24 | Sessions kept in memory at once |
 | `ORCHESTRA_FLEET_SECONDS` | 21600 | The Fleet view lists sessions active within this window |
 | `ORCHESTRA_FLEET_MAX_SESSIONS` | 50 | Most sessions the Fleet view lists |
-| `ORCHESTRA_PRICES` | `~/.config/workflow/prices.json` | Price table that enables cost (see above) |
+| `ORCHESTRA_PRICES` | `~/.config/cuelight/prices.json` | Price table that enables cost (see above) |
 | `ORCHESTRA_BUDGET` | 0 (off) | Per-session spend limit, in the price file's currency |
 | `ORCHESTRA_BUDGET_WARN_RATIO` | 0.8 | Fraction of the budget at which warnings start |
 | `ORCHESTRA_LOOP_REPEATS` | 6 | An open agent whose last N tool calls are identical is flagged as a possible loop |
 | `ORCHESTRA_LOOP_CYCLE_CALLS` | 16 | ...or whose last N calls strictly alternate between two distinct calls |
 | `ORCHESTRA_HISTORY` | off | `on` records run metrics for the History tab |
-| `ORCHESTRA_HISTORY_DB` | `~/.local/share/workflow/history.sqlite` | Where history is kept |
+| `ORCHESTRA_HISTORY_DB` | `~/.local/share/cuelight/history.sqlite` | Where history is kept |
 | `ORCHESTRA_HISTORY_DAYS` | 90 | Runs older than this are deleted |
 | `ORCHESTRA_HISTORY_MAX_RUNS` | 500 | Most runs kept |
 | `ORCHESTRA_STATE_DIR` | per-user dir in the OS temp dir | Where port files, logs and the event spool live |

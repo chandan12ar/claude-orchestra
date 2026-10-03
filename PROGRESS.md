@@ -60,9 +60,11 @@ plugin rename.
 3. **Merge to the default branch / release.** Not done: `feature/live-events`
    is unmerged; `.claude-plugin/plugin.json` was bumped to `0.2.0` for the PR (the `version`
    pins installed users). Suggest 0.2.0 at merge; CHANGELOG `[Unreleased]` is ready.
-4. **Naming.** Plugin `workflow` / package `orchestra` / repo `claude-orchestra`,
-   and Claude Code now has its own "workflows" feature. `claude-` cannot start a
-   plugin name. Decide before the user base grows (owner deferred it).
+4. **Naming: decided, done (0.4.0).** The product, plugin and repo are **Cuelight**
+   (`/cuelight:open`, `chandan12ar/cuelight`); a cue light is the lamp that tells a
+   performer "now", which is what the dashboard is for. The internal Python package stays
+   `orchestra` and the `ORCHESTRA_*` environment variables are unchanged. Config and
+   history written under the old `workflow` directory are still found (see CHANGELOG).
 5. **Pill browser support**: Document Picture-in-Picture is Chromium-only (a search
    result said Firefox 151; not verified). The tab-title/favicon badge works everywhere.
 6. **Small gaps**: history is recorded only for

@@ -31,7 +31,7 @@ def _build_shell() -> str:
             raise RuntimeError("report shell: index.html no longer contains " + old[:60])
         html = html.replace(old, new, 1)
 
-    swap("<title>Workflow</title>", "<title>Workflow report — {session}</title>")
+    swap("<title>Cuelight</title>", "<title>Cuelight report — {session}</title>")
     swap('<link rel="stylesheet" href="style.css">', "<style>\n{css}\n</style>")
     swap('<script src="app.js"></script>',
          "<script>\nwindow.ORCHESTRA_RUN = {run_json};\n"

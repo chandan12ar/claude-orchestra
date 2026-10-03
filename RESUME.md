@@ -1,6 +1,7 @@
 # RESUME — read this first to continue the session
 
-Repo: `chandan12ar/claude-orchestra` (public) · Branch: **`main`**, version **0.3.0**.
+Repo: `chandan12ar/cuelight` (public) · Branch: **`main`**. The product is **Cuelight**
+(renamed from "Workflow" in 0.4.0; the internal package is still `orchestra`).
 State (2026-10-03): PR #1 (live events, 0.2.0) and PR #2 (Insights, palette, design system,
 graph, work floor, `--demo`; 0.3.0) are merged; CI is green on main (Linux/macOS/Windows x
 Python 3.9/3.12/3.13 + plugin validation); **766 local tests pass**. Proof of the last run
@@ -9,16 +10,14 @@ Details: `PROGRESS.md` (status + open items), `CLAUDE.md` (rules + lessons), `do
 (why), `docs/ARCHITECTURE.md` (how it works; §10 live layer, then insights/search/demo and
 the design system).
 
-**Open:** (1) plugin name `workflow` vs `orchestra` vs `claude-orchestra` (a plugin name
-cannot start with `claude-`), the owner has not decided; (2) hook payload field names are
-verified against the docs only, never a captured live payload (needs a human at a real
-Claude Code session); (3) small ideas: Activity-tab text filter, routing graph edges around
-columns they skip.
+**Open:** (1) hook payload field names are verified against the docs only, never a
+captured live payload (needs a human at a real Claude Code session); (2) small ideas:
+Activity-tab text filter, routing graph edges around columns they skip.
 
 ## 1. What the product is
-A Claude Code plugin (`/workflow:open`) serving a local dashboard of a session's subagent
+A Claude Code plugin (`/cuelight:open`) serving a local dashboard of a session's subagent
 orchestration. Python 3.9+ stdlib only, vanilla JS, no build step, no network egress,
-loopback + token. Package `orchestra/`, plugin name `workflow`.
+loopback + token. Package `orchestra/`, plugin name `cuelight`.
 Direction agreed with the owner: **observability + control plane for Claude Code multi-agent
 work** = the record (transcripts) + the live truth (hooks), across all sessions.
 
@@ -66,11 +65,8 @@ CI run 23 (`1960490`) finished **green** (full test matrix on 3 OS x 3 Pythons +
 
 ## 6. Next steps, in order
 1. Verify hook field names with a real Claude Code session (section 4).
-2. Open a PR `feature/live-events` -> default branch; bump `.claude-plugin/plugin.json`
-   `version` 0.1.0 -> 0.2.0 (CHANGELOG `[Unreleased]` is ready); merge.
-3. Decide the plugin name (`workflow` vs package `orchestra` vs repo `claude-orchestra`;
-   a plugin name can't start with `claude-`).
-4. Later, owner's call: approvals (spike `PermissionRequest` first: runs before/alongside the
+2. (done) PRs merged, versions 0.2.0 -> 0.3.0 -> 0.4.0, name decided: Cuelight.
+3. Later, owner's call: approvals (spike `PermissionRequest` first: runs before/alongside the
    terminal dialog? timeout? subagents? auto mode?), other-agent adapters.
 
 ## 7. Practical notes for the next session

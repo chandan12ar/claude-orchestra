@@ -1,4 +1,4 @@
-# Workflow — Roadmap to an enterprise-grade product
+# Cuelight — Roadmap to an enterprise-grade product
 
 Status: **built** on branch `feature/live-events` (see `PROGRESS.md` for what shipped, what is
 verified, and what is still open). Originally written as a proposal: Written after reading this repo end to
@@ -11,22 +11,22 @@ instead of being assumed.
 
 ## 1. Verdict in one paragraph
 
-Coucou and Workflow are **different products that happen to share an input
+Coucou and Cuelight are **different products that happen to share an input
 (Claude Code hooks)**. Coucou is a *companion*: a character in your notch that
-tells you "something needs you now" and lets you answer. Workflow is an
+tells you "something needs you now" and lets you answer. Cuelight is an
 *observability tool*: it reconstructs what a multi-agent run did (who spawned
 whom, who fed whom, the critical path, cost of tokens, write conflicts).
-Adopting Coucou's feature set wholesale would turn Workflow into a worse Coucou.
-Adopting the **one thing Coucou does that Workflow structurally can't** — knowing
-what an agent is *waiting on right now* — makes Workflow strictly better and
+Adopting Coucou's feature set wholesale would turn Cuelight into a worse Coucou.
+Adopting the **one thing Coucou does that Cuelight structurally can't** — knowing
+what an agent is *waiting on right now* — makes Cuelight strictly better and
 keeps its identity. That is the thesis of this roadmap:
 
-> Workflow = the **record** (transcripts) + the **live truth** (hooks) for
+> Cuelight = the **record** (transcripts) + the **live truth** (hooks) for
 > multi-agent Claude Code, across every session you have running.
 
-## 2. Coucou vs Workflow — what is actually different
+## 2. Coucou vs Cuelight — what is actually different
 
-| | Coucou | Workflow (today) |
+| | Coucou | Cuelight (today) |
 |---|---|---|
 | Core job | Alert + respond | Reconstruct + explain |
 | Data source | Hook events only, pushed over a Unix socket | Transcript files only, polled every 2 s |
@@ -41,7 +41,7 @@ anyway. Take the *ideas*; do not copy assets (build sounds synthetically, §4.3)
 
 ## 3. The gap that matters most (not in your list)
 
-Two of Workflow's core status rules are guesses, because transcripts can't tell
+Two of Cuelight's core status rules are guesses, because transcripts can't tell
 the difference between "thinking", "waiting for you" and "dead":
 
 - `stalled` = no activity for 300 s (`status.py`)
@@ -123,7 +123,7 @@ or alongside the terminal dialog, what happens on timeout or empty output,
 whether it fires for subagent calls, whether it fires in auto/bypass modes.
 
 If built:
-- **Separate opt-in plugin** (`workflow-approvals`) so the core plugin's
+- **Separate opt-in plugin** (`cuelight-approvals`) so the core plugin's
   "read-only" claim stays literally true and a security reviewer has a small
   surface to audit. Document it in the README as a *deliberate* change.
 - **Fail to the terminal, never to "allow".** Dashboard down or no answer within
@@ -146,7 +146,7 @@ Verified both have hooks (Gemini: `BeforeTool`, `AfterTool`, `SessionStart/End`,
 - `parent.py` isolates the format of **Claude's** parent transcript. Other tools
   don't have a parent/subagent transcript to parse, so an adapter there gives
   you a *flat session list with status* — which is exactly what Coucou already
-  is. Workflow's moat (spawn edges, handoffs, critical path) does not transfer.
+  is. Cuelight's moat (spawn edges, handoffs, critical path) does not transfer.
 - Coucou itself only supports approvals for Claude Code. Ideas 4 and 5 pull in
   opposite directions.
 - Every extra agent is an ongoing format-chasing cost (your own `parent.py`
@@ -185,10 +185,9 @@ and SDK runs).
   check. 234 tests exist; they aren't gating anything.
 - Add `CHANGELOG`, `SECURITY.md`, a versioned release process (`version` in
   `plugin.json` pins users — verified).
-- **Naming:** the plugin is `workflow`, the package is `orchestra`, the repo is
-  `claude-orchestra`, and Claude Code now has its own "workflows" feature.
-  Plugin names may not start with `claude-` (reserved — verified). Pick one name
-  before the user base grows.
+- **Naming (decided):** the product, plugin and repo are **Cuelight**; the internal
+  package stays `orchestra`. (Plugin names may not start with `claude-`, and Claude Code
+  has its own "workflows" feature, which is why the earlier name was dropped.)
 
 ## 6. Spikes to run before committing
 
@@ -211,7 +210,7 @@ and SDK runs).
 | **0 — Foundations** | Edge-inference caching, builder eviction, CI matrix, report path, `userConfig` thresholds, naming decision | M | — |
 | **1 — Event layer** | `hooks/hooks.json` (async, minimal events) → spool → SSE; agent-neutral event schema; ground-truth states (B); multi-session server + fleet inbox (A) | L | Phase 0, spikes 2–3 |
 | **2 — Attention** | Pill via PiP + tab badge (4.2); synthesized sounds + terminal notifications (4.3); cost, budget, runaway detection (C) | M | Phase 1 |
-| **3 — Control** | `workflow-approvals` plugin (4.4) + audit log + threat model | M | Spike 1, security review |
+| **3 — Control** | `cuelight-approvals` plugin (4.4) + audit log + threat model | M | Spike 1, security review |
 | **4 — Depth & breadth** | History + comparison (D), replay (E), export (F); one non-Claude adapter as an experiment (4.5) | L | Phase 2 |
 
 ## 8. Decisions needed from you

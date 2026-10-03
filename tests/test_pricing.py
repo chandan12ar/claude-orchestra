@@ -265,3 +265,32 @@ class TestBudget(RunCostCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestRenamedConfigDirectory(unittest.TestCase):
+    """The product was "Workflow" before 0.4.0. A price file saved there must keep working."""
+
+    def path_with(self, base, new=False, legacy=False):
+        for flag, name in ((new, "cuelight"), (legacy, "workflow")):
+            if flag:
+                os.makedirs(os.path.join(base, name), exist_ok=True)
+                with open(os.path.join(base, name, "prices.json"), "w", encoding="utf-8") as fh:
+                    fh.write("{}")
+        env = {"APPDATA": base, "XDG_CONFIG_HOME": base}
+        with mock.patch.dict(os.environ, env):
+            os.environ.pop("ORCHESTRA_PRICES", None)
+            return default_prices_path()
+
+    def test_a_new_install_uses_the_new_name(self):
+        path = self.path_with(tempfile.mkdtemp())
+        self.assertEqual(os.path.basename(os.path.dirname(path)), "cuelight")
+
+    def test_a_file_saved_under_the_old_name_is_still_found(self):
+        base = tempfile.mkdtemp()
+        path = self.path_with(base, legacy=True)
+        self.assertEqual(os.path.basename(os.path.dirname(path)), "workflow")
+        self.assertTrue(os.path.exists(path))
+
+    def test_the_new_location_wins_once_it_exists(self):
+        path = self.path_with(tempfile.mkdtemp(), new=True, legacy=True)
+        self.assertEqual(os.path.basename(os.path.dirname(path)), "cuelight")

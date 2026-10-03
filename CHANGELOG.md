@@ -1,10 +1,28 @@
 # Changelog
 
-All notable changes to Workflow. Format: [Keep a Changelog](https://keepachangelog.com/);
+All notable changes to Cuelight (called Workflow before 0.4.0). Format: [Keep a Changelog](https://keepachangelog.com/);
 versions follow [SemVer](https://semver.org/) (the `version` in
 `.claude-plugin/plugin.json` pins installed users until it changes).
 
 ## [Unreleased]
+
+## [0.4.0] - 2026-10-03
+
+### Changed
+- **Renamed from Workflow to Cuelight.** A cue light is the lamp that tells a performer
+  "now", which is what the dashboard is for. What changes for you:
+  - The command is `/cuelight:open` (was `/workflow:open`), and the plugin is `cuelight`:
+    `/plugin marketplace add chandan12ar/cuelight`, then `/plugin install cuelight`.
+  - Downloaded exports are named `cuelight-<session>.csv|json` (were `workflow-...`).
+  - New config and history live under a `cuelight` directory
+    (`~/.config/cuelight/prices.json`, `~/.local/share/cuelight/history.sqlite`; Windows:
+    `%APPDATA%\cuelight`, `%LOCALAPPDATA%\cuelight`). A price file or history already
+    saved under the old `workflow` directory is still found and used until a `cuelight`
+    one exists, so nothing is lost. `ORCHESTRA_PRICES` and `ORCHESTRA_HISTORY_DB` still
+    override both.
+  - The GitHub repository is now `chandan12ar/cuelight` (the old address redirects).
+  - Unchanged: the internal Python package (`orchestra`), every `ORCHESTRA_*` environment
+    variable, the API and the on-disk event format.
 
 ## [0.3.0] - 2026-10-03
 

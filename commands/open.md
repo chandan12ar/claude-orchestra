@@ -1,10 +1,10 @@
 ---
-description: Open the Workflow dashboard for this session's subagents
+description: Open the Cuelight dashboard for this session's subagents
 allowed-tools: Bash
 argument-hint: "[stop | report [path]]"
 ---
 
-Run Workflow for the current Claude Code session.
+Run Cuelight for the current Claude Code session.
 
 The plugin directory is `${CLAUDE_PLUGIN_ROOT}`. Run every command from there so
 `python -m orchestra` resolves, and pass the directory you started in as `--cwd`
@@ -29,5 +29,5 @@ Report back to the user exactly what the command printed — the URL, the report
 path, or the failure text. Do not paraphrase a failure as success, and do not
 retry a failed start more than once.
 
-If the command prints "no session id", tell the user Workflow could not detect
+If the command prints "no session id", tell the user Cuelight could not detect
 the session and they can pass one explicitly with `--session`.
