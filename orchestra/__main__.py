@@ -234,7 +234,7 @@ def cmd_demo(args) -> int:
     spool = _make_spool()
     if spool is not None:
         demo.write_events(spool, paths.session_id)
-    simulator = demo.Simulator(paths, agents)
+    simulator = demo.Simulator(paths, agents, spool=spool)
     simulator.start()
 
     args.session = paths.session_id

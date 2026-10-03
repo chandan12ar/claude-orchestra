@@ -372,13 +372,15 @@ def write_prices(path: str) -> None:
         json.dump(PRICES, fh, indent=2)
 
 
-def write_events(spool: Any, session_id: str, now: Optional[float] = None) -> None:
+def write_events(spool: Any, session_id: str, now: Optional[float] = None,
+                 start: bool = True) -> None:
     """A pending permission prompt, as a hook would have recorded it."""
     from orchestra.events import NOTIFICATION, SESSION_START, Event
     now = time.time() if now is None else now
-    spool.append(Event(kind=SESSION_START, session_id=session_id, ts=now - SESSION_AGE_S,
-                       cwd=CWD, detail={"source": "startup", "model": MODELS["opus"]}))
-    spool.append(Event(kind=NOTIFICATION, session_id=session_id, ts=now - 40, cwd=CWD,
+    if start:
+        spool.append(Event(kind=SESSION_START, session_id=session_id, ts=now - SESSION_AGE_S,
+                           cwd=CWD, detail={"source": "startup", "model": MODELS["opus"]}))
+    spool.append(Event(kind=NOTIFICATION, session_id=session_id, ts=now - (40 if start else 0), cwd=CWD,
                        detail={"notification_type": "permission_prompt",
                                "message": "Claude needs your permission to use Bash"}))
 
@@ -386,11 +388,13 @@ def write_events(spool: Any, session_id: str, now: Optional[float] = None) -> No
 class Simulator(threading.Thread):
     """Keeps the running agents moving, so the live views have something to do."""
 
-    def __init__(self, paths: SessionPaths, agents: List[_Agent], period_s: float = 4.0) -> None:
+    def __init__(self, paths: SessionPaths, agents: List[_Agent], period_s: float = 4.0,
+                 spool: Any = None) -> None:
         super().__init__(daemon=True)
         self.paths = paths
         self.agents = agents
         self.period_s = period_s
+        self.spool = spool            # when given, the permission prompt is kept pending
         self.stop_event = threading.Event()
         self._rng = random.Random(11)
         self._step = 0
@@ -429,6 +433,10 @@ class Simulator(threading.Thread):
                                      "content": [{"type": "text", "text": "Still waiting."}],
                                      "usage": {"input_tokens": 20, "output_tokens": 40,
                                                "cache_read_input_tokens": 4000}}}])
+        if self.spool is not None:
+            # A real prompt stays pending until the user acts, and agent activity
+            # after it would clear it, so it is re-asserted just after each tick.
+            write_events(self.spool, self.paths.session_id, now + 0.6, start=False)
         return moved
 
     def _next_call(self, agent: _Agent) -> Tuple[str, str]:

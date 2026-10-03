@@ -1,0 +1,163 @@
+"""The Insights tab, the transport clock and deep links, executed under node."""
+
+import json
+import os
+import shutil
+import subprocess
+import tempfile
+import time
+import unittest
+
+from orchestra import demo
+from orchestra.build import RunBuilder
+from orchestra.pricing import PriceSource
+
+NODE = shutil.which("node")
+STATIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                      "orchestra", "static")
+
+SETUP = """
+// esc() in app.js escapes through the DOM; this stub does what a real div does.
+global.document = {createElement: () => {
+  let text = "";
+  return {set textContent(v) { text = String(v); },
+          get innerHTML() { return text.replace(/&/g, "&amp;").replace(/</g, "&lt;")
+                                       .replace(/>/g, "&gt;"); }};
+}};
+const box = {innerHTML: "", clientWidth: 900, querySelectorAll: () => []};
+const $ = (id) => box;
+const state = {offline: false};
+"""
+
+
+def read(name):
+    with open(os.path.join(STATIC, name), encoding="utf-8") as fh:
+        return fh.read()
+
+
+def fn(js, name):
+    start = js.index("function {}(".format(name))
+    return js[start:js.index("\n}\n", start) + 3]
+
+
+def const(js, name):
+    start = js.index("const {} =".format(name))
+    return js[start:js.index(";\n", start) + 2]
+
+
+def run_js(names, consts, body):
+    js = read("app.js")
+    prelude = "\n".join([SETUP] + [const(js, c) for c in consts] + [fn(js, n) for n in names])
+    path = os.path.join(tempfile.mkdtemp(), "i.js")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(prelude + "\n" + body)
+    proc = subprocess.run([NODE, path], capture_output=True, encoding="utf-8", timeout=30)
+    if proc.returncode != 0:
+        raise AssertionError(proc.stderr[-1500:])
+    return json.loads(proc.stdout)
+
+
+INSIGHT_FNS = ("esc", "fmtDuration", "fmtCount", "fmtPct", "fmtMoney", "fmtModelShort", "statusVar",
+               "insMetric", "insCard", "insEmpty", "insRank", "insStepChart", "insParallelism",
+               "insCritical", "insTools", "insTokens", "insFiles", "insSlowest", "renderInsights")
+
+
+def demo_run(mutate=None):
+    root = tempfile.mkdtemp()
+    now = time.time()
+    paths, _ = demo.build_demo(root, now=now)
+    prices = os.path.join(root, "prices.json")
+    demo.write_prices(prices)
+    built = RunBuilder(paths, now_fn=lambda: now, prices=PriceSource(prices)).refresh()
+    summary = built.to_summary_dict()
+    if mutate:
+        mutate(summary)
+    return summary
+
+
+def render_insights(summary):
+    return run_js(INSIGHT_FNS, ["BUCKET_VARS"],
+                  "renderInsights(%s); console.log(JSON.stringify(box.innerHTML));" % json.dumps(summary))
+
+
+@unittest.skipIf(NODE is None, "node is not on PATH")
+class TestInsightsTab(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.html = render_insights(demo_run())
+
+    def test_every_card_is_drawn(self):
+        for title in ("Parallelism", "Critical path", "Tool use", "Tokens and cache",
+                      "Longest-running agents", "Files"):
+            self.assertIn("<h3>" + title + "</h3>", self.html)
+
+    def test_numbers_are_real_not_nan_or_undefined(self):
+        for bad in ("NaN", "undefined", "null", "Infinity"):
+            self.assertNotIn(bad, self.html)
+
+    def test_critical_path_names_the_chain_and_links_to_agents(self):
+        self.assertIn("Compare payment provider APIs", self.html)
+        self.assertIn("Design the checkout v2 architecture", self.html)
+        self.assertIn('class="chain-step" data-agent="', self.html)
+
+    def test_chart_is_labelled_and_axis_uses_whole_agents(self):
+        self.assertIn('role="img" aria-label="Agents running over time. Peak', self.html)
+        ticks = [int(t) for t in __import__("re").findall(
+            r'<text class="ins-axis" x="20" y="[\d.]+" text-anchor="end">(\d+)</text>', self.html)]
+        self.assertEqual(ticks, sorted(set(ticks)))
+        self.assertTrue(all(isinstance(t, int) for t in ticks))
+        self.assertEqual(ticks[0], 0)
+
+    def test_cost_per_model_appears_when_prices_exist(self):
+        self.assertIn("$", self.html.split("By model")[1])
+
+
+@unittest.skipIf(NODE is None, "node is not on PATH")
+class TestInsightsSafety(unittest.TestCase):
+    def test_hostile_agent_names_cannot_inject_markup(self):
+        evil = '"><img src=x onerror=alert(1)>'
+
+        def hit(summary):
+            for a in summary["insights"]["critical_path"]["chain"]:
+                a["description"] = evil
+            for a in summary["insights"]["tokens"]["top_agents"]:
+                a["description"] = evil
+            summary["insights"]["slowest"][0]["description"] = evil
+        html = render_insights(demo_run(hit))
+        self.assertNotIn("<img", html)
+        self.assertNotIn("onerror=alert(1)>", html.replace("&gt;", ""))   # only the escaped form
+        self.assertIn("&quot;&gt;&lt;img src=x onerror=alert(1)&gt;", html)   # shown as text
+        # and no attribute (title="...") was broken out of
+        self.assertNotIn('title=""', html)
+
+    def test_no_insights_during_replay_says_why(self):
+        html = render_insights({"insights": None, "replay_at": 5})
+        self.assertIn("Leave replay", html)
+
+    def test_no_insights_at_all_says_so(self):
+        self.assertIn("not available", render_insights({"insights": None}))
+
+
+@unittest.skipIf(NODE is None, "node is not on PATH")
+class TestTransportAndLinks(unittest.TestCase):
+    def test_timecode(self):
+        out = run_js(("fmtTimecode",), [], "console.log(JSON.stringify([0, 59, 61, 3599, 3600, 86399, "
+                     "-5, null, NaN, 125.9].map(fmtTimecode)));")
+        self.assertEqual(out, ["00:00:00", "00:00:59", "00:01:01", "00:59:59", "01:00:00",
+                               "23:59:59", "00:00:00", "--:--:--", "--:--:--", "00:02:05"])
+
+    def test_hash_parsing_handles_new_and_old_forms_and_garbage(self):
+        cases = ["", "#", "#view=insights", "#agent=a1", "#view=graph&agent=a%20b",
+                 "#view=%E0%A4%A", "#nonsense", "#view=&agent="]
+        out = run_js(("parseHash",), [],
+                     "const cases = %s; console.log(JSON.stringify(cases.map((h) => {"
+                     " global.location = {hash: h}; return parseHash(); })));" % json.dumps(cases))
+        self.assertEqual(out, [
+            {"view": "", "agent": ""}, {"view": "", "agent": ""},
+            {"view": "insights", "agent": ""}, {"view": "", "agent": "a1"},
+            {"view": "graph", "agent": "a b"}, {"view": "", "agent": ""},
+            {"view": "", "agent": ""}, {"view": "", "agent": ""}])
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -9,94 +9,50 @@ from orchestra.build import RunBuilder
 from orchestra.http import STATIC_DIR
 from orchestra.model import Run
 
-_SHELL = """<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Workflow report — {session}</title>
-<style>
-{css}
-</style>
-</head>
-<body>
-<header>
-  <div class="bar">
-    <h1>Workflow</h1>
-    <button id="pill-toggle" type="button" aria-pressed="false" hidden>Pill</button>
-    <button id="sound-toggle" type="button" aria-pressed="false" hidden>Sound</button>
-    <details id="sound-prefs" hidden></details>
-    <button id="copy-summary" type="button">Copy summary</button>
-    <button id="replay-toggle" type="button" aria-pressed="false">Replay</button>
-    <select id="export-select" aria-label="Export this run" hidden><option value="">Export…</option><option value="csv">CSV (agents)</option><option value="json">JSON (everything)</option></select>
-    <!-- id is load-bearing: app.js sets $("conn").textContent inside poll(),
-         before render(). Without it the whole page throws and stays blank. -->
-    <span id="conn" class="conn">static report · session {session}</span>
-  </div>
-  <div id="totals" class="totals"></div>
-</header>
-<div id="replay-bar" class="replay-bar" hidden></div>
-<div id="attention" class="attention" hidden></div>
-<div id="health" class="health" hidden></div>
-<div id="conflicts" class="health" hidden></div>
-<div id="filter-bar" class="filter-bar">
-  <div class="search-wrap">
-    <svg class="search-icon" viewBox="0 0 20 20" aria-hidden="true">
-      <circle cx="9" cy="9" r="6" fill="none" stroke="currentColor" stroke-width="1.6"/>
-      <path d="M13.4 13.4 L18 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-    </svg>
-    <input id="filter-text" type="search" placeholder="Filter agents…" aria-label="Filter agents">
-    <button type="button" id="filter-clear" class="filter-clear" aria-label="Clear filter" hidden>&times;</button>
-  </div>
-  <span id="filter-count" class="filter-count"></span>
-  <div id="filter-status" class="filter-chips"></div>
-</div>
-<nav class="tabs" role="tablist">
-  <button type="button" class="tab active" data-view="timeline" role="tab">Timeline</button>
-  <button type="button" class="tab" data-view="graph" role="tab">Graph</button>
-  <button type="button" class="tab" data-view="activity" role="tab">Activity</button>
-  <button type="button" class="tab" data-view="workfloor" role="tab">Work Floor</button>
-  <button type="button" hidden class="tab" data-view="fleet" role="tab">Fleet <span id="fleet-badge" class="badge" hidden></span></button>
-  <button type="button" hidden class="tab" data-view="history" role="tab">History</button>
-</nav>
-<main>
-  <section id="view-timeline" class="view">
-    <svg id="timeline" role="img" aria-label="Agent timeline"></svg>
-  </section>
-  <section id="view-graph" class="view" hidden>
-    <svg id="graph" role="img" aria-label="Agent dependency graph"></svg>
-    <div id="edge-evidence" class="evidence" hidden></div>
-  </section>
-  <section id="view-activity" class="view" hidden>
-    <div id="ticker" class="ticker"></div>
-  </section>
-  <section id="view-fleet" class="view" hidden>
-    <div id="fleet" class="fleet"></div>
-  </section>
-  <section id="view-history" class="view" hidden>
-    <div id="history" class="history"></div>
-  </section>
-  <section id="view-workfloor" class="view" hidden>
-    <div id="workfloor" class="workfloor"></div>
-  </section>
-</main>
-<div id="scrim" class="scrim" hidden></div>
-<aside id="drawer" class="drawer" hidden aria-label="Agent detail"></aside>
-<footer id="diagnostics" class="diagnostics"></footer>
-<select id="session-picker" hidden></select>
-<button id="live-toggle" hidden></button>
-<button id="notify-toggle" hidden></button>
-<script>
-window.ORCHESTRA_RUN = {run_json};
-window.ORCHESTRA_DETAILS = {details_json};
-window.ORCHESTRA_AGENT_SPRITE = {agent_sprite_json};
-</script>
-<script>
-{js}
-</script>
-</body>
-</html>
-"""
+
+def _build_shell() -> str:
+    """The report page: index.html itself, with the server-only parts switched off.
+
+    The report used to carry its own copy of the page shell, and the two drifted
+    (a missing id once shipped a blank report). Deriving it from index.html means
+    there is one shell; every substitution below is asserted, so a change to
+    index.html that this function no longer understands fails loudly at import.
+    """
+    path = os.path.join(STATIC_DIR, "index.html")
+    with open(path, encoding="utf-8") as fh:
+        html = fh.read()
+    # The result is str.format()ed, so literal braces (the pre-paint theme
+    # script) must be doubled before the real placeholders go in.
+    html = html.replace("{", "{{").replace("}", "}}")
+
+    def swap(old: str, new: str) -> None:
+        nonlocal html
+        if old not in html:
+            raise RuntimeError("report shell: index.html no longer contains " + old[:60])
+        html = html.replace(old, new, 1)
+
+    swap("<title>Workflow</title>", "<title>Workflow report — {session}</title>")
+    swap('<link rel="stylesheet" href="style.css">', "<style>\n{css}\n</style>")
+    swap('<script src="app.js"></script>',
+         "<script>\nwindow.ORCHESTRA_RUN = {run_json};\n"
+         "window.ORCHESTRA_DETAILS = {details_json};\n"
+         "window.ORCHESTRA_AGENT_SPRITE = {agent_sprite_json};\n</script>\n"
+         "<script>\n{js}\n</script>")
+    # id is load-bearing: app.js sets $("conn").textContent inside poll(), before
+    # render(). Without it the whole page throws and stays blank.
+    swap('<span id="conn" class="conn"></span>',
+         '<span id="conn" class="conn conn-static">static report · session {session}</span>')
+    # Nothing to pick, pause or be notified about in a frozen snapshot.
+    for tag in ('<select id="session-picker"', '<button id="live-toggle"',
+                '<button id="notify-toggle"'):
+        swap(tag, tag + " hidden")
+    for view in ("fleet", "history"):
+        swap('<button type="button" class="tab" data-view="' + view + '"',
+             '<button type="button" hidden class="tab" data-view="' + view + '"')
+    return html
+
+
+_SHELL = _build_shell()
 
 
 def _script_safe(payload: Any) -> str:
