@@ -66,6 +66,18 @@ const shots = [
     `(async () => { const h = document.querySelector('header').getBoundingClientRect().height;
       window.scrollTo(0, document.getElementById('pulse').offsetTop - h - 12);
       await new Promise(r => setTimeout(r, 300)); })()`],
+  ["21-waits-light", DEMO + "#view=insights", 1440, 640, "light",
+    `(async () => { await new Promise(r => setTimeout(r, 600));
+      const h = document.querySelector('header').getBoundingClientRect().height;
+      const card = [...document.querySelectorAll('#insights h3')].find((e) => e.textContent === 'Waiting on you').parentElement;
+      window.scrollTo(0, card.getBoundingClientRect().top + window.scrollY - h - 12);
+      await new Promise(r => setTimeout(r, 300)); })()`],
+  ["22-waits-dark", DEMO + "#view=insights", 1440, 640, "dark",
+    `(async () => { await new Promise(r => setTimeout(r, 600));
+      const h = document.querySelector('header').getBoundingClientRect().height;
+      const card = [...document.querySelectorAll('#insights h3')].find((e) => e.textContent === 'Waiting on you').parentElement;
+      window.scrollTo(0, card.getBoundingClientRect().top + window.scrollY - h - 12);
+      await new Promise(r => setTimeout(r, 300)); })()`],
   ["14-phone-timeline-light", DEMO, 390, 844, "light"],
   ["15-phone-insights-dark", DEMO + "#view=insights", 390, 1500, "dark"],
   ...(REPORT ? [

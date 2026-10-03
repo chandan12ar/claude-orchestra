@@ -851,6 +851,27 @@ pure functions in `app.js`, tested under node.
   500 ms. It hides itself during a replay (the insights are for the live run). Colour
   stays on the data: only the running series and the problem pills use status colours.
 
+### Waiting on you (`livestate.waits`, `insights.waits`, `agentlog.ActivityTimes`)
+- A permission or input prompt (not the idle "waiting for your input" notice, and not an
+  API error) opens a wait for its agent; no agent id means the main session. The wait ends
+  at that agent's first transcript entry more than `GRACE_S` after the prompt (the main
+  session: anyone's), the same rule that clears the `waiting` status. A prompt raised again
+  before that entry extends the wait instead of starting another.
+- To find "first entry after t", every transcript keeps its entry timestamps sorted
+  (`ActivityTimes`, capped at 50,000 per transcript) and is searched with `bisect`.
+- No later entry: the wait is **open** while the session is live (it counts up to now) and
+  **unanswered** once it is not. Unanswered waits are counted but given no length, since
+  nothing says how long they would have taken.
+- Known limit: after you approve a command the agent's next entry is the command's result,
+  so the wait includes the command's run time. Real transcripts record no duration for Bash
+  results (checked), so it cannot be subtracted; the card says so.
+- `insights.waits`: your time is the union of the wait intervals (overlaps once), agent
+  time is their sum, plus the longest wait, a per-agent ranking (top 8) and the 12 newest
+  waits with their scrubbed prompt text. Agents carry `waited_s`, `wait_count` and
+  `wait_open_since` for the panel. Open durations tick locally every 500 ms
+  (`tickWaits`, any element with `data-wait-since`); a static report shows them frozen at
+  the time it was written.
+
 ### Graph and Work Floor
 - **Graph layout** (`layoutGraph`) is a pure function split into `graphRankColumns`
   (longest path over exact edges; columns indexed, never raw rank), `graphOrderColumns`

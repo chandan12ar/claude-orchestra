@@ -173,3 +173,25 @@ Not done / ideas worth a later pass (none are blocked):
 - `plugin.json` is 0.3.0 (bumped at merge).
 - CI could not run on GitHub at first (account billing). After the repo went public it
   ran: all 10 jobs green on Linux, macOS and Windows (Python 3.9, 3.12, 3.13).
+
+## Five research-led features (agreed with the owner 2026-10-03)
+
+Picked from a review of Claude Code's changelog, the "Why Do Multi-Agent LLM Systems Fail?"
+taxonomy (NeurIPS 2025), Addy Osmani's "Code Agent Orchestra", xtrace's coding-agent
+observability layers and Build 2026. One branch, PR and minor version each, in this order:
+
+| # | Feature | State |
+|---|---|---|
+| 1 | **Waiting on you**: time agents sat on permission/input prompts (`feature/waiting-on-you`, 0.6.0) | built; tests + browser check (light, dark, phone) done; PR open for the owner to merge |
+| 2 | **Did it check its work?**: flag agents that edited files and never ran a test/build/lint after, plus repeated steps and empty finishes (rule-based, no LLM) | next |
+| 3 | **Review the changes**: per-agent changed files with before/after diffs | planned |
+| 4 | **What the run produced**: commits, PRs, test results; cost per commit/PR | planned |
+| 5 | **What each agent was told**: CLAUDE.md/rules/skills per agent via `InstructionsLoaded` (verify the payload in a live session first) | planned |
+
+Also to check before #5: whether Claude Code agent teams (teammates) show up correctly; the code has no
+handling for them yet.
+
+Known limit of #1: a wait ends at the agent's next transcript entry, so an approved command's run time
+is included (Bash results record no duration; checked on real transcripts). The one real permission
+prompt in the local event spool was never answered (the session was left), which is why "unanswered"
+waits are counted but given no length.

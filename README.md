@@ -78,6 +78,9 @@ cells a spreadsheet would execute as formulas are neutralised.
    file before merging their work.
 6. **Share a run.** Replay a finished run, then export a self-contained HTML report (secrets redacted) to
    send to a teammate or attach to a pull request.
+7. **See what your approvals cost.** The Insights card "Waiting on you" shows how long agents sat on your
+   permission prompts, which agent waited longest, and how much agent time was lost while several waited
+   at once, so you can decide which tools to pre-approve.
 
 You can try every one of these without a real run: `python -m orchestra --demo`.
 
@@ -98,6 +101,15 @@ You can try every one of these without a real run: `python -m orchestra --demo`.
   and files dominated, the prompt-cache hit rate, who used the most fresh tokens,
   and, with a price file, where the money went and when a budget runs out at the
   current burn rate.
+- **Waiting on you** — how long agents sat on permission and input prompts only
+  you could answer: your time (overlapping waits counted once), agent time lost
+  (every wait added), the longest wait, a per-agent ranking and the latest prompts.
+  A wait still open counts up live. A wait ends when the agent moves again, so an
+  approved command's own run time is included; a prompt left up when the session
+  ended is shown as never answered, not given a made-up length.
+
+  ![The Waiting on you card, dark theme: your time, agent time lost, waits, the longest wait, a per-agent ranking and the latest prompts](docs/evidence/screenshots/22-waits-dark.png)
+
 - **Search and shortcuts** — `Ctrl/Cmd+K` (or `/`) opens one box for agents,
   tool calls, files and commands. Number keys switch views; `L` pauses live
   updates, `R` replays, `T` changes the theme, `?` lists every shortcut. Shortcuts
