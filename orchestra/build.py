@@ -308,6 +308,7 @@ class RunBuilder:
             files_read=list(digest.files_read),
             transcript_path=log_path,
             verification=checked.to_dict() if checked else None,
+            changes=digest.changes.snapshot(),
         )
 
     def _orchestrator_block(self) -> Optional[Dict[str, object]]:

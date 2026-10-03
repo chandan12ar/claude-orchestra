@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from orchestra.model import Agent, Run
 from orchestra.redact import scrub
 from orchestra import verify
+from orchestra.edges import normalize_path
 
 # Mirrors the dashboard's tool taxonomy (app.js TOOL_BUCKETS), so a colour means the
 # same thing in the drawer, the ticker and here.
@@ -383,6 +384,42 @@ def _waits(run: Run, now: float) -> Optional[Dict[str, Any]]:
             "live": bool(run.session_live)}
 
 
+def _changes(run: Run) -> Optional[Dict[str, Any]]:
+    """What the run changed: totals, the agents that changed the most, the files changed most."""
+    rows = []
+    files: Dict[str, Dict[str, Any]] = {}
+    for agent in run.agents:
+        log = agent.changes
+        if log is None:
+            continue
+        t = log.totals()
+        if not t["files"]:
+            continue
+        rows.append({"agent_id": agent.agent_id, "label": scrub(agent.description)[:60],
+                     "status": agent.status, **t})
+        for f in log.files.values():
+            if f.scratch:
+                continue
+            # Worktree copies of one file are the same file.
+            entry = files.setdefault(normalize_path(f.path), {"path": f.path, "added": 0, "removed": 0,
+                                                             "agents": set(), "created": False})
+            entry["added"] += f.added
+            entry["removed"] += f.removed
+            entry["agents"].add(agent.agent_id)
+            entry["created"] = entry["created"] or f.created
+    if not rows:
+        return None
+    rows.sort(key=lambda r: (-(r["added"] + r["removed"]), r["label"]))
+    hot = sorted(files.items(), key=lambda kv: (-(kv[1]["added"] + kv[1]["removed"]), kv[0]))
+    return {"files": len(files),
+            "added": sum(r["added"] for r in rows),
+            "removed": sum(r["removed"] for r in rows),
+            "created": sum(1 for f in files.values() if f["created"]),
+            "by_agent": rows[:TOP],
+            "top_files": [{"path": scrub(f["path"]), "added": f["added"], "removed": f["removed"],
+                           "agents": len(f["agents"]), "created": f["created"]} for _, f in hot[:TOP]]}
+
+
 def compute(run: Run, now: float, table: Any = None) -> Dict[str, Any]:
     """The Insights payload for a run. `table` is the optional PriceTable."""
     par = _parallelism(run, now)
@@ -394,4 +431,5 @@ def compute(run: Run, now: float, table: Any = None) -> Dict[str, Any]:
             "files": _files(run),
             "slowest": _slowest(run, now),
             "waits": _waits(run, now),
-            "checks": verify.summary(run.agents) if run.agents else None}
+            "checks": verify.summary(run.agents) if run.agents else None,
+            "changes": _changes(run)}

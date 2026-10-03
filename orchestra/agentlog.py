@@ -6,6 +6,14 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from orchestra.model import ToolCall
 from orchestra.verify import classify
+from orchestra.changes import EDIT_TOOLS, ChangeLog, extract
+
+
+def _result_for(entry: Dict[str, Any]) -> Any:
+    """The entry's toolUseResult, only when it can belong to one result: an entry
+    carrying several tool results has a single toolUseResult that cannot be told apart."""
+    results = [b for b in content_blocks(entry) if b.get("type") == "tool_result"]
+    return entry.get("toolUseResult") if len(results) == 1 else None
 from orchestra.parent import content_blocks, parse_timestamp
 
 _MAX_TARGET = 120
@@ -176,8 +184,12 @@ class AgentDigest:
     token_events: List[Tuple[float, int]] = field(default_factory=list)
     # Every timestamped entry: how a permission prompt learns when the agent moved again.
     activity: ActivityTimes = field(default_factory=ActivityTimes)
+    # What it changed, file by file (orchestra.changes), from successful edits.
+    changes: ChangeLog = field(default_factory=ChangeLog)
     # tool_use id -> its call, until the result arrives (and says whether it failed).
     _open_tool_ids: Dict[str, ToolCall] = field(default_factory=dict)
+    # tool_use id -> (tool, input) of an edit waiting for its result.
+    _pending_edits: Dict[str, Tuple[str, Dict[str, Any]]] = field(default_factory=dict)
     _usage_seen: Dict[str, Any] = field(default_factory=dict)
 
     def ingest(self, entries: List[Dict[str, Any]]) -> None:
@@ -229,11 +241,17 @@ class AgentDigest:
                                 verify=role, ref=ref)
                 self.tool_calls.append(call)
                 self._open_tool_ids[str(block.get("id", ""))] = call
+                if name in EDIT_TOOLS:
+                    self._pending_edits[str(block.get("id", ""))] = (name, params)
                 self._record_files(name, params)
             elif kind == "tool_result":
-                call = self._open_tool_ids.pop(str(block.get("tool_use_id", "")), None)
+                use_id = str(block.get("tool_use_id", ""))
+                call = self._open_tool_ids.pop(use_id, None)
                 if call is not None:
                     call.ok = not bool(block.get("is_error"))
+                edit = self._pending_edits.pop(use_id, None)
+                if edit is not None and not block.get("is_error"):
+                    self.changes.add(extract(edit[0], edit[1], _result_for(entry)), at)
 
     def _record_files(self, name: str, params: Dict[str, Any]) -> None:
         write_field = _WRITE_TOOLS.get(name)

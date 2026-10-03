@@ -91,6 +91,12 @@ const shots = [
     `(async () => { const h = document.querySelector('header').getBoundingClientRect().height;
       window.scrollTo(0, document.getElementById('health').getBoundingClientRect().top + window.scrollY - h - 12);
       await new Promise(r => setTimeout(r, 300)); })()`],
+  ["26-what-changed-light", DEMO + "#view=insights", 1440, 640, "light", cardShot("What changed")],
+  ["27-agent-diff-dark", DEMO + "#agent=" + agentId("cart"), 1440, 900, "dark",
+    `(async () => { await new Promise(r => setTimeout(r, 900));
+      document.querySelectorAll('#drawer details.change').forEach((d) => { d.open = true; });
+      const h = [...document.querySelectorAll('#drawer h3')].find((e) => e.textContent === 'Changes');
+      h.scrollIntoView({ block: 'start' }); await new Promise(r => setTimeout(r, 300)); })()`],
   ["14-phone-timeline-light", DEMO, 390, 844, "light"],
   ["15-phone-insights-dark", DEMO + "#view=insights", 390, 1500, "dark"],
   ...(REPORT ? [
