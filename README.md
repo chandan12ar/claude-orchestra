@@ -6,6 +6,17 @@ A cue light is the lamp a stage manager switches on to tell a performer *now*. C
 does that for your agents: it tells you when one is waiting on you, has failed, or has gone
 quiet, and shows the whole run behind it.
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/pill-dark.gif">
+    <img src="docs/assets/pill-light.gif" width="420" alt="The always-on-top pill: a small cue-light that sleeps when everything is quiet, bobs while agents run, hops when one needs your permission, and shakes on an error">
+  </picture>
+</p>
+
+Keep the **pill** floating over your editor (one click in the dashboard) and a glance tells you
+the state: asleep when quiet, working while agents run, hopping when one needs you, shaking on
+an error. The browser tab icon shows the same face, so you see it even when the tab is hidden.
+
 It reads the transcripts Claude Code already writes and reconstructs the
 whole orchestration: how many agents ran, what each was asked to do, what each
 was expected to produce, which are still going, which are stuck, and which
