@@ -58,7 +58,7 @@ plugin rename.
    (affects onboarding wording). Docs (per the same lookup, not tested by us) say
    they do NOT: a new/resumed session, `/reload-plugins` or a restart is needed.
 3. **Merge to the default branch / release.** Not done: `feature/live-events`
-   is unmerged, and `.claude-plugin/plugin.json` is still `0.1.0` (the `version`
+   is unmerged; `.claude-plugin/plugin.json` was bumped to `0.2.0` for the PR (the `version`
    pins installed users). Suggest 0.2.0 at merge; CHANGELOG `[Unreleased]` is ready.
 4. **Naming.** Plugin `workflow` / package `orchestra` / repo `claude-orchestra`,
    and Claude Code now has its own "workflows" feature. `claude-` cannot start a

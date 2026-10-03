@@ -6,6 +6,8 @@ versions follow [SemVer](https://semver.org/) (the `version` in
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-03
+
 ### Added
 - Live events: async hooks (session, subagent, notification, API-failure, turn
   events) feed ground-truth state: what the session is waiting on (permission /
