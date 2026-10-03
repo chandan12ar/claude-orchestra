@@ -97,6 +97,8 @@ const shots = [
       document.querySelectorAll('#drawer details.change').forEach((d) => { d.open = true; });
       const h = [...document.querySelectorAll('#drawer h3')].find((e) => e.textContent === 'Changes');
       h.scrollIntoView({ block: 'start' }); await new Promise(r => setTimeout(r, 300)); })()`],
+  ["28-produced-light", DEMO + "#view=insights", 1440, 560, "light", cardShot("What the run produced")],
+  ["29-produced-dark", DEMO + "#view=insights", 1440, 560, "dark", cardShot("What the run produced")],
   ["14-phone-timeline-light", DEMO, 390, 844, "light"],
   ["15-phone-insights-dark", DEMO + "#view=insights", 390, 1500, "dark"],
   ...(REPORT ? [

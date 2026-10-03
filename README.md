@@ -82,7 +82,9 @@ cells a spreadsheet would execute as formulas are neutralised.
    its last test run failed. The Health box lists it with the file it edited and the last command it ran.
 8. **Review what each agent changed.** Open an agent and read its diffs file by file, with line numbers,
    before you merge its work; the Insights card shows who changed the most and which files changed most.
-9. **See what your approvals cost.** The Insights card "Waiting on you" shows how long agents sat on your
+9. **Know what a run delivered.** The Insights card lists the commits and pull requests the run made, how
+   many test runs passed, and what each commit and pull request cost.
+10. **See what your approvals cost.** The Insights card "Waiting on you" shows how long agents sat on your
    permission prompts, which agent waited longest, and how much agent time was lost while several waited
    at once, so you can decide which tools to pre-approve.
 
@@ -113,6 +115,13 @@ You can try every one of these without a real run: `python -m orchestra --demo`.
   with `ORCHESTRA_VERIFY_PATTERN`.
 
   ![The check card, dark theme: 3 of 6 agents checked, one failing, two unchecked, with the last file edited and the last command for each](docs/evidence/screenshots/24-checks-dark.png)
+
+- **What the run produced** — commits, pushes, pull requests and test runs from the
+  main session and every agent, with cost (or tokens) per commit and per pull request,
+  pull requests as links and the latest commits with their message and author agent.
+  Read from the git results Claude Code records, not guessed from command text.
+
+  ![The run's output, light theme: 2 commits, 1 pull request, 1 push, 7 of 9 test runs passed, cost per commit and per pull request](docs/evidence/screenshots/28-produced-light.png)
 
 - **What changed** — each agent's file changes as real diffs (from the patches Claude
   Code records), folded per file in the agent panel with line numbers and the time of

@@ -185,7 +185,7 @@ observability layers and Build 2026. One branch, PR and minor version each, in t
 | 1 | **Waiting on you**: time agents sat on permission/input prompts (`feature/waiting-on-you`, 0.6.0) | merged (PR #14) |
 | 2 | **Did it check its work?** (`feature/verified-work`, 0.7.0): checked / failing / unchecked after the last code edit; finished unchecked and failing agents in the Health box (owner's choice) | built; tests, real-transcript check and browser check done; PR open |
 | 3 | **Review the changes** (`feature/change-review`, 0.8.0): per-agent diffs from recorded patches, "What changed" card | built; tests and browser check done; PR open (stacked on #2) |
-| 4 | **What the run produced**: commits, PRs, test results; cost per commit/PR | planned |
+| 4 | **What the run produced** (`feature/run-outcomes`, 0.9.0): commits, pushes, PRs, merges, test runs; cost per commit/PR | built; tests and browser check done; PR open (stacked on #3) |
 | 5 | **What each agent was told**: CLAUDE.md/rules/skills per agent via `InstructionsLoaded` (verify the payload in a live session first) | planned |
 
 Also to check before #5: whether Claude Code agent teams (teammates) show up correctly; the code has no

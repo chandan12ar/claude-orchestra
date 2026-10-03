@@ -87,6 +87,8 @@ class Agent:
     verification: Optional[Dict[str, Any]] = None
     # What it changed (orchestra.changes.ChangeLog): totals in the light payload, diffs in the detail.
     changes: Any = None
+    # What it produced (orchestra.outcomes.OutcomeLog): commits, pushes, pull requests, test runs.
+    outcomes: Any = None
 
     @property
     def started_at(self) -> Optional[float]:
@@ -166,6 +168,9 @@ class Agent:
             "wait_open_since": self.wait_open_since,
             "verification": self.verification,
             "changes": self.changes.totals() if self.changes is not None else None,
+            "produced": ({"commits": len(self.outcomes.commits), "prs": len(self.outcomes.prs),
+                          "pushes": self.outcomes.pushes}
+                         if self.outcomes is not None and not self.outcomes.empty() else None),
         }
 
     def to_detail_dict(self) -> Dict[str, Any]:
@@ -188,6 +193,7 @@ class Agent:
             "files_read": [scrub(p) for p in self.files_read],
             "transcript_path": scrub(self.transcript_path),
             "change_files": self.changes.to_dicts() if self.changes is not None else [],
+            "outcomes": self.outcomes.to_dict() if self.outcomes is not None else None,
         })
         return d
 
@@ -264,6 +270,8 @@ class Run:
     insights: Optional[Dict[str, Any]] = None
     # Blocking prompts as intervals (orchestra.livestate.Wait); summarised by insights.
     waits: List[Any] = field(default_factory=list)
+    # What the main session itself produced (orchestra.outcomes.OutcomeLog), beside the agents'.
+    main_outcomes: Any = None
 
     def agent(self, agent_id: str) -> Optional[Agent]:
         for a in self.agents:

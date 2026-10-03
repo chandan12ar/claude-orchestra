@@ -591,6 +591,14 @@ main { padding: 16px 20px 32px; max-width: 1760px; margin: 0 auto; outline: none
 .wait-len { font-variant-numeric: tabular-nums; text-align: right; }
 .wait-open .wait-len { color: var(--waiting); font-weight: 650; }
 .wait-unanswered .wait-len { color: var(--muted); font-style: italic; }
+.out-list { list-style: none; margin: 0 0 6px; padding: 0; display: grid; gap: 2px; font-size: 12.5px; }
+.out-list li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding: 5px 8px; border-radius: var(--r-md); }
+.out-list li:nth-child(odd) { background: var(--panel-2); }
+.out-list code { font-family: var(--mono); color: var(--muted); min-width: 7ch; }
+.out-list b { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.out-list span { color: var(--muted); margin-left: auto; }
+.out-list a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.out-list a:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: 3px; }
 .change-total { margin: 0 0 8px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .change { border: 1px solid var(--line); border-radius: var(--r-md); margin: 0 0 6px; background: var(--panel); }
 .change summary { display: flex; align-items: center; gap: 8px; padding: 7px 10px; cursor: pointer; font-size: 13px; }
