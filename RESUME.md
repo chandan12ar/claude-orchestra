@@ -1,9 +1,19 @@
 # RESUME — read this first to continue the session
 
-Repo: `chandan12ar/claude-orchestra` · Branch: **`feature/live-events`** (unmerged, no PR yet)
-State when stopped: working tree clean, everything pushed, **652 local tests pass**.
-Last commit: `1960490`. Details: `PROGRESS.md` (status + open items), `CLAUDE.md` (rules +
-lessons), `docs/ROADMAP.md` (why), `docs/ARCHITECTURE.md` §10 (how the live layer works).
+Repo: `chandan12ar/claude-orchestra` (public) · Branch: **`main`**, version **0.3.0**.
+State (2026-10-03): PR #1 (live events, 0.2.0) and PR #2 (Insights, palette, design system,
+graph, work floor, `--demo`; 0.3.0) are merged; CI is green on main (Linux/macOS/Windows x
+Python 3.9/3.12/3.13 + plugin validation); **766 local tests pass**. Proof of the last run
+(test list + 18 screenshots) is in `docs/evidence/`.
+Details: `PROGRESS.md` (status + open items), `CLAUDE.md` (rules + lessons), `docs/ROADMAP.md`
+(why), `docs/ARCHITECTURE.md` (how it works; §10 live layer, then insights/search/demo and
+the design system).
+
+**Open:** (1) plugin name `workflow` vs `orchestra` vs `claude-orchestra` (a plugin name
+cannot start with `claude-`), the owner has not decided; (2) hook payload field names are
+verified against the docs only, never a captured live payload (needs a human at a real
+Claude Code session); (3) small ideas: Activity-tab text filter, routing graph edges around
+columns they skip.
 
 ## 1. What the product is
 A Claude Code plugin (`/workflow:open`) serving a local dashboard of a session's subagent
@@ -16,7 +26,7 @@ work** = the record (transcripts) + the live truth (hooks), across all sessions.
 1. After each feature: run tests -> commit with a clear message -> push immediately. No batching.
 2. If something fails: note it in the commit message or `PROGRESS.md`, push, and stop.
 3. If the owner says "stop": commit + push everything, update docs with where we stopped.
-4. Push only to `feature/live-events`. Never force-push. No PR unless asked.
+4. Work on a branch and open a PR; `main` changes only by merged PR. Never force-push.
 5. Out of scope by owner decision: dashboard approve/deny, Gemini/Cursor adapters, plugin rename.
 
 ## 3. What was built (all pushed)
