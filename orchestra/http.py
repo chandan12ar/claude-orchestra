@@ -155,6 +155,8 @@ def make_handler(service: OrchestraService, state: Dict[str, Any]):
                         self._json(200, result)
                 elif path == "/api/export":
                     self._export(session, query.get("format", ["csv"])[0])
+                elif path == "/api/search":
+                    self._json(200, service.search(query.get("q", [""])[0], session))
                 elif path == "/api/fleet":
                     self._json(200, service.fleet())
                 elif path == "/api/stream":
