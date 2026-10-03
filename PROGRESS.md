@@ -186,10 +186,10 @@ observability layers and Build 2026. One branch, PR and minor version each, in t
 | 2 | **Did it check its work?** (`feature/verified-work`, 0.7.0): checked / failing / unchecked after the last code edit; finished unchecked and failing agents in the Health box (owner's choice) | built; tests, real-transcript check and browser check done; PR open |
 | 3 | **Review the changes** (`feature/change-review`, 0.8.0): per-agent diffs from recorded patches, "What changed" card | built; tests and browser check done; PR open (stacked on #2) |
 | 4 | **What the run produced** (`feature/run-outcomes`, 0.9.0): commits, pushes, PRs, merges, test runs; cost per commit/PR | built; tests and browser check done; PR open (stacked on #3) |
-| 5 | **What each agent was told**: CLAUDE.md/rules/skills per agent via `InstructionsLoaded` (verify the payload in a live session first) | planned |
+| 5 | **What each agent was told** (`feature/agent-instructions`, 0.10.0): instruction files and skills per agent, coverage of project rules; read from transcripts, so no new hook | built; tests and browser check done; PR open (stacked on #4) |
 
-Also to check before #5: whether Claude Code agent teams (teammates) show up correctly; the code has no
-handling for them yet.
+Still to check: whether Claude Code agent teams (teammates) show up correctly; the code has no
+handling for them yet, and no team run exists in the local transcripts to test against.
 
 Known limit of #1: a wait ends at the agent's next transcript entry, so an approved command's run time
 is included (Bash results record no duration; checked on real transcripts). The one real permission

@@ -6,6 +6,25 @@ versions follow [SemVer](https://semver.org/) (the `version` in
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-03
+
+### Added
+- **What each agent was told**: the instruction files (CLAUDE.md, rules, memory) and skills each agent
+  had, and which agents ran without the project instructions the main session had. An Insights card
+  shows how many agents loaded your project instructions, names the ones that did not (with their agent
+  type, since some types may be meant to run without them), and lists every instruction file with its
+  type, size and how many agents loaded it; the agent panel lists that agent's files. Read from the
+  `instructions`, `nested_memory` and `skill_listing` records Claude Code writes in every transcript,
+  subagents' included, so it needs no new hook and works on past sessions. Only paths, types and sizes
+  are kept, never the files' content. Worktree copies of a file count as the same file.
+- The demo's read-only audit agent runs without the project instructions; the payment agent picks up a
+  nested CLAUDE.md when it touches `src/payments`.
+
+### Fixed
+- Found while checking this release in a real browser: the main session's instruction files were
+  cleared on every refresh after the first (a misplaced line in the builder), so a live dashboard lost
+  them within seconds. Fixed before release, with a test that refreshes after the transcript grows.
+
 ## [0.9.0] - 2026-10-03
 
 ### Added

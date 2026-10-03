@@ -220,6 +220,31 @@ def _tool_block(uid: str, name: str, target: str) -> Dict[str, Any]:
     return {"type": "tool_use", "id": uid, "name": name, "input": params}
 
 
+_USER_MD = "/home/dev/.claude/CLAUDE.md"
+_PROJECT_MD = CWD + "/CLAUDE.md"
+_RULES_MD = CWD + "/.claude/rules/payments.md"
+_NESTED_MD = CWD + "/src/payments/CLAUDE.md"
+_SKILLS = ["frontend-design", "security-review", "simplify", "write-tests"]
+
+
+def _context_entries(at: float, project: bool, agent: Optional["_Agent"] = None) -> List[Dict[str, Any]]:
+    """The instructions and skill_listing attachments Claude Code writes when a context starts."""
+    files = [{"path": _USER_MD, "type": "User", "content": "Prefer small commits.\nRun the tests before you say done.\n"}]
+    if project:
+        files += [{"path": _PROJECT_MD, "type": "Project",
+                   "content": "# Northwind shop\n\nTypeScript, strict mode. Money is integer cents.\n" * 6},
+                  {"path": _RULES_MD, "type": "Project", "content": "Never log card numbers.\nWebhooks must be idempotent.\n"}]
+    out = []
+    for kind, body in (("instructions", {"files": files}),
+                       ("skill_listing", {"names": _SKILLS, "skillCount": len(_SKILLS), "isInitial": True})):
+        entry = {"type": "attachment", "timestamp": _iso(at), "uuid": "ctx-{}-{}".format(kind, agent.key if agent else "main"),
+                 "attachment": dict(body, type=kind)}
+        if agent is not None:
+            entry.update({"isSidechain": True, "agentId": agent.agent_id})
+        out.append(entry)
+    return out
+
+
 def _git_result(command: str) -> Optional[Dict[str, Any]]:
     """The gitOperation Claude Code records for a successful git or gh command."""
     if command.startswith("git commit"):
@@ -286,7 +311,14 @@ def _agent_entries(agent: _Agent, clock: _Clock, rng: random.Random,
     model_id = MODELS[agent.model]
     stop = _stop_offset(agent, now_off)
     calls = agent.tools
-    entries: List[Dict[str, Any]] = []
+    # The read-only audit agent runs without the project's instructions; everyone else has them.
+    entries: List[Dict[str, Any]] = _context_entries(clock.at(agent.start + 1.5), agent.key != "audit", agent)
+    if agent.key == "payments":
+        entries.append({"type": "attachment", "timestamp": _iso(clock.at(agent.start + 30)), "isSidechain": True,
+                        "agentId": agent.agent_id, "uuid": "ctx-nested-payments",
+                        "attachment": {"type": "nested_memory", "path": _NESTED_MD, "displayPath": "src/payments/CLAUDE.md",
+                                       "content": {"path": _NESTED_MD, "type": "Project",
+                                                   "content": "Amounts are cents. Use PaymentIntents only.\n"}}})
     for i, (name, target) in enumerate(calls):
         offset = _call_offset(agent, i, now_off)
         if agent.end is None and agent.status == "running" and offset > stop - 2:
@@ -408,6 +440,7 @@ def build_demo(root: str, now: Optional[float] = None,
             nested.setdefault(launcher.key, []).extend([launch, ack])
         if agent.status in ("completed", "failed") and agent.end is not None:
             main.append(_notification(agent, clock.at(agent.end)))
+    main += _context_entries(clock.at(0.2), True)
     # Once the build wave is in, the orchestrator commits, pushes and opens a pull request.
     for i, command in enumerate(('git commit -m "feat: checkout v2 cart service, payment adapter and migration"',
                                  "git push -u origin checkout-v2",

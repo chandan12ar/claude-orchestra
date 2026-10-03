@@ -89,6 +89,8 @@ class Agent:
     changes: Any = None
     # What it produced (orchestra.outcomes.OutcomeLog): commits, pushes, pull requests, test runs.
     outcomes: Any = None
+    # What it was told (orchestra.context.ContextLog): instruction files and skills.
+    context: Any = None
 
     @property
     def started_at(self) -> Optional[float]:
@@ -194,6 +196,7 @@ class Agent:
             "transcript_path": scrub(self.transcript_path),
             "change_files": self.changes.to_dicts() if self.changes is not None else [],
             "outcomes": self.outcomes.to_dict() if self.outcomes is not None else None,
+            "context": self.context.to_dict() if self.context is not None else None,
         })
         return d
 
@@ -272,6 +275,8 @@ class Run:
     waits: List[Any] = field(default_factory=list)
     # What the main session itself produced (orchestra.outcomes.OutcomeLog), beside the agents'.
     main_outcomes: Any = None
+    # The main session's instruction files and skills (orchestra.context.ContextLog).
+    main_context: Any = None
 
     def agent(self, agent_id: str) -> Optional[Agent]:
         for a in self.agents:
