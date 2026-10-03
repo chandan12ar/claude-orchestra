@@ -63,6 +63,24 @@ run as CSV (one row per agent) or JSON. The dashboard's **Export** menu does the
 same. Exports contain only what the dashboard shows (already redacted), and CSV
 cells a spreadsheet would execute as formulas are neutralised.
 
+## Example use cases
+
+1. **Know when to switch back.** You start several subagents and move to another window. The pill turns
+   surprised and says "Waiting for your permission", so you answer right away instead of finding out ten
+   minutes later.
+2. **Find what slowed a run down.** A long multi-agent run is slower than expected. The timeline, critical
+   path and Pulse charts show which agent held everything up and where the tokens went.
+3. **Watch several sessions at once.** With sessions open in different projects, the Fleet view lists which
+   one needs you first, and the tab title shows how many are waiting.
+4. **Catch a stuck agent.** An agent that has gone quiet is flagged as stalled, and a repeated tool call is
+   flagged as a possible loop with the calls listed, so you can open it and decide before stopping it.
+5. **Spot clashing edits.** When two agents write the same file, Cuelight names both so you can check the
+   file before merging their work.
+6. **Share a run.** Replay a finished run, then export a self-contained HTML report (secrets redacted) to
+   send to a teammate or attach to a pull request.
+
+You can try every one of these without a real run: `python -m orchestra --demo`.
+
 ## What you get
 
 - **Pulse** — a live strip above every view, like a ticker for the run: agents running,
