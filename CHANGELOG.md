@@ -6,6 +6,42 @@ versions follow [SemVer](https://semver.org/) (the `version` in
 
 ## [Unreleased]
 
+### Added
+- Insights tab: parallelism over time, the critical path (the exact-evidence chain
+  of agents that set the run's length, overlap counted once), tool use, prompt-cache
+  hit rate, fresh-token share by agent and model, contended and widely-read files,
+  longest-running agents, and a Spend card with burn rate and a budget forecast.
+  Computed server-side (`orchestra/insights.py`) and carried in the summary payload,
+  so reports and exports include it.
+- Command palette (`Ctrl/Cmd+K` or `/`) with instant agent and command results and
+  `GET /api/search` for tool calls and files. The search matches the redacted text
+  only (it cannot be used to probe a secret); repeated identical calls collapse into
+  one row with a count, so a loop reads as x10. Static reports search the details
+  baked into them.
+- Keyboard shortcuts (`1`-`7` views, `L`, `R`, `T`, `F`, `?`, `Esc`) with a help
+  dialog; they never fire while typing or with a modifier key. Tabs support arrow
+  keys.
+- Timeline: a comb of ticks on each bar showing when the agent was calling tools,
+  an outline on the critical path, durations inside bars and a "now" marker.
+- `python -m orchestra --demo`: a scripted 13-agent run served from a throwaway
+  directory, with a simulator that keeps the running agents moving.
+- Theme: automatic, light or dark, remembered per browser, applied before first
+  paint. Deep links now carry the view (`#view=insights&agent=<id>`).
+- Empty and loading states, and a visible "can't reach the dashboard" message.
+
+### Changed
+- A new design system: a monochrome interface where status is the only colour, a
+  transport-style header (live clock, stat strip, budget meter), alerts as status
+  chips, a redesigned agent drawer, and a responsive layout down to phone width.
+  Text and status colours are held to WCAG 4.5:1 by `tests/test_contrast.py`.
+- The static report's page shell is now derived from `index.html` instead of being
+  a hand-kept copy, so the two cannot drift apart.
+
+### Fixed
+- `fmtDuration` shows hours and never rounds to "1m 60s"; the main-transcript
+  reader drops launches that a truncated file no longer contains; the page declares
+  its own icon (no `/favicon.ico` request).
+
 ## [0.2.0] - 2026-10-03
 
 ### Added

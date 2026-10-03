@@ -1124,6 +1124,27 @@ function timeWindow(run) {
   return [min, max];
 }
 
+// A comb of ticks along the foot of each bar: where the agent was actually calling
+// tools. A burst, a long gap, or one repeated pattern is visible without opening it.
+function drawActivityComb(row, agent, x, y, t1) {
+  const bins = agent.activity;
+  if (!bins || !bins.length || agent.started_at === null || agent.started_at === undefined) return;
+  const end = agent.ended_at !== null && agent.ended_at !== undefined ? agent.ended_at
+    : (agent.last_activity_at || t1);
+  if (end <= agent.started_at) return;
+  const peak = Math.max.apply(null, bins);
+  const open = agent.ended_at === null || agent.ended_at === undefined;
+  bins.forEach((count, k) => {
+    if (!count) return;
+    const tx = x(agent.started_at + ((k + 0.5) / bins.length) * (end - agent.started_at));
+    row.appendChild(svgEl("line", {
+      x1: tx, x2: tx, y1: y + 20, y2: y + ROW_H - 8.5,
+      class: "bar-tick" + (open ? " bar-tick-open" : ""),
+      "stroke-opacity": (0.4 + 0.6 * (count / peak)).toFixed(2),
+    }));
+  });
+}
+
 function renderTimeline(run) {
   const svg = $("timeline");
   svg.innerHTML = "";
@@ -1226,10 +1247,11 @@ function renderTimeline(run) {
         (crit.has(agent.agent_id) ? " — on the critical path" : "")));
       row.appendChild(bar);
       if (bw > 70 && round.ended_at !== null) {
-        row.appendChild(svgEl("text", { x: bx + 8, y: y + ROW_H / 2 + 3.5, class: "bar-text" },
+        row.appendChild(svgEl("text", { x: bx + 8, y: y + 18, class: "bar-text" },
           fmtDuration(end - start)));
       }
     }
+    drawActivityComb(row, agent, x, y, t1);
     row.onclick = () => openDrawer(agent.agent_id);
     svg.appendChild(row);
   });
@@ -1263,6 +1285,7 @@ function setView(view) {
     const active = tab.dataset.view === view;
     tab.classList.toggle("active", active);
     tab.setAttribute("aria-selected", String(active));
+    tab.setAttribute("tabindex", active ? "0" : "-1");
   }
   writeHash();
   render();
@@ -1272,8 +1295,21 @@ function setView(view) {
   if (view === "history") loadHistory();
 }
 
+const AGENT_VIEWS = ["timeline", "graph", "insights", "activity", "workfloor"];
+
 function render() {
   if (!state.run) return;
+  const boot = $("boot");
+  if (boot) boot.hidden = true;
+  // A run with no agents has nothing for the agent views to draw: say so once,
+  // instead of showing five empty panels.
+  const none = state.run.agents.length === 0 && state.run.replay_at === undefined;
+  const empty = $("empty-state");
+  if (empty) empty.hidden = !(none && AGENT_VIEWS.indexOf(state.view) >= 0);
+  for (const name of AGENT_VIEWS) {
+    const section = $("view-" + name);
+    if (section) section.hidden = state.view !== name || none;
+  }
   renderHeader(state.run);
   updateChrome();
   renderAttention(state.run);
@@ -1282,6 +1318,7 @@ function render() {
   renderFilterChips();
   renderFilterCount(state.run);
   renderDiagnostics(state.run);
+  if (none && AGENT_VIEWS.indexOf(state.view) >= 0) return;
   if (state.view === "timeline") renderTimeline(state.run);
   else if (state.view === "graph") renderGraph(state.run);
   else if (state.view === "workfloor") renderWorkfloor(state.run);
@@ -1305,6 +1342,7 @@ async function poll(generation) {
   } catch (err) {
     if (generation !== state.generation) return;
     $("conn").textContent = "reconnecting…";
+    if (!state.run && $("boot-text")) $("boot-text").textContent = "Can’t reach the dashboard yet. Retrying…";
     state.backoff = Math.min(state.backoff * 2, 30000);
     if (state.live) setTimeout(() => poll(generation), state.backoff);
     return;
@@ -1607,6 +1645,7 @@ function agentAt(agent, t) {
     // drawn to. A finished one keeps its own last activity.
     last_activity_at: open ? t : Math.min(agent.last_activity_at || ended, t),
     tokens: {}, cost: null, loop: null, tool_call_count: 0, files_written_count: 0,
+    activity: [],
   });
 }
 
@@ -2752,6 +2791,20 @@ function init() {
   }
   for (const tab of document.querySelectorAll(".tab")) {
     tab.onclick = () => setView(tab.dataset.view);
+    // Arrow keys move between tabs, as in any tablist; Tab leaves the list.
+    tab.onkeydown = (event) => {
+      const shown = Array.from(document.querySelectorAll(".tab")).filter((t) => !t.hidden);
+      const at = shown.indexOf(tab);
+      let next = -1;
+      if (event.key === "ArrowRight") next = (at + 1) % shown.length;
+      else if (event.key === "ArrowLeft") next = (at - 1 + shown.length) % shown.length;
+      else if (event.key === "Home") next = 0;
+      else if (event.key === "End") next = shown.length - 1;
+      if (next < 0) return;
+      event.preventDefault();
+      shown[next].focus();
+      setView(shown[next].dataset.view);
+    };
   }
   $("filter-text").oninput = (event) => {
     state.filterText = event.target.value;
@@ -2959,7 +3012,7 @@ function insFiles(ins) {
   }
   if (!body) body = insEmpty("No file is shared between agents yet.");
   return insCard("Files",
-    f.files_written + " written, " + f.files_read + " read. A file with several writers is a correctness risk.", body);
+    f.files_written + " written, " + f.files_read + " read. A file with several writers is a correctness risk.", body, "wide");
 }
 
 function insSlowest(ins) {
@@ -2968,6 +3021,32 @@ function insSlowest(ins) {
     insRank(ins.slowest.map((a) => ({
       name: a.description || a.agent_id, agent: a.agent_id, value: a.duration_s,
       label: fmtDuration(a.duration_s), color: statusVar(a.status) }))));
+}
+
+// Where the money went, from the cost block and per-agent costs already in the run.
+function insSpend(run) {
+  const cost = run.cost;
+  if (!cost || !cost.enabled) return "";
+  const minutes = Math.max((transportSeconds(run) || 0) / 60, 1 / 60);
+  const rate = cost.total / minutes;
+  const metrics = [insMetric(fmtMoney(cost.total, cost.currency), "spent so far"),
+    insMetric(fmtMoney(rate, cost.currency) + "/min", "average burn")];
+  let note = "Agents " + fmtMoney(cost.agents, cost.currency) + ", orchestrator " +
+    fmtMoney(cost.orchestrator, cost.currency) + ".";
+  let meter = "";
+  if (cost.budget) {
+    const left = cost.budget.limit - cost.total;
+    metrics.push(insMetric(fmtPct(cost.budget.ratio), "of the " + fmtMoney(cost.budget.limit, cost.currency) + " budget"));
+    if (left <= 0) note = "Over budget by " + fmtMoney(-left, cost.currency) + ". " + note;
+    else if (run.session_live && rate > 0) note = "At this pace the budget runs out in " + fmtDuration((left / rate) * 60) + ". " + note;
+    meter = '<div class="ratio-track"><i style="width:' + Math.min(100, cost.budget.ratio * 100).toFixed(1) +
+      "%;background:var(--" + (cost.budget.state === "exceeded" ? "failed" : cost.budget.state === "warn" ? "stalled" : "completed") + ')"></i></div>';
+  }
+  const paid = run.agents.filter((a) => a.cost > 0).sort((a, b) => b.cost - a.cost).slice(0, 8);
+  const rows = paid.length ? "<h4>Most expensive agents</h4>" + insRank(paid.map((a) => ({
+    name: a.description || a.agent_id, agent: a.agent_id, value: a.cost,
+    label: fmtMoney(a.cost, cost.currency) }))) : "";
+  return insCard("Spend", note, '<div class="metrics">' + metrics.join("") + "</div>" + meter + rows);
 }
 
 function renderInsights(run) {
@@ -2982,7 +3061,7 @@ function renderInsights(run) {
   }
   const width = Math.max(320, (box.clientWidth || 960) - 38);
   box.innerHTML = insParallelism(ins, width) + insCritical(ins) + insTools(ins) +
-    insTokens(ins, run) + insSlowest(ins) + insFiles(ins);
+    insTokens(ins, run) + insSpend(run) + insSlowest(ins) + insFiles(ins);
   for (const el of box.querySelectorAll("[data-agent]")) {
     const open = () => openDrawer(el.getAttribute("data-agent"));
     el.onclick = open;

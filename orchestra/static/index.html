@@ -69,8 +69,10 @@ try { var t = localStorage.getItem("orchestra-theme");
 
 <div id="replay-bar" class="replay-bar" hidden></div>
 <div id="attention" class="attention" hidden></div>
-<div id="health" class="health" hidden></div>
-<div id="conflicts" class="health" hidden></div>
+<div class="alerts">
+  <div id="health" class="health" hidden></div>
+  <div id="conflicts" class="health" hidden></div>
+</div>
 
 <div id="filter-bar" class="filter-bar">
   <div class="search-wrap">
@@ -96,6 +98,11 @@ try { var t = localStorage.getItem("orchestra-theme");
 </nav>
 
 <main id="main" tabindex="-1">
+  <div id="boot" class="boot" role="status"><span class="boot-dot"></span><span id="boot-text">Loading the run…</span></div>
+  <div id="empty-state" class="empty-state" hidden>
+    <h2>No subagents yet</h2>
+    <p>Subagents appear here the moment this session launches them. There is nothing to set up.</p>
+  </div>
   <section id="view-timeline" class="view">
     <svg id="timeline" role="img" aria-label="Agent timeline"></svg>
   </section>

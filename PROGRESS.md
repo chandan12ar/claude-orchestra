@@ -152,3 +152,29 @@ and the full local suite passes on every later commit (665 tests at 438d5fa). Th
 cross-OS result for commits after e96913c is therefore UNVERIFIED until billing is fixed
 and the runs are re-run (`gh run rerun <id>`). The Windows-specific risk is low for the
 latest changes but not zero (new node-based tests use explicit utf-8).
+
+## Branch `feature/enterprise-ux` (stacked on `feature/live-events`, 2026-10-03)
+
+Research first (what Langfuse/LangSmith/AgentOps and the open-source Claude Code
+dashboards such as agents-observe and Claude-Code-Agent-Monitor offer, and what
+users ask for on HN), then built the gaps. Every item has tests; the suite is at
+734+ and the UI was checked in a real Chromium (light, dark, phone width).
+
+| Item | State |
+|---|---|
+| `--demo` synthetic 13-agent run (+ simulator, + pending permission prompt) | done |
+| Insights backend (`insights.py`) and tab (parallelism, critical path, tools, cache, spend, files) | done |
+| `/api/search` + command palette + keyboard shortcuts + help | done |
+| Design system: tokens, light/dark/auto, transport header, alert chips, drawer, timeline comb + critical outline + now marker | done |
+| Report shell derived from `index.html` (no more drift) | done |
+| Contrast guard (`tests/test_contrast.py`), empty/loading states, tab arrow keys | done |
+| README + screenshots, CHANGELOG `[Unreleased]`, ARCHITECTURE section | done |
+
+Not done / ideas worth a later pass (none are blocked):
+- Graph view still uses the old layout algorithm; only restyled (orchestrator edges
+  are faded). A cleaner layered layout would help runs with 30+ agents.
+- Activity tab has no text filter of its own (the palette searches tool calls).
+- Work Floor sprites are unchanged.
+- `plugin.json` still says 0.2.0: bump to 0.3.0 when this merges.
+- CI could not run on GitHub at the time of writing (account billing); local runs are
+  green. Re-run `gh run rerun` once billing is fixed.

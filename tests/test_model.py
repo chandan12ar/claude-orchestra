@@ -111,3 +111,36 @@ class TestLightDictIsActuallyLight(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestActivityBins(unittest.TestCase):
+    def agent(self, stamps, start=0.0, end=100.0, bins=None):
+        from orchestra.model import Agent, Round, ToolCall
+        a = Agent(agent_id="a", rounds=[Round(started_at=start, ended_at=end)])
+        a.last_activity_at = end
+        a.tool_calls = [ToolCall("Read", "x", t) for t in stamps]
+        return a.to_light_dict()["activity"]
+
+    def test_counts_land_in_the_right_bins(self):
+        from orchestra.model import ACTIVITY_BINS
+        bins = self.agent([0.0, 1.0, 99.0, 100.0])
+        self.assertEqual(len(bins), ACTIVITY_BINS)
+        self.assertEqual(bins[0], 2)
+        self.assertEqual(bins[-1], 2)         # the final instant belongs to the last bin
+        self.assertEqual(sum(bins), 4)
+
+    def test_calls_outside_the_span_or_without_a_time_are_ignored(self):
+        self.assertEqual(sum(self.agent([-5.0, 150.0, None])), 0)
+
+    def test_no_calls_or_no_span_means_no_strip(self):
+        self.assertEqual(self.agent([]), [])
+        self.assertEqual(self.agent([5.0], start=10.0, end=10.0), [])
+
+    def test_an_open_agent_uses_its_last_activity_as_the_end(self):
+        from orchestra.model import Agent, Round, ToolCall
+        a = Agent(agent_id="a", rounds=[Round(started_at=0.0, ended_at=None)])
+        a.last_activity_at = 50.0
+        a.tool_calls = [ToolCall("Read", "x", 25.0)]
+        bins = a.to_light_dict()["activity"]
+        self.assertEqual(sum(bins), 1)
+        self.assertEqual(bins.index(1), len(bins) // 2)

@@ -20,19 +20,21 @@
   --ink: #10151c;
   --ink-2: #384151;
   --muted: #5a6577;
-  --faint: #8691a3;
+  --faint: #606b7f;
   /* the interface accent is ink itself: selection, focus, primary marks */
   --accent: #10151c;
   --accent-ink: #ffffff;
+  /* text and ticks drawn ON a status-coloured bar */
+  --bar-ink: #ffffff;
 
   /* status: the only colour in the interface */
   --running: #2563eb;
-  --completed: #168a4a;
+  --completed: #14803f;
   --failed: #d92d3a;
-  --stalled: #b7791f;
+  --stalled: #9e610d;
   --orphaned: #667085;
   --waiting: #7c4ddb;
-  --unknown: #98a2b3;
+  --unknown: #8590a2;
 
   /* tool-call categories, distinct from status so a swatch never reads as one */
   --tool-read: #2a78d6;
@@ -66,9 +68,10 @@
   --ink: #e8ecf2;
   --ink-2: #c0c9d6;
   --muted: #8f9bae;
-  --faint: #667286;
+  --faint: #7d899d;
   --accent: #e8ecf2;
   --accent-ink: #10151c;
+  --bar-ink: #0a0d12;
   --running: #5b9dff;
   --completed: #35c27a;
   --failed: #ff6b73;
@@ -96,9 +99,10 @@
     --ink: #e8ecf2;
     --ink-2: #c0c9d6;
     --muted: #8f9bae;
-    --faint: #667286;
+    --faint: #7d899d;
     --accent: #e8ecf2;
     --accent-ink: #10151c;
+  --bar-ink: #0a0d12;
     --running: #5b9dff;
     --completed: #35c27a;
     --failed: #ff6b73;
@@ -226,6 +230,9 @@ button[aria-pressed="true"] { color: var(--ink); background: color-mix(in srgb, 
 
 /* ------------------------------------------------------------- alert strips */
 
+.alerts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 14px; margin: 14px 20px 0; }
+.alerts:not(:has(> :not([hidden]))) { display: none; }
+.alerts > .health { margin: 0; }
 .health, .attention {
   margin: 14px 20px 0; padding: 11px 14px 11px 16px; border-radius: var(--r-md);
   background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow-1);
@@ -329,7 +336,9 @@ main { padding: 16px 20px 32px; max-width: 1760px; margin: 0 auto; outline: none
 .row:hover .bar { opacity: 0.88; }
 .bar-open { stroke: var(--running); stroke-dasharray: 3 3; fill-opacity: 0.35; animation: breathe 1.8s ease-in-out infinite; }
 .bar-critical { stroke: var(--ink); stroke-width: 1.6; }
-.bar-text { fill: #fff; font-size: 10.5px; font-weight: 600; pointer-events: none; font-variant-numeric: tabular-nums; }
+.bar-tick { stroke: var(--bar-ink); stroke-width: 1.6; stroke-linecap: round; pointer-events: none; }
+.bar-tick-open { stroke: var(--running); }
+.bar-text { fill: var(--bar-ink); font-size: 10.5px; font-weight: 600; pointer-events: none; font-variant-numeric: tabular-nums; }
 .playhead { stroke: var(--ink); stroke-width: 1.2; stroke-dasharray: 2 3; }
 .playhead-label { fill: var(--ink); font-size: 10px; font-weight: 700; }
 .timeline-legend { fill: var(--muted); font-size: 10.5px; }
@@ -506,6 +515,15 @@ main { padding: 16px 20px 32px; max-width: 1760px; margin: 0 auto; outline: none
 .sound-quiet-range { display: flex; align-items: center; gap: 6px; color: var(--muted); }
 .sound-quiet-range input { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 3px 5px; }
 
+/* ------------------------------------------------------------ boot and empty */
+
+.boot { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 56px auto; color: var(--muted); }
+.boot-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ink); animation: breathe 1.2s ease-in-out infinite; }
+.empty-state { margin: 36px auto; max-width: 520px; text-align: center; padding: 34px 28px; background: var(--panel);
+  border: 1px dashed var(--line-strong); border-radius: var(--r-lg); }
+.empty-state h2 { font-size: 16px; margin: 0 0 6px; }
+.empty-state p { color: var(--muted); margin: 0; }
+
 /* --------------------------------------------------------------------- insights */
 
 .insights { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 14px; }
@@ -618,6 +636,8 @@ main { padding: 16px 20px 32px; max-width: 1760px; margin: 0 auto; outline: none
   .totals { margin: 8px -14px 0; padding: 0 14px; }
   .totals > span { padding-right: 14px; margin-right: 14px; }
   .health, .attention, .replay-bar { margin-left: 14px; margin-right: 14px; }
+  .alerts { margin-left: 14px; margin-right: 14px; }
+  .alerts > .health { margin-left: 0; margin-right: 0; }
   .filter-bar, .tabs { margin-left: 14px; margin-right: 14px; }
   .filter-chips { margin-left: 0; }
   main { padding: 14px 14px 28px; }

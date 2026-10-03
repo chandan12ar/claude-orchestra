@@ -8,6 +8,9 @@ from orchestra.redact import scrub, scrub_obj
 
 
 LIGHT_TEXT_CAP = 200
+# The timeline draws a comb of ticks along each bar: tool calls per slice of the
+# agent's life. Fixed width, so the payload stays small however long an agent runs.
+ACTIVITY_BINS = 28
 
 
 def _cap(text: Optional[str], limit: int = LIGHT_TEXT_CAP) -> str:
@@ -89,6 +92,21 @@ class Agent:
             return None
         return self.ended_at - self.started_at
 
+    def _activity(self) -> List[int]:
+        """Tool calls per equal slice of this agent's span; [] when there is nothing to show."""
+        start = self.started_at
+        end = self.ended_at if self.ended_at is not None else self.last_activity_at
+        if start is None or end is None or end <= start:
+            return []
+        span = end - start
+        bins = [0] * ACTIVITY_BINS
+        for call in self.tool_calls:
+            at = call.timestamp
+            if at is None or at < start or at > end:
+                continue
+            bins[min(ACTIVITY_BINS - 1, int((at - start) / span * ACTIVITY_BINS))] += 1
+        return bins if any(bins) else []
+
     def _loop_dict(self) -> Optional[Dict[str, Any]]:
         if not self.loop:
             return None
@@ -120,6 +138,7 @@ class Agent:
             "objective": _cap(scrub(self.objective.text)),
             "files_written_count": len(self.files_written),
             "tool_call_count": len(self.tool_calls),
+            "activity": self._activity(),
         }
 
     def to_detail_dict(self) -> Dict[str, Any]:
