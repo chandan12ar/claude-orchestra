@@ -6,6 +6,8 @@ versions follow [SemVer](https://semver.org/) (the `version` in
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-03
+
 ### Added
 - Plugin metadata for Anthropic's directory listing: `displayName`, `homepage`, `repository`, `license`,
   `icon` (new `assets/icon.png`), `documentationUrl`, `supportUrl` and `privacyPolicyUrl`.
