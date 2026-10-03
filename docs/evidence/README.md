@@ -5,6 +5,7 @@ results and screenshots, regenerated from the final build, with the scripts that
 
 | File | What it is |
 |---|---|
+| [`live-hook-capture.md`](live-hook-capture.md) | The real hook events from a live Claude Code session, which confirm the field names the "waiting on you" feature reads |
 | [`test-run.txt`](test-run.txt) | The full local test run: commit, tool versions, a per-module table, and every test by name with its result |
 | [`screenshots/`](screenshots) | 18 screenshots of the dashboard running against the built-in demo |
 | [`run_tests.py`](run_tests.py) | Runs the suite and rewrites `test-run.txt` |
@@ -31,14 +32,15 @@ What the tests cover, in plain terms:
 
 ## What this does not show
 
-- **It is a local run.** GitHub Actions has not run on these commits: the account's billing
-  state stops jobs from starting (no steps run). The macOS and Windows/Linux matrix is
-  therefore unverified for the later commits until that is fixed.
+- **`test-run.txt` is a local run** (Windows). GitHub Actions has since run on the same code
+  and is green on Linux, macOS and Windows (Python 3.9, 3.12, 3.13) for all four pull requests
+  and for `main`; those results live on GitHub, not in this folder.
 - **The data is synthetic.** Every screenshot is the scripted 13-agent demo
   (`python -m orchestra --demo`), not a real Claude Code session, so the agent names and
   project path (`northwind-shop`) are made up.
-- **The hook payload field names** behind the "waiting on permission" banner are checked
-  against the docs, not against a captured live payload.
+- **The hook field names** behind the "waiting on permission" banner **were** checked against a
+  real session: see [`live-hook-capture.md`](live-hook-capture.md). Only the API-error fields
+  (`error_type`, `error_message`) are still documentation-only.
 
 ## Screenshots
 

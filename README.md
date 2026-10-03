@@ -33,7 +33,7 @@ removes everything it made.
 
 ```bash
 /plugin marketplace add chandan12ar/cuelight
-/plugin install cuelight
+/plugin install cuelight@cuelight-marketplace
 ```
 
 Requires Python 3.9 or newer. Nothing else — no pip install, no npm, no build.

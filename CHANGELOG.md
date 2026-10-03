@@ -6,6 +6,10 @@ versions follow [SemVer](https://semver.org/) (the `version` in
 
 ## [Unreleased]
 
+### Fixed
+- The marketplace entry still showed the old description; the README install line now names
+  the marketplace (`/plugin install cuelight@cuelight-marketplace`).
+
 ## [0.4.0] - 2026-10-03
 
 ### Changed

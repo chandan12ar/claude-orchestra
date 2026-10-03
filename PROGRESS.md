@@ -38,22 +38,14 @@ plugin rename.
 
 ## Open items (nothing is blocked; ordered by importance)
 
-1. **Verify hook payload field names against a LIVE Claude Code session.**
-   *Update (2026-10-03): cross-checked against the official hooks reference
-   (code.claude.com/docs/en/hooks) via a docs lookup — every field name and the
-   `notification_type` values we map (`permission_prompt`, `idle_prompt`,
-   `agent_needs_input`, `elicitation_dialog`, `elicitation_url_dialog`) match, as do
-   `StopFailure` `error_type`/`error_message`, `SessionEnd` `reason` and
-   `last_assistant_message` on Stop/SubagentStop. This is documentation, still NOT a
-   captured payload, so a live capture remains worth doing.* This is
-   the single biggest unverified assumption: ground-truth states (waiting on
-   permission, API error type, session end reason) read `notification_type`,
-   `message`, `error_type`, `error_message`, `reason`, `last_assistant_message`
-   from the docs summary, not from a captured payload. The code degrades to empty
-   fields rather than failing, but the headline feature would then show nothing.
-   `hooks/hooks.json` itself IS verified valid by Claude Code 2.1.287's validator.
-   How: install the plugin in a real session, trigger a permission prompt, read
-   `<state dir>/events/<session>.jsonl`. Needs a human at a real Claude Code.
+1. ~~Verify hook payload field names against a LIVE Claude Code session.~~ **Done
+   2026-10-03.** The plugin was installed from GitHub into a real session (Claude Code
+   2.1.287) and a real permission prompt was captured: `notification_type:
+   "permission_prompt"`, `message: "Claude needs your permission"`, plus `idle_prompt`,
+   `session_start` (`source`, `model`), `turn_end`, `agent_stop` and `session_end` (`reason`).
+   The dashboard showed the banner and the Fleet badge. See `docs/evidence/live-hook-capture.md`.
+   Still checked against the documentation only: `error_type`/`error_message`. Known small gap:
+   `agent_type` was empty on `agent_stop`.
 2. **Confirm plugin hooks reach already-running sessions** or only after reload
    (affects onboarding wording). Docs (per the same lookup, not tested by us) say
    they do NOT: a new/resumed session, `/reload-plugins` or a restart is needed.
@@ -94,13 +86,9 @@ Counts are now taken from the actual run output.
   async so it is off Claude's critical path. `python3 || python || true` verified
   in bash; with no Python at all it exits 0 but prints "command not found" to
   stderr (async hook, harmless).
-- **UNVERIFIED against a live Claude Code session:** the exact hook payload field
-  names (`notification_type`, `message`, `error_type`, `error_message`, `reason`,
-  `last_assistant_message`). They come from the docs summary, not a captured
-  payload. `normalize_claude_hook` degrades to empty fields rather than failing,
-  but ground-truth states (1.3) depend on `notification_type`. First thing to do
-  with a real session: install the plugin, trigger a permission prompt, and
-  inspect `<state dir>/events/<session>.jsonl`.
+- Hook payload field names: verified against a live session on 2026-10-03 for the
+  notification, session-start, session-end, turn-end and subagent-stop events (see
+  `docs/evidence/live-hook-capture.md`); only the API-error fields remain documentation-only.
 - Plugin hooks only apply once the plugin is (re)loaded; not yet confirmed whether
   already-running sessions pick them up (roadmap spike 5).
 
@@ -146,7 +134,9 @@ Everything planned is built and pushed; CI is green through 1960490. Do, in orde
 (1) Open item 1 with a real Claude Code session, (2) open a PR from
 `feature/live-events` and merge, bumping `plugin.json` to 0.2.0.
 
-### CI blocked by GitHub billing (2026-10-03, from 6a77988 on)
+### CI blocked by GitHub billing (2026-10-03, from 6a77988 on) - RESOLVED
+Resolved the same day: once the repository was made public the jobs ran, and every job is green on Linux, macOS and Windows (Python 3.9, 3.12, 3.13) on PRs #1 to #4 and on main. What follows is the record of the incident.
+
 Every job on 6a77988 and later "was not started because recent account payments have
 failed or your spending limit needs to be increased" (job annotation; zero steps ran).
 This is an account/billing problem, NOT a test failure: 81cf685 and e96913c were green,
