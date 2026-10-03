@@ -65,8 +65,7 @@ plugin rename.
    plugin name. Decide before the user base grows (owner deferred it).
 5. **Pill browser support**: Document Picture-in-Picture is Chromium-only (a search
    result said Firefox 151; not verified). The tab-title/favicon badge works everywhere.
-6. **Small gaps**: sounds have no per-event mute or quiet hours; `fmtDuration` has no
-   hours ("33818m 42s"); the main-transcript reader in `ParentIndex` has no
+6. **Small gaps**: sounds have no per-event mute or quiet hours; the main-transcript reader in `ParentIndex` has no
    truncation reset (only the new token tally does); history is recorded only for
    sessions that are viewed or scanned by the fleet, not every session; no
    favicon.ico route (the browser 404s once; the page sets its own icon).

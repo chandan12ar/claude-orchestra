@@ -101,10 +101,12 @@ function api(path) {
 
 function fmtDuration(seconds) {
   if (seconds === null || seconds === undefined) return "—";
-  if (seconds < 60) return seconds.toFixed(0) + "s";
-  const m = Math.floor(seconds / 60);
-  const s = Math.round(seconds % 60);
-  return m + "m " + (s < 10 ? "0" : "") + s + "s";
+  const sign = seconds < 0 ? "-" : "";
+  const total = Math.round(Math.abs(seconds));
+  const pad = (n) => (n < 10 ? "0" : "") + n;
+  if (total < 60) return sign + total + "s";
+  if (total < 3600) return sign + Math.floor(total / 60) + "m " + pad(total % 60) + "s";
+  return sign + Math.floor(total / 3600) + "h " + pad(Math.floor((total % 3600) / 60)) + "m";
 }
 
 // A possible loop, in words, with its evidence. Never a verdict: the same

@@ -70,5 +70,5 @@ CI run 23 (`1960490`) finished **green** (full test matrix on 3 OS x 3 Pythons +
 - Windows pitfalls: always `encoding="utf-8"` for subprocess/open; set mtimes explicitly in tests.
 - Read CI after every push, before starting the next feature.
 - In shell commit messages avoid `$` in double quotes (it gets expanded).
-- Known small gaps: `fmtDuration` has no hours; `ParentIndex` has no truncation reset for the main
+- Known small gaps: `ParentIndex` has no truncation reset for the main
   transcript; history records only viewed/scanned sessions; no per-event sound mute/quiet hours.
