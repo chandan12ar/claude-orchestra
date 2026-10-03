@@ -2068,6 +2068,93 @@ function tabTitle(model) {
   return "Cuelight";
 }
 
+// Blend two #rrggbb colours; t is how much of `to` to mix in.
+function mixHex(from, to, t) {
+  const n = (hex, i) => parseInt(hex.substr(1 + i * 2, 2), 16);
+  let out = "#";
+  for (let i = 0; i < 3; i++) {
+    const v = Math.round(n(from, i) * (1 - t) + n(to, i) * t);
+    out += (v < 16 ? "0" : "") + v.toString(16);
+  }
+  return out;
+}
+
+// The same cue-light face as the pill, drawn on a canvas at 64x64 so it still
+// reads at 16px: bold eyes, one clear mouth, and the count in a red badge.
+function drawCue(ctx, model) {
+  const colour = PILL_COLORS[model.kind] || PILL_COLORS.idle;
+  const ink = "#161827";
+  ctx.fillStyle = "#3a3e5c";
+  ctx.beginPath();
+  if (typeof ctx.roundRect === "function") ctx.roundRect(12, 50, 40, 12, 6); else ctx.rect(12, 50, 40, 12);
+  ctx.fill();
+  let fill = colour;
+  if (typeof ctx.createRadialGradient === "function") {
+    fill = ctx.createRadialGradient(24, 18, 3, 32, 30, 30);
+    fill.addColorStop(0, mixHex(colour, "#ffffff", 0.46));
+    fill.addColorStop(1, mixHex(colour, "#000000", 0.2));
+  }
+  ctx.fillStyle = fill;
+  ctx.beginPath();
+  ctx.arc(32, 30, 25, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = ink;
+  ctx.fillStyle = ink;
+  ctx.lineWidth = 3.4;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  const eye = (x) => {
+    ctx.beginPath();
+    if (typeof ctx.ellipse === "function") ctx.ellipse(x, 28, 3.8, 5.4, 0, 0, Math.PI * 2);
+    else ctx.arc(x, 28, 4.5, 0, Math.PI * 2);
+    ctx.fill();
+  };
+  if (model.kind === "idle") {            // asleep: two downward arcs
+    for (const x of [22, 42]) {
+      ctx.beginPath();
+      ctx.moveTo(x - 5, 27);
+      ctx.quadraticCurveTo(x, 33, x + 5, 27);
+      ctx.stroke();
+    }
+  } else {
+    eye(22);
+    eye(42);
+  }
+  ctx.beginPath();
+  if (model.kind === "permission" || model.kind === "input") {          // "oh": a round mouth
+    if (typeof ctx.ellipse === "function") ctx.ellipse(32, 41, 3.6, 4.4, 0, 0, Math.PI * 2);
+    else ctx.arc(32, 41, 4, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (model.kind === "error") {                                  // frown
+    ctx.moveTo(25, 45);
+    ctx.quadraticCurveTo(32, 37, 39, 45);
+    ctx.stroke();
+  } else if (model.kind === "running") {                                // open smile
+    ctx.moveTo(24, 38);
+    ctx.quadraticCurveTo(32, 50, 40, 38);
+    ctx.closePath();
+    ctx.fill();
+  } else {                                                              // small smile
+    ctx.moveTo(26, 40);
+    ctx.quadraticCurveTo(32, 45, 38, 40);
+    ctx.stroke();
+  }
+  if (model.count > 0) {
+    ctx.beginPath();
+    ctx.arc(51, 50, 12, 0, Math.PI * 2);
+    ctx.fillStyle = "#d6303a";
+    ctx.fill();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = "#fff";
+    ctx.stroke();
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 17px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(model.count > 9 ? "9+" : String(model.count), 51, 51);
+  }
+}
+
 function drawFavicon(model) {
   if (typeof document.createElement !== "function") return null;
   const canvas = document.createElement("canvas");
@@ -2075,18 +2162,10 @@ function drawFavicon(model) {
   canvas.width = canvas.height = 64;
   const ctx = canvas.getContext("2d");
   if (!ctx) return null;
-  ctx.beginPath();
-  ctx.arc(32, 32, 28, 0, Math.PI * 2);
-  ctx.fillStyle = PILL_COLORS[model.kind] || PILL_COLORS.idle;
-  ctx.fill();
-  if (model.count > 0) {
-    ctx.fillStyle = "#fff";
-    ctx.font = "bold 38px sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(model.count > 9 ? "9+" : String(model.count), 32, 35);
-  }
-  try { return canvas.toDataURL("image/png"); } catch (err) { return null; }
+  try {
+    drawCue(ctx, model);
+    return canvas.toDataURL("image/png");
+  } catch (err) { return null; }
 }
 
 function updateTabChrome(model) {

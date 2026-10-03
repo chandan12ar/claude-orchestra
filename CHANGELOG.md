@@ -13,6 +13,8 @@ versions follow [SemVer](https://semver.org/) (the `version` in
   segmented bar for the agents. It is drawn in the window itself (no images, no network), follows
   the light/dark setting and stops moving when reduced motion is requested. The window is now built
   once and updated in place, so the animation no longer restarts on every poll.
+- The browser tab icon now shows the same cue-light face for the current state, with the count of
+  waiting sessions in a red badge, so the state is visible while the dashboard tab is in the background.
 
 ### Fixed
 - The marketplace entry still showed the old description; the README install line now names

@@ -129,6 +129,51 @@ class TestTabTitle(unittest.TestCase):
         self.assertEqual(self.title("idle", 0), "Cuelight")
 
 
+RECORDER = """
+const calls = [];
+const ctx = new Proxy({}, {
+  get: (t, k) => (k in t ? t[k] : (...a) => {
+    calls.push(k + ':' + a.join(','));
+    return k === 'createRadialGradient' ? { addColorStop() {} } : undefined;
+  }),
+  set: (t, k, v) => { t[k] = v; if (k === 'fillStyle') calls.push('fill=' + v); return true; },
+});
+"""
+
+
+def draw(kind, count):
+    js = read("app.js")
+    prelude = "\n".join([extract_const(js, "PILL_COLORS"), extract_function(js, "mixHex"),
+                         extract_function(js, "drawCue"), RECORDER])
+    program = prelude + ("\ndrawCue(ctx, {kind: '%s', count: %d});"
+                         "\nconsole.log(JSON.stringify(calls));" % (kind, count))
+    path = os.path.join(tempfile.mkdtemp(), "f.js")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(program)
+    proc = subprocess.run([NODE, path], capture_output=True, encoding="utf-8", timeout=30)
+    if proc.returncode != 0:
+        raise AssertionError(proc.stderr[-1500:])
+    return json.loads(proc.stdout)
+
+
+@unittest.skipIf(NODE is None, "node is not on PATH")
+class TestTabIconFace(unittest.TestCase):
+    def test_every_state_draws_without_throwing(self):
+        for kind in ("idle", "running", "permission", "input", "error"):
+            self.assertTrue(draw(kind, 0), kind)
+
+    def test_count_badge_only_when_something_waits(self):
+        self.assertFalse([c for c in draw("idle", 0) if c.startswith("fillText")])
+        self.assertTrue([c for c in draw("permission", 2) if c == "fillText:2,51,51"])
+
+    def test_big_counts_are_capped(self):
+        self.assertIn("fillText:9+,51,51", draw("error", 12))
+
+    def test_the_face_changes_with_the_state(self):
+        self.assertNotEqual(draw("idle", 0), draw("error", 0))
+        self.assertNotEqual(draw("running", 0), draw("permission", 0))
+
+
 class TestPillWiring(unittest.TestCase):
     def test_button_exists_in_page_and_report_shell_and_starts_hidden(self):
         from orchestra import report
