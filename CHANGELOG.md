@@ -6,6 +6,19 @@ versions follow [SemVer](https://semver.org/) (the `version` in
 
 ## [Unreleased]
 
+### Added
+- Plugin metadata for Anthropic's directory listing: `displayName`, `homepage`, `repository`, `license`,
+  `icon` (new `assets/icon.png`), `documentationUrl`, `supportUrl` and `privacyPolicyUrl`.
+- `PRIVACY.md` (what it reads, writes and never sends), `CONTRIBUTING.md`, issue and pull request templates.
+- `docs/WORKFLOW.md` (the whole flow on one page) and `docs/SUBMISSION.md` (checklist status and the
+  answers for the submission form).
+- README section "What Cuelight runs and touches".
+- `tests/test_directory_readiness.py`: Anthropic's mechanical pre-submission checks, run on every build.
+
+### Changed
+- The project's own `CLAUDE.md` moved to `.claude/CLAUDE.md` (a `CLAUDE.md` at the plugin root is not
+  loaded and draws a validator warning). CI now runs `claude plugin validate --strict`.
+
 ## [0.4.1] - 2026-10-03
 
 ### Changed
