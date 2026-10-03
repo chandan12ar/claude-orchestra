@@ -692,3 +692,80 @@ main { padding: 16px 20px 32px; max-width: 1760px; margin: 0 auto; outline: none
   .row-dot-ping, .node-ping { display: none; }
   button:active, .agent-card:active { transform: none; }
 }
+
+/* ==========================================================================
+   Live pulse strip: a ticker for the run. Monochrome like the rest of the
+   chrome; only the running series and the problem pills carry status colour.
+   ========================================================================== */
+.pulse { margin: 12px 0 0; padding: 10px 14px 12px; border: 1px solid var(--line); border-radius: var(--r-lg);
+  background: var(--panel); box-shadow: var(--shadow-1); }
+.pulse[hidden] { display: none; }
+.pulse.is-closed { padding-bottom: 8px; }
+.pulse-head { display: flex; align-items: center; gap: 10px; }
+.pulse-title { font-size: 13px; font-weight: 650; letter-spacing: -0.005em; }
+.pulse-sub { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.pulse-live { width: 7px; height: 7px; border-radius: 50%; background: var(--completed);
+  animation: pulse-live 1.8s ease-in-out infinite; }
+.pulse-toggle { margin-left: auto; padding: 4px 8px; border: 0; border-radius: var(--r-sm); background: none;
+  font: inherit; font-size: 12px; color: var(--muted); cursor: pointer; }
+.pulse-toggle:hover { color: var(--ink); background: var(--panel-2); }
+.pulse-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(190px, 0.8fr); gap: 12px; margin-top: 10px; }
+.pulse-tile { position: relative; min-width: 0; padding: 10px 12px 8px; border: 1px solid var(--line);
+  border-radius: var(--r-md); background: var(--panel-2); }
+.pulse-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.pulse-label { font-size: 12px; color: var(--muted); }
+.pulse-delta { padding: 1px 7px; border-radius: 999px; font-size: 11.5px; font-weight: 600; white-space: nowrap;
+  font-variant-numeric: tabular-nums; }
+.pulse-delta b { font-size: 9px; }
+.pulse-delta.is-up { color: var(--ink); background: color-mix(in srgb, var(--ink) 9%, transparent); }
+.pulse-delta.is-down { color: var(--ink-2); background: color-mix(in srgb, var(--ink) 5%, transparent); }
+.pulse-delta.is-flat { color: var(--muted); }
+.pulse-value { margin-top: 2px; border-radius: 6px; font-size: 26px; font-weight: 650; line-height: 1.15;
+  letter-spacing: -0.02em; font-variant-numeric: tabular-nums; transition: background-color 0.7s var(--ease); }
+.pulse-value.is-tick { background: color-mix(in srgb, var(--ink) 10%, transparent); transition: none; }
+.pulse-plot { position: relative; height: 46px; margin-top: 6px; }
+.pulse-chart { display: block; width: 100%; height: 100%; overflow: visible; }
+.pulse-line { fill: none; stroke: var(--ink-2); stroke-width: 1.6; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.pulse-area { fill: color-mix(in srgb, var(--ink-2) 10%, transparent); stroke: none; }
+.pulse-dot { position: absolute; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%;
+  color: var(--ink-2); background: currentColor; box-shadow: 0 0 0 2px var(--panel-2); }
+.pulse-tile[data-live="1"] .pulse-dot::after { content: ""; position: absolute; inset: -4px; border-radius: 50%;
+  border: 1.5px solid currentColor; opacity: 0; animation: pulse-ring 1.8s ease-out infinite; }
+.pulse-tile[data-k="running"] .pulse-dot { color: var(--running); }
+.pulse-tile[data-k="running"] .pulse-line { stroke: var(--running); }
+.pulse-tile[data-k="running"] .pulse-area { fill: color-mix(in srgb, var(--running) 16%, transparent); }
+.pulse-cross { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--line-strong); pointer-events: none; }
+.pulse-tip { position: absolute; top: 2px; z-index: 2; padding: 3px 8px; border-radius: 6px;
+  background: var(--ink); color: var(--panel); font-size: 11.5px; white-space: nowrap; pointer-events: none;
+  transform: translateX(-50%); font-variant-numeric: tabular-nums; }
+.pulse-tip[hidden], .pulse-cross[hidden] { display: none; }
+.pulse-health .pulse-value[data-v="0"] { color: var(--muted); font-weight: 500; }
+.pulse-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.pulse-pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border: 1px solid var(--line);
+  border-radius: 999px; background: var(--panel); font-size: 12px; }
+.pulse-pill i { width: 7px; height: 7px; border-radius: 50%; }
+.pulse-pill.p-failed i { background: var(--failed); }
+.pulse-pill.p-stalled i { background: var(--stalled); }
+.pulse-pill.p-waiting i { background: var(--waiting); }
+.pulse-clear { color: var(--completed); font-size: 12.5px; font-weight: 600; }
+.pulse-tape { display: flex; gap: 8px; margin-top: 10px; padding-bottom: 2px; overflow-x: auto; scrollbar-width: thin; }
+.pulse-chip { flex: none; display: inline-flex; align-items: center; gap: 7px; max-width: 290px; padding: 4px 10px 4px 7px;
+  border: 1px solid var(--line); border-radius: 999px; background: var(--panel-2); font: inherit; font-size: 12px;
+  color: var(--ink-2); cursor: pointer; }
+.pulse-chip:hover { border-color: var(--line-strong); color: var(--ink); }
+.pulse-chip i { display: grid; place-items: center; width: 16px; height: 16px; border-radius: 50%; font-style: normal;
+  font-size: 9px; color: var(--bar-ink); }
+.pulse-chip.is-start i { background: var(--running); }
+.pulse-chip.is-done i { background: var(--completed); }
+.pulse-chip.is-fail i { background: var(--failed); }
+.pulse-chip.is-stall i { background: var(--stalled); }
+.pulse-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pulse-chip time { flex: none; color: var(--muted); font-variant-numeric: tabular-nums; }
+.pulse-toggle:focus-visible, .pulse-chip:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+@keyframes pulse-live { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@keyframes pulse-ring { 0% { transform: scale(0.6); opacity: 0.7; } 100% { transform: scale(2.1); opacity: 0; } }
+@media (max-width: 900px) { .pulse-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 520px) { .pulse-value { font-size: 22px; } .pulse-tile { padding: 8px 10px 6px; } }
+@media (prefers-reduced-motion: reduce) {
+  .pulse *, .pulse *::after { animation: none !important; transition: none !important; }
+}

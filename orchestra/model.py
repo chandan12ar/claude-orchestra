@@ -1,7 +1,7 @@
 """Dataclasses for an Orchestra run. No I/O, no parsing."""
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from orchestra import constants as C
 from orchestra.redact import scrub, scrub_obj
@@ -71,6 +71,7 @@ class Agent:
     cost: Optional[float] = None     # None = no price table (or nothing priced)
     loop: Optional[Dict[str, Any]] = None   # a POSSIBLE loop (orchestra.runaway)
     tool_calls: List[ToolCall] = field(default_factory=list)
+    token_events: List[Tuple[float, int]] = field(default_factory=list)   # (when, fresh tokens)
     files_written: List[str] = field(default_factory=list)
     files_read: List[str] = field(default_factory=list)
     transcript_path: str = ""

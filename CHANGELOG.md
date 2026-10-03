@@ -6,6 +6,14 @@ versions follow [SemVer](https://semver.org/) (the `version` in
 
 ## [Unreleased]
 
+### Added
+- **Pulse**: a live strip above every view with charts for agents running, tool calls per
+  minute and fresh tokens spent, change arrows against the previous minute, a "needs you"
+  tile and a tape of recent starts, finishes, failures and stalls (click one to open the
+  agent). Backed by a new `insights.pulse` block and per-message token timestamps. Charts
+  update in place, hover shows exact values, it can be collapsed, and it stops moving under
+  reduced motion.
+
 ## [0.4.1] - 2026-10-03
 
 ### Changed

@@ -142,6 +142,42 @@ class TestActivityAndFinalText(unittest.TestCase):
         self.assertTrue(d.ended_mid_tool)
 
 
+class TestTokenEvents(unittest.TestCase):
+    """When tokens were spent, for the live charts (fresh = input + output + cache writes)."""
+
+    def usage(self, i, o, cw=0, cr=0):
+        return {"input_tokens": i, "output_tokens": o, "cache_creation_input_tokens": cw,
+                "cache_read_input_tokens": cr}
+
+    def test_records_fresh_tokens_with_the_time_they_were_spent(self):
+        d = AgentDigest()
+        d.ingest([assistant([], usage=self.usage(10, 5, 7, cr=1000), timestamp=TS)])
+        d.ingest([assistant([], usage=self.usage(1, 2), timestamp=TS_LATER)])
+        self.assertEqual([added for _, added in d.token_events], [22, 3])     # cache reads are not fresh
+        self.assertLess(d.token_events[0][0], d.token_events[1][0])
+
+    def test_one_api_message_repeated_per_content_block_counts_once(self):
+        entry = assistant([], usage=self.usage(10, 5))
+        entry["message"]["id"] = "msg_1"
+        d = AgentDigest()
+        d.ingest([entry, dict(entry), dict(entry)])
+        self.assertEqual(sum(added for _, added in d.token_events), 15)
+
+    def test_no_usage_or_no_timestamp_records_nothing(self):
+        d = AgentDigest()
+        d.ingest([assistant([]), {"type": "assistant", "message": {"role": "assistant", "content": [],
+                                                                   "usage": self.usage(5, 5)}}])
+        self.assertEqual(d.token_events, [])
+
+    def test_the_list_is_capped_and_still_adds_up(self):
+        import orchestra.agentlog as agentlog
+        d = AgentDigest()
+        for i in range(agentlog.MAX_TOKEN_EVENTS + 25):
+            d.ingest([assistant([], usage=self.usage(0, 1))])
+        self.assertEqual(len(d.token_events), agentlog.MAX_TOKEN_EVENTS)
+        self.assertEqual(sum(added for _, added in d.token_events), agentlog.MAX_TOKEN_EVENTS + 25)
+
+
 if __name__ == "__main__":
     unittest.main()
 

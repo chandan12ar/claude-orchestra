@@ -30,6 +30,9 @@ _EXACT_EDGE_KINDS = ("spawn", "artifact", "message")
 MAX_SERIES = 400
 MAX_CHAIN = 12
 TOP = 8
+PULSE_BUCKETS = 48        # points in each live chart
+PULSE_MARKERS = 40        # start / finish / failure marks kept for the event strip
+PULSE_RATE_S = 60         # "per minute" readouts compare this window with the one before it
 
 
 def bucket_of(tool: str) -> str:
@@ -246,9 +249,74 @@ def _slowest(run: Run, now: float) -> List[Dict[str, Any]]:
              "status": a.status, "duration_s": d} for a, d in rows[:5]]
 
 
+def _pulse(run: Run, now: float, par: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Real time series for the live strip: how many agents run, how many tool calls
+    land, how many fresh tokens are spent, and when agents started, finished or failed.
+
+    Every series spans the same window (first agent start to `now` while the session
+    is live), so the charts line up and the right edge moves as the run does.
+    """
+    if par is None:
+        return None
+    start = par["start"]
+    end = max(par["end"], now) if run.session_live else par["end"]
+    span = max(end - start, 1.0)
+    n = PULSE_BUCKETS
+
+    def slot(t: float) -> int:
+        return min(n - 1, int((t - start) / span * n))
+
+    calls = [0] * n
+    spent = [0] * n
+    calls_last = calls_prev = tokens_last = tokens_prev = 0
+    for agent in run.agents:
+        for call in agent.tool_calls:
+            t = call.timestamp
+            if t is None or t < start or t > end:
+                continue
+            calls[slot(t)] += 1
+            if t > now - PULSE_RATE_S:
+                calls_last += 1
+            elif t > now - 2 * PULSE_RATE_S:
+                calls_prev += 1
+        for t, added in agent.token_events:
+            if t < start or t > end:
+                continue
+            spent[slot(t)] += added
+            if t > now - PULSE_RATE_S:
+                tokens_last += added
+            elif t > now - 2 * PULSE_RATE_S:
+                tokens_prev += added
+    total = 0
+    cumulative = []
+    for added in spent:
+        total += added
+        cumulative.append(total)
+
+    marks: List[Dict[str, Any]] = []
+    for agent in run.agents:
+        label = scrub(agent.description)[:60]
+        if agent.started_at is not None:
+            marks.append({"t": agent.started_at, "kind": "start", "agent_id": agent.agent_id,
+                          "label": label})
+        if agent.ended_at is not None and agent.status in ("completed", "failed"):
+            marks.append({"t": agent.ended_at, "kind": "done" if agent.status == "completed" else "fail",
+                          "agent_id": agent.agent_id, "label": label})
+        elif agent.status == "stalled" and agent.last_activity_at is not None:
+            marks.append({"t": agent.last_activity_at, "kind": "stall", "agent_id": agent.agent_id,
+                          "label": label})
+    marks.sort(key=lambda m: m["t"])
+    return {"start": start, "end": end, "now": now, "live": bool(run.session_live), "buckets": n,
+            "calls": calls, "tokens": cumulative, "markers": marks[-PULSE_MARKERS:],
+            "rate": {"window_s": PULSE_RATE_S, "calls_last": calls_last, "calls_prev": calls_prev,
+                     "tokens_last": tokens_last, "tokens_prev": tokens_prev}}
+
+
 def compute(run: Run, now: float, table: Any = None) -> Dict[str, Any]:
     """The Insights payload for a run. `table` is the optional PriceTable."""
-    return {"parallelism": _parallelism(run, now),
+    par = _parallelism(run, now)
+    return {"parallelism": par,
+            "pulse": _pulse(run, now, par),
             "critical_path": _critical_path(run, now),
             "tools": _tools(run, now),
             "tokens": _tokens(run, table),

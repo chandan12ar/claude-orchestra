@@ -1,7 +1,7 @@
 """Digesting a subagent's own transcript into the numbers the dashboard shows."""
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from orchestra.model import ToolCall
 from orchestra.parent import content_blocks, parse_timestamp
@@ -108,6 +108,15 @@ class TokenTally:
         self.__init__()  # type: ignore[misc]
 
 
+MAX_TOKEN_EVENTS = 4000
+
+
+def _fresh_total(tokens: Dict[str, int]) -> int:
+    """Tokens actually processed: input, output and new cache writes (not cache reads)."""
+    return (tokens.get("input", 0) + tokens.get("output", 0)
+            + tokens.get("cache_create", 0))
+
+
 def _target_for(name: str, params: Dict[str, Any]) -> str:
     field_name = _TARGET_FIELDS.get(name)
     value = params.get(field_name) if field_name else None
@@ -132,6 +141,9 @@ class AgentDigest:
     final_text: str = ""
     model: str = ""
     ended_mid_tool: bool = False
+    # (timestamp, fresh tokens added): when the tokens were spent, for the live
+    # charts. Capped; past the cap new tokens fold into the last entry.
+    token_events: List[Tuple[float, int]] = field(default_factory=list)
     _open_tool_ids: set = field(default_factory=set)
     _usage_seen: Dict[str, Any] = field(default_factory=dict)
 
@@ -151,10 +163,21 @@ class AgentDigest:
                 # last genuine one this agent actually ran on.
                 if isinstance(model, str) and model and model != "<synthetic>":
                     self.model = model
+                before = _fresh_total(self.tokens)
                 apply_usage(message, self.tokens, self.tokens_by_model,
                             self._usage_seen, self.model)
+                added = _fresh_total(self.tokens) - before
+                if added > 0 and at:
+                    self._note_tokens(at, added)
             self._add_blocks(entry, at)
         self.ended_mid_tool = bool(self._open_tool_ids)
+
+    def _note_tokens(self, at: float, added: int) -> None:
+        if len(self.token_events) >= MAX_TOKEN_EVENTS:
+            when, total = self.token_events[-1]
+            self.token_events[-1] = (when, total + added)
+        else:
+            self.token_events.append((at, added))
 
     def _add_blocks(self, entry: Dict[str, Any], at: Optional[float]) -> None:
         for block in content_blocks(entry):
