@@ -63,13 +63,16 @@ dispatcher — the actual work is a plain Python CLI
 ([`orchestra/__main__.py`](../orchestra/__main__.py)) that the command runs by
 its full path, one command per action, from the project directory. The command
 file declares no `allowed-tools`, so Claude Code asks before running it, and the
-user can allow that one command for good:
+user can allow that one command for good. The commands carry no shell variables
+(Claude Code will not offer "don't ask again" for a command with one): the CLI
+reads `$CLAUDE_CODE_SESSION_ID` itself and takes the project from the directory
+it starts in. The plugin path includes the version, so an update asks once more:
 
 | You type | The command runs | What happens |
 |---|---|---|
-| `/cuelight:open` | `python ${CLAUDE_PLUGIN_ROOT}/orchestra/__main__.py --session $CLAUDE_CODE_SESSION_ID --cwd $PWD` | Starts the dashboard server (if not already running for this session) and opens the URL |
-| `/cuelight:open stop` | `python .../orchestra/__main__.py --session ... --stop` | Kills the server process for this session |
-| `/cuelight:open report` | `python .../orchestra/__main__.py --session ... --cwd $PWD --report .` | Writes one self-contained `.html` file — no server needed to view it |
+| `/cuelight:open` | `python ${CLAUDE_PLUGIN_ROOT}/orchestra/__main__.py` | Starts the dashboard server (if not already running for this session) and opens the URL |
+| `/cuelight:open stop` | `python .../orchestra/__main__.py --stop` | Kills the server process for this session |
+| `/cuelight:open report` | `python .../orchestra/__main__.py --report .` | Writes one self-contained `.html` file — no server needed to view it |
 
 ### What `--session` actually does under the hood
 

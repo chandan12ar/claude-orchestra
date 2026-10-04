@@ -6,6 +6,15 @@ versions follow [SemVer](https://semver.org/) (the `version` in
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-10-04
+
+### Fixed
+- `/cuelight:open` asked for permission every time, with no "don't ask again" option. Its commands passed
+  `$CLAUDE_CODE_SESSION_ID` and `$PWD`, and Claude Code will not let you allow a command for good when it
+  cannot check a variable in it. The commands now have no variables: Cuelight reads the session id from
+  its environment, as it already could, and when there is none it looks in the directory it was started
+  in (before, only in `--cwd`). Allowing it once now lasts until the next plugin update.
+
 ## [0.10.1] - 2026-10-04
 
 ### Changed
