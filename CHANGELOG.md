@@ -6,6 +6,16 @@ versions follow [SemVer](https://semver.org/) (the `version` in
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-10-04
+
+### Changed
+- `/cuelight:open` no longer pre-approves shell access. Its command file declared `allowed-tools: Bash`,
+  which allowed any shell command while it ran, and the plugin directory holds a plugin for that. Each
+  action is now one command that runs `orchestra/__main__.py` by its full path, with no `cd`, so Claude
+  Code asks once and you can allow that command for good.
+- The README shows the pill with Markdown image syntax, as the directory asks, instead of an HTML
+  `<picture>` element. It shows the light version in both themes.
+
 ## [0.10.0] - 2026-10-03
 
 ### Added

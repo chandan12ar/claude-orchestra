@@ -25,11 +25,32 @@ class TestPluginManifest(unittest.TestCase):
 
 
 class TestSlashCommand(unittest.TestCase):
-    def test_frontmatter_limits_tools_to_bash(self):
+    def test_frontmatter_pre_approves_no_tools(self):
+        # The directory holds a plugin whose command pre-approves broad shell access.
         text = read("commands", "open.md")
         front = re.match(r"^---\n(.*?)\n---\n", text, re.DOTALL)
         self.assertIsNotNone(front, "command file needs YAML frontmatter")
-        self.assertIn("allowed-tools: Bash", front.group(1))
+        self.assertNotIn("allowed-tools", front.group(1))
+
+    def test_each_action_is_one_command_from_the_plugin_root(self):
+        text = read("commands", "open.md")
+        blocks = re.findall(r"```bash\n(.*?)\n\s*```", text, re.DOTALL)
+        self.assertEqual(len(blocks), 3)
+        for block in blocks:
+            command = block.strip()
+            self.assertTrue(command.startswith('python "${CLAUDE_PLUGIN_ROOT}/orchestra/__main__.py" '), command)
+            for joiner in ("&&", ";", "|", "cd "):
+                self.assertNotIn(joiner, command)
+
+    def test_the_cli_runs_as_a_file_from_any_directory(self):
+        # How the slash command starts it: by path, from the user's project.
+        import subprocess
+        import sys
+        import tempfile
+        out = subprocess.run([sys.executable, os.path.join(ROOT, "orchestra", "__main__.py"), "--help"],
+                             cwd=tempfile.gettempdir(), capture_output=True, encoding="utf-8", timeout=60)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn("--session", out.stdout)
 
     def test_documents_all_three_invocations(self):
         text = read("commands", "open.md")

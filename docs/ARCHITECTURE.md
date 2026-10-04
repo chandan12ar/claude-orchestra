@@ -60,14 +60,16 @@ with:
 That makes the `/cuelight:open` command (defined in
 [`commands/open.md`](../commands/open.md)) available. It's a thin
 dispatcher — the actual work is a plain Python CLI
-([`orchestra/__main__.py`](../orchestra/__main__.py)) that the command shells
-out to:
+([`orchestra/__main__.py`](../orchestra/__main__.py)) that the command runs by
+its full path, one command per action, from the project directory. The command
+file declares no `allowed-tools`, so Claude Code asks before running it, and the
+user can allow that one command for good:
 
 | You type | The command runs | What happens |
 |---|---|---|
-| `/cuelight:open` | `python -m orchestra --session $CLAUDE_CODE_SESSION_ID` | Starts the dashboard server (if not already running for this session) and opens the URL |
-| `/cuelight:open stop` | `python -m orchestra --session ... --stop` | Kills the server process for this session |
-| `/cuelight:open report` | `python -m orchestra --session ... --report .` | Writes one self-contained `.html` file — no server needed to view it |
+| `/cuelight:open` | `python ${CLAUDE_PLUGIN_ROOT}/orchestra/__main__.py --session $CLAUDE_CODE_SESSION_ID --cwd $PWD` | Starts the dashboard server (if not already running for this session) and opens the URL |
+| `/cuelight:open stop` | `python .../orchestra/__main__.py --session ... --stop` | Kills the server process for this session |
+| `/cuelight:open report` | `python .../orchestra/__main__.py --session ... --cwd $PWD --report .` | Writes one self-contained `.html` file — no server needed to view it |
 
 ### What `--session` actually does under the hood
 
@@ -77,7 +79,7 @@ out to:
    answers `/api/health`, the running server is reused instead of starting a
    second one.
 2. **Detached launch.** Otherwise, `cmd_start` spawns
-   `python -m orchestra --serve --session <id>` as a **detached background
+   `python -m orchestra --serve --session <id>` (from the plugin directory) as a **detached background
    process** (on Windows: `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP`; on
    POSIX: a new session) so the dashboard keeps running after the command
    that launched it returns, and polls the port file for up to 5 seconds

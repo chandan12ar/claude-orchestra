@@ -3,7 +3,7 @@
 Status of Cuelight against Anthropic's published plugin requirements, plus ready-to-paste answers for the
 submission form. Sources: the [pre-submission checklist](https://claude.com/docs/plugins/pre-submission-checklist),
 [Submit your plugin](https://claude.com/docs/plugins/submit) and the
-[plugin manifest reference](https://code.claude.com/docs/en/plugins-reference), read on 2026-10-03.
+[plugin manifest reference](https://code.claude.com/docs/en/plugins-reference), read on 2026-10-03 and again on 2026-10-04.
 Anthropic's rules change; re-check them before each submission.
 
 ## Where to submit
@@ -38,6 +38,8 @@ The repository is already public, which the listing requires before it goes live
 | Commit readable source, not minified or packed code | Done | by construction (no build step) |
 | Describe in the README everything the plugin runs, sends or fetches | Done | README section "What Cuelight runs and touches" |
 | Component files use the exact names Claude Code expects | Done | `claude plugin validate` |
+| The slash command pre-approves no tools (no `allowed-tools`): broad shell access is held for a reviewer | Done (0.10.1) | **test** |
+| README shows bundled images with Markdown image syntax only, no `<img>` or `<picture>` | Done (0.10.1) | **test** |
 
 ## What to expect from review
 
