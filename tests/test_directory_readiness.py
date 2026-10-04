@@ -102,6 +102,11 @@ class TestReadme(unittest.TestCase):
             text = re.sub(r"```.*?```", "", fh.read(), flags=re.S)
         self.assertGreaterEqual(len(re.findall(r"\w+", text)), 40)
 
+    def test_readme_shows_images_with_markdown_syntax_only(self):
+        # The directory holds a plugin whose README shows a bundled image any other way.
+        with open(os.path.join(ROOT, "README.md"), encoding="utf-8") as fh:
+            self.assertNotRegex(fh.read(), r"(?i)<(img|picture|source)\b")
+
     def test_readme_discloses_what_the_plugin_runs_and_touches(self):
         with open(os.path.join(ROOT, "README.md"), encoding="utf-8") as fh:
             readme = fh.read()

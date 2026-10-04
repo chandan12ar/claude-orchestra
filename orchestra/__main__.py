@@ -11,6 +11,14 @@ import time
 import webbrowser
 from typing import Any, Dict, List, Optional
 
+# /cuelight:open runs this file by its full path, so the command needs no `cd` and
+# no blanket shell permission. Run that way, Python puts orchestra/ itself first on
+# sys.path, where orchestra/http.py would shadow the standard library's http; put
+# the plugin root there instead so `orchestra` imports as a package.
+PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if not __package__:
+    sys.path[0] = PLUGIN_ROOT
+
 from orchestra import constants as C
 from orchestra.statedir import state_dir
 
@@ -177,7 +185,8 @@ def cmd_start(args) -> int:
         command += ["--port", str(args.port)]
 
     log = open(logfile_path(session_id), "wb")
-    kwargs: Dict[str, Any] = {"stdout": log, "stderr": log, "stdin": subprocess.DEVNULL}
+    # cwd: `-m orchestra` must resolve however this command was started.
+    kwargs: Dict[str, Any] = {"stdout": log, "stderr": log, "stdin": subprocess.DEVNULL, "cwd": PLUGIN_ROOT}
     if os.name == "nt":
         kwargs["creationflags"] = (getattr(subprocess, "DETACHED_PROCESS", 0x00000008) |
                                    getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200))
