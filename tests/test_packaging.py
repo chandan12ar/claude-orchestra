@@ -38,9 +38,17 @@ class TestSlashCommand(unittest.TestCase):
         self.assertEqual(len(blocks), 3)
         for block in blocks:
             command = block.strip()
-            self.assertTrue(command.startswith('python "${CLAUDE_PLUGIN_ROOT}/orchestra/__main__.py" '), command)
+            self.assertTrue(command.startswith('python "${CLAUDE_PLUGIN_ROOT}/orchestra/__main__.py"'), command)
             for joiner in ("&&", ";", "|", "cd "):
                 self.assertNotIn(joiner, command)
+
+    def test_commands_have_no_shell_variables(self):
+        # Claude Code cannot check a variable before the command runs, so it will
+        # not offer "don't ask again" for a command that has one. The plugin root
+        # is filled in by Claude Code itself, before the command is shown.
+        text = read("commands", "open.md")
+        for block in re.findall(r"```bash\n(.*?)\n\s*```", text, re.DOTALL):
+            self.assertNotIn("$", block.replace("${CLAUDE_PLUGIN_ROOT}", ""), block)
 
     def test_the_cli_runs_as_a_file_from_any_directory(self):
         # How the slash command starts it: by path, from the user's project.
@@ -54,8 +62,33 @@ class TestSlashCommand(unittest.TestCase):
 
     def test_documents_all_three_invocations(self):
         text = read("commands", "open.md")
-        for fragment in ("--stop", "--report", "CLAUDE_CODE_SESSION_ID"):
+        for fragment in ("--stop", "--report"):
             self.assertIn(fragment, text)
+
+
+class TestSessionLookup(unittest.TestCase):
+    """The slash command passes no --session or --cwd; the CLI finds both itself."""
+
+    def resolve(self, env_id, **flags):
+        import argparse
+        from unittest import mock
+        from orchestra import __main__ as cli
+        args = argparse.Namespace(session=flags.get("session", ""), cwd=flags.get("cwd", ""))
+        seen = []
+        env = {"CLAUDE_CODE_SESSION_ID": env_id} if env_id else {}
+        with mock.patch.dict(os.environ, env, clear=False), \
+                mock.patch.object(cli, "_latest_session_in", lambda d: seen.append(d) or "newest"):
+            if not env_id:
+                os.environ.pop("CLAUDE_CODE_SESSION_ID", None)
+            return cli._resolve_session(args), seen
+
+    def test_flag_then_environment(self):
+        self.assertEqual(self.resolve("from-env", session="flag")[0], "flag")
+        self.assertEqual(self.resolve("from-env"), ("from-env", []))
+
+    def test_without_either_the_newest_session_of_the_start_directory(self):
+        self.assertEqual(self.resolve("", cwd="E:/proj"), ("newest", ["E:/proj"]))
+        self.assertEqual(self.resolve(""), ("newest", [os.getcwd()]))
 
 
 class TestReadme(unittest.TestCase):

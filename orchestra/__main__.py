@@ -119,11 +119,16 @@ def _latest_session_in(cwd: str) -> str:
 
 
 def _resolve_session(args) -> str:
-    """--session, else $CLAUDE_CODE_SESSION_ID, else the newest in --cwd's project."""
+    """--session, else $CLAUDE_CODE_SESSION_ID, else the newest in the project.
+
+    The project is --cwd, else the directory this was started in: /cuelight:open
+    passes neither flag, so its command has no shell variable in it and Claude
+    Code can offer to allow it for good.
+    """
     explicit = args.session or os.environ.get("CLAUDE_CODE_SESSION_ID", "")
-    if explicit or not getattr(args, "cwd", ""):
+    if explicit:
         return explicit
-    return _latest_session_in(args.cwd)
+    return _latest_session_in(getattr(args, "cwd", "") or os.getcwd())
 
 
 def cmd_serve(args) -> int:
