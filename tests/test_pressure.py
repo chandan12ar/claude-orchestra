@@ -195,7 +195,7 @@ class TestShown(unittest.TestCase):
             self.skipTest("node is not on PATH")
         return ui
 
-    FNS = ("esc", "fmtDuration", "fmtCount", "fmtPct", "fmtClock", "insMetric", "insCard", "insRank",
+    FNS = ("esc", "fmtDuration", "fmtCount", "fmtPct", "fmtClock", "insMetric", "insCard", "cardKey", "insRank",
            "fmtWindow", "compactionCause", "insPressureChart", "insPressure")
 
     def card(self, p, width=900):
@@ -290,7 +290,7 @@ class TestShown(unittest.TestCase):
         self.assertEqual(out["head"], "<strong>The main session and 1 agent(s) need attention</strong>")
         self.assertEqual(out["items"], [["CONTEXT 86% FULL — Main session (860.0k tokens)", "context"],
                                         ["CONTEXT 91% FULL — <b>Helper</b> (182.0k tokens)", "context"]])
-        self.assertEqual(out["opened"], ["card:pressure", "drawer:a1"])
+        self.assertEqual(out["opened"], ["card:how-full-each-context-got", "drawer:a1"])
         self.assertFalse(out["hidden"])
         alone = health(ui, {"agents": [], "insights": {"pressure": {"near": [run_["insights"]["pressure"]["near"][0]]}}})
         self.assertEqual(alone["head"], "<strong>The main session needs attention</strong>")

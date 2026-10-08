@@ -592,6 +592,29 @@ main { padding: 16px 20px 32px; max-width: 1760px; margin: 0 auto; outline: none
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-lg); box-shadow: var(--shadow-1);
   padding: 16px 18px 18px; min-width: 0; grid-column: span 6; }
 .card.wide { grid-column: span 12; }
+.glance { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.glance-chip { display: inline-flex; align-items: center; gap: 8px; min-height: 32px; padding: 4px 12px 4px 10px;
+  border: 1px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--ink); font: inherit;
+  font-size: 12.5px; cursor: pointer; text-align: left; }
+.glance-chip::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--line-strong); flex: none; }
+.glance-chip[data-tone="bad"]::before, .card-headline[data-tone="bad"]::before { background: var(--failed); }
+.glance-chip[data-tone="warn"]::before, .card-headline[data-tone="warn"]::before { background: var(--stalled); }
+.glance-chip[data-tone="info"] { color: var(--muted); }
+.glance-chip:hover { border-color: var(--line-strong); color: var(--ink); }
+.glance-fold { margin-left: auto; min-height: 32px; padding: 4px 6px; border: 0; background: none; color: var(--muted);
+  font: inherit; font-size: 12.5px; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.glance-fold:hover { color: var(--ink); }
+.card-fold { display: inline-flex; align-items: center; gap: 8px; margin: -4px -6px; padding: 4px 6px; border: 0;
+  border-radius: var(--r-md); background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.card-fold::before { content: ""; width: 6px; height: 6px; border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted);
+  transform: translateY(-2px) rotate(45deg); transition: transform 0.15s ease-out; flex: none; }
+.card-fold[aria-expanded="false"]::before { transform: rotate(-45deg); }
+.card-fold:hover { background: var(--panel-2); }
+.glance-chip:focus-visible, .glance-fold:focus-visible, .card-fold:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.card.folded { padding-bottom: 14px; }
+.card-headline { display: flex; align-items: center; gap: 8px; margin: 6px 0 0; color: var(--muted); font-size: 12.5px; }
+.card-headline::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--line-strong); flex: none; }
+@media (prefers-reduced-motion: reduce) { .card-fold::before { transition: none; } }
 .card.third { grid-column: span 4; }
 .card h3 { margin: 0; font-size: 13.5px; font-weight: 650; letter-spacing: -0.005em; }
 .card-sub { color: var(--muted); font-size: 12.5px; margin: 3px 0 14px; max-width: 70ch; }
