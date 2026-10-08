@@ -73,9 +73,18 @@ class TestLauncher(unittest.TestCase):
 
     PATH = os.path.join(ROOT, "bin", "cuelight")
 
-    def test_is_a_posix_script_with_unix_line_endings(self):
-        with open(self.PATH, "rb") as fh:
-            data = fh.read()
+    def test_is_stored_as_a_posix_script_with_unix_line_endings(self):
+        # Read what the repository stores, not the checkout: Git for Windows (core.autocrlf)
+        # rewrites the checkout's line endings, and installs on macOS and Linux get the stored
+        # file, where a carriage return breaks sh. (Git for Windows' own sh runs either.)
+        import subprocess
+        try:
+            proc = subprocess.run(["git", "show", ":bin/cuelight"], cwd=ROOT, capture_output=True, timeout=30)
+        except OSError:
+            self.skipTest("git is not available")
+        if proc.returncode != 0:
+            self.skipTest("not a git checkout")
+        data = proc.stdout
         self.assertTrue(data.startswith(b"#!/bin/sh\n"))
         self.assertNotIn(b"\r", data, "a carriage return breaks the script under sh")
 
