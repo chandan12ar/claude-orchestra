@@ -1,0 +1,17 @@
+#!/bin/sh
+# Cuelight's command. Claude Code puts this plugin's bin/ on the Bash tool's PATH,
+# so /cuelight:open runs a bare `cuelight ...`, and the "don't ask again" rule
+# Claude Code offers for it covers Cuelight only, not every Python command.
+# It runs orchestra/__main__.py with the first Python 3.9+ it finds.
+
+root=$(cd "$(dirname "$0")/.." && pwd)
+for py in python3 python; do
+  # The check also skips a stub that is on PATH but is not Python, such as the
+  # Microsoft Store alias for python3 on Windows.
+  if command -v "$py" >/dev/null 2>&1 &&
+     "$py" -c "import sys; sys.exit(sys.version_info < (3, 9))" >/dev/null 2>&1; then
+    exec "$py" "$root/orchestra/__main__.py" "$@"
+  fi
+done
+echo "cuelight: needs Python 3.9 or newer; neither python3 nor python on PATH is one" >&2
+exit 1

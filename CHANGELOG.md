@@ -6,6 +6,16 @@ versions follow [SemVer](https://semver.org/) (the `version` in
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-08
+
+### Changed
+- `/cuelight:open` runs a `cuelight` command. The plugin now ships `bin/cuelight`, a short shell script that
+  starts the dashboard with the first Python 3.9+ it finds, and Claude Code puts a plugin's `bin/` on the
+  Bash tool's PATH. When Claude Code asks before running it, "don't ask again" now offers `cuelight *`,
+  which covers Cuelight only, instead of `python *`, which covered every Python command. The rule also
+  outlasts plugin updates, since the command no longer names the versioned plugin folder. On a Claude Code
+  without `bin/` support, the command falls back to running `orchestra/__main__.py` with Python.
+
 ## [0.10.3] - 2026-10-08
 
 ### Removed

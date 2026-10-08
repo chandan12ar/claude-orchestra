@@ -32,13 +32,15 @@ class TestSlashCommand(unittest.TestCase):
         self.assertIsNotNone(front, "command file needs YAML frontmatter")
         self.assertNotIn("allowed-tools", front.group(1))
 
-    def test_each_action_is_one_command_from_the_plugin_root(self):
+    def test_each_action_is_one_bare_cuelight_command(self):
+        # Claude Code offers "don't ask again" as a rule on the command's first word:
+        # `cuelight *` covers Cuelight only, where `python *` would cover every script.
         text = read("commands", "open.md")
         blocks = re.findall(r"```bash\n(.*?)\n\s*```", text, re.DOTALL)
         self.assertEqual(len(blocks), 3)
         for block in blocks:
             command = block.strip()
-            self.assertTrue(command.startswith('python "${CLAUDE_PLUGIN_ROOT}/orchestra/__main__.py"'), command)
+            self.assertRegex(command, r"^cuelight(\s|$)", command)
             for joiner in ("&&", ";", "|", "cd "):
                 self.assertNotIn(joiner, command)
 
@@ -64,6 +66,41 @@ class TestSlashCommand(unittest.TestCase):
         text = read("commands", "open.md")
         for fragment in ("--stop", "--report"):
             self.assertIn(fragment, text)
+
+
+class TestLauncher(unittest.TestCase):
+    """bin/cuelight: Claude Code puts a plugin's bin/ on the Bash tool's PATH."""
+
+    PATH = os.path.join(ROOT, "bin", "cuelight")
+
+    def test_is_a_posix_script_with_unix_line_endings(self):
+        with open(self.PATH, "rb") as fh:
+            data = fh.read()
+        self.assertTrue(data.startswith(b"#!/bin/sh\n"))
+        self.assertNotIn(b"\r", data, "a carriage return breaks the script under sh")
+
+    def test_is_executable_in_git(self):
+        import subprocess
+        try:
+            out = subprocess.run(["git", "ls-files", "-s", "bin/cuelight"], cwd=ROOT, capture_output=True,
+                                 encoding="utf-8", timeout=30).stdout
+        except OSError:
+            self.skipTest("git is not available")
+        if not out:
+            self.skipTest("not a git checkout")
+        self.assertTrue(out.startswith("100755"), out)
+
+    def test_runs_the_cli_from_any_directory(self):
+        import shutil
+        import subprocess
+        import tempfile
+        sh = shutil.which("sh")
+        if sh is None:
+            self.skipTest("sh is not on PATH")
+        out = subprocess.run([sh, self.PATH, "--help"], cwd=tempfile.gettempdir(),
+                             capture_output=True, encoding="utf-8", timeout=60)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn("--session", out.stdout)
 
 
 class TestSessionLookup(unittest.TestCase):

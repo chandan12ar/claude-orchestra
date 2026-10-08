@@ -60,19 +60,32 @@ with:
 That makes the `/cuelight:open` command (defined in
 [`commands/open.md`](../commands/open.md)) available. It's a thin
 dispatcher — the actual work is a plain Python CLI
-([`orchestra/__main__.py`](../orchestra/__main__.py)) that the command runs by
-its full path, one command per action, from the project directory. The command
-file declares no `allowed-tools`, so Claude Code asks before running it, and the
-user can allow that one command for good. The commands carry no shell variables
-(Claude Code will not offer "don't ask again" for a command with one): the CLI
-reads `$CLAUDE_CODE_SESSION_ID` itself and takes the project from the directory
-it starts in. The plugin path includes the version, so an update asks once more:
+([`orchestra/__main__.py`](../orchestra/__main__.py)), started through the
+launcher [`bin/cuelight`](../bin/cuelight). Claude Code puts a plugin's `bin/`
+on the Bash tool's PATH, so each action is one bare `cuelight` command, run from
+the project directory. The launcher picks the first Python 3.9+ among `python3`
+and `python` (skipping a stub such as the Windows Store alias) and runs the CLI.
+
+Why it is shaped this way:
+
+- The command file declares no `allowed-tools`, so Claude Code asks before
+  running it (the directory holds a plugin that pre-approves broad shell access).
+- Claude Code offers "don't ask again" as a rule on the command's first word.
+  For `cuelight ...` that is `cuelight *`, which covers Cuelight only; for
+  `python .../__main__.py` it was `python *`, which covers every Python command.
+- The commands carry no shell variables, because Claude Code will not offer
+  "don't ask again" for a command with one. The CLI reads
+  `$CLAUDE_CODE_SESSION_ID` itself and takes the project from the directory it
+  starts in.
+- The command no longer names the plugin's versioned path, so the rule survives
+  updates. On a Claude Code without `bin/` support the command file falls back
+  to `python ${CLAUDE_PLUGIN_ROOT}/orchestra/__main__.py`.
 
 | You type | The command runs | What happens |
 |---|---|---|
-| `/cuelight:open` | `python ${CLAUDE_PLUGIN_ROOT}/orchestra/__main__.py` | Starts the dashboard server (if not already running for this session) and opens the URL |
-| `/cuelight:open stop` | `python .../orchestra/__main__.py --stop` | Kills the server process for this session |
-| `/cuelight:open report` | `python .../orchestra/__main__.py --report .` | Writes one self-contained `.html` file — no server needed to view it |
+| `/cuelight:open` | `cuelight` | Starts the dashboard server (if not already running for this session) and opens the URL |
+| `/cuelight:open stop` | `cuelight --stop` | Kills the server process for this session |
+| `/cuelight:open report` | `cuelight --report .` | Writes one self-contained `.html` file — no server needed to view it |
 
 ### What `--session` actually does under the hood
 
