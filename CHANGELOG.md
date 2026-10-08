@@ -6,6 +6,28 @@ versions follow [SemVer](https://semver.org/) (the `version` in
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-10-08
+
+### Added
+- **Where tokens were wasted**: an Insights card and a line in each agent's panel.
+  - **Cache rebuilds.** Each time the prompt cache was written again from scratch, for the main session
+    and every agent: how many tokens, the likely cause (idle over five minutes, idle over an hour, the
+    model changed, after a compaction, or not recorded), the permission or input prompt you were
+    answering meanwhile, and what it cost above the cache-read price when prices are set. A rebuild is a
+    call that writes at least 10,000 tokens to the cache while reading back under a fifth of that; usage
+    is counted once per API message.
+  - **Biggest results.** The five largest tool results pulled into context (estimated at four characters
+    a token), with how many later calls carried them.
+  - **Re-reads.** Reads of a file whose content came back identical to the previous read of the same
+    range.
+
+  Read from the transcripts, so no new hook, and it works on past sessions. On 57 real sessions it found
+  31 rebuilds, 9.2M tokens: a third of everything written to the cache, most after more than an hour
+  idle. Measuring unused plugin or MCP overhead was considered and left out: Claude Code now loads tool
+  definitions on demand, and transcripts do not record their size.
+- The demo's orchestrator is compacted during the verify wave and rebuilds its cache, and its design
+  agent reads one long file.
+
 ## [0.12.0] - 2026-10-08
 
 ### Added

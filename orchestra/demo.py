@@ -311,6 +311,15 @@ def _call_offset(agent: _Agent, i: int, now_off: float) -> float:
     return agent.start + 4 + span * (i + 1) / (len(agent.tools) + 1)
 
 
+# docs/providers.md as the design agent read it: long enough to be the run's biggest result.
+_PROVIDERS_DOC = "".join(
+    "## {0}\n\nAPI: REST with idempotency keys. Webhooks: signed, retried for 3 days. "
+    "Refunds: partial and full, async. Disputes: evidence upload API. Payouts: daily, "
+    "T+2 in the EU, T+3 elsewhere. SDKs: Node, Python, Go, Java. Rate limit: 100 requests "
+    "a second per account, burst 200. Test mode: full parity, test cards documented.\n\n".format(name)
+    for name in ("Stripe", "Adyen", "Braintree", "Mollie", "Checkout.com", "Square") * 12)
+
+
 def _agent_entries(agent: _Agent, clock: _Clock, rng: random.Random,
                    now_off: float) -> List[Dict[str, Any]]:
     """The agent's own transcript: one assistant+result pair per tool call."""
@@ -336,12 +345,15 @@ def _agent_entries(agent: _Agent, clock: _Clock, rng: random.Random,
             "message": {"id": "msg_" + uid, "role": "assistant", "model": model_id,
                         "content": [_tool_block(uid, name, target)],
                         "usage": _usage(rng, agent.model, i)}})
+        output = "Exit code 1\n3 failing" if i in agent.fails else "ok"
+        if agent.key == "design" and target.endswith("docs/providers.md"):
+            output = _PROVIDERS_DOC       # a long file read whole: the run's biggest result
         result = {
             "isSidechain": True, "agentId": agent.agent_id,
             "timestamp": _iso(clock.at(offset + rng.uniform(0.6, 2.4))), "type": "user",
             "message": {"role": "user", "content": [
                 {"type": "tool_result", "tool_use_id": uid, "is_error": i in agent.fails,
-                 "content": "Exit code 1\n3 failing" if i in agent.fails else "ok"}]}}
+                 "content": output}]}}
         patch = _edit_result(name, target)
         if patch is not None:
             result["toolUseResult"] = patch
@@ -465,12 +477,18 @@ def build_demo(root: str, now: Optional[float] = None,
     main.append({"type": "pr-link", "sessionId": session_id, "prNumber": 42, "prUrl": PR_URL,
                  "prRepository": "northwind/shop", "timestamp": _iso(clock.at(624))})
     main.sort(key=lambda e: e["timestamp"])
+    # The orchestrator's context was compacted while the verify wave ran, so its next call
+    # wrote the (now shorter) conversation to the prompt cache again: a cache rebuild.
+    main.append({"uuid": "orch-compact", "timestamp": _iso(now - 40), "type": "system",
+                 "subtype": "compact_boundary", "content": "Conversation compacted", "isMeta": False,
+                 "level": "info", "cwd": CWD,
+                 "compactMetadata": {"trigger": "auto", "preTokens": 186000, "durationMs": 21400}})
     main.append({"uuid": "orch-now", "timestamp": _iso(now - 3), "type": "assistant", "cwd": CWD,
                  "message": {"id": "msg_orch_now", "role": "assistant", "model": MODELS["opus"],
                              "content": [{"type": "text", "text": "Waiting on the verify wave."}],
                              "usage": {"input_tokens": 80, "output_tokens": 240,
-                                       "cache_read_input_tokens": 61000,
-                                       "cache_creation_input_tokens": 1200}}})
+                                       "cache_read_input_tokens": 2400,
+                                       "cache_creation_input_tokens": 58600}}})
     # What Claude Code calls the session and says about it: its title (written early and
     # repeated), your last prompt, and the "while you were away" recap.
     title = {"type": "ai-title", "sessionId": session_id, "aiTitle": DEMO_TITLE}

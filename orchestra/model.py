@@ -91,6 +91,8 @@ class Agent:
     outcomes: Any = None
     # What it was told (orchestra.context.ContextLog): instruction files and skills.
     context: Any = None
+    # Where its tokens went to waste (orchestra.waste.WasteLog).
+    waste: Any = None
 
     @property
     def started_at(self) -> Optional[float]:
@@ -173,7 +175,14 @@ class Agent:
             "produced": ({"commits": len(self.outcomes.commits), "prs": len(self.outcomes.prs),
                           "pushes": self.outcomes.pushes}
                          if self.outcomes is not None and not self.outcomes.empty() else None),
+            "waste": self._waste_totals(),
         }
+
+    def _waste_totals(self) -> Optional[Dict[str, int]]:
+        if self.waste is None:
+            return None
+        rebuilds = self.waste.rebuilds()
+        return {"rebuilds": len(rebuilds), "rebuilt_tokens": sum(r["tokens"] for r in rebuilds)}
 
     def to_detail_dict(self) -> Dict[str, Any]:
         d = self.to_light_dict()
@@ -197,6 +206,7 @@ class Agent:
             "change_files": self.changes.to_dicts() if self.changes is not None else [],
             "outcomes": self.outcomes.to_dict() if self.outcomes is not None else None,
             "context": self.context.to_dict() if self.context is not None else None,
+            "waste": self.waste.to_dict() if self.waste is not None else None,
         })
         return d
 
@@ -279,6 +289,8 @@ class Run:
     main_context: Any = None
     # What Claude Code calls the session and last said about it (orchestra.sessionmeta.SessionMeta).
     meta: Any = None
+    # The main session's own cache rebuilds and big results (orchestra.waste.WasteLog).
+    main_waste: Any = None
 
     def agent(self, agent_id: str) -> Optional[Agent]:
         for a in self.agents:

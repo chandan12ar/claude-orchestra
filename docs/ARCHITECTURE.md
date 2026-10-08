@@ -981,6 +981,27 @@ pure functions in `app.js`, tested under node.
   renamed with a stale one, last prompt only, untitled), written in the real format and read by the
   real code; only `--demo` writes them.
 
+### Where tokens were wasted (`waste.py`)
+- `WasteLog` (one per transcript: the main session's, and each agent's digest) keeps each API call
+  once per `message.id`, latest usage winning (Claude Code repeats a message's usage on every content
+  block): first-seen time, model, `cache_creation_input_tokens`, `cache_read_input_tokens`. It also
+  keeps `compact_boundary` times, the largest tool results (text length, tool, scrubbed target) and
+  Read results whose content fingerprint matches the previous read of the same file and range (errors
+  are not re-reads).
+- A rebuild is a call after the first that writes at least `REBUILD_MIN_TOKENS` (10k) to the cache
+  while reading back under `REBUILD_READ_SHARE` (a fifth) of that. Its cause, in order: a compaction
+  between it and the previous call, a model change, a gap of an hour or more, of five minutes or more,
+  else unknown. On 57 real sessions: 31 rebuilds, 9.24M tokens, a third of all cache writes; 20 after
+  more than an hour. A few came 8 to 98 seconds after the previous call with no recorded reason; those
+  say so rather than guess.
+- `waste.summary` (via `insights._waste`) prices each rebuild at `cache_create - cache_read` for its
+  model, says when a model has no price, and attaches the same agent's prompt (`run.waits`) that
+  overlapped the idle stretch most. Result sizes are characters / 4, labelled "about".
+- Unused plugin and MCP overhead was dropped from the design: tool definitions are deferred now and
+  their size is not in the transcript.
+- UI: `insWaste` (metrics, rebuilds with cause and wait, biggest results, re-read note) after
+  "Waiting on you"; `wasteRow` in the agent panel; `wasteCause` words a cause.
+
 ### Graph and Work Floor
 - **Graph layout** (`layoutGraph`) is a pure function split into `graphRankColumns`
   (longest path over exact edges; columns indexed, never raw rank), `graphOrderColumns`
