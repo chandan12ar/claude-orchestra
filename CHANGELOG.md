@@ -6,6 +6,13 @@ versions follow [SemVer](https://semver.org/) (the `version` in
 
 ## [Unreleased]
 
+## [0.10.3] - 2026-10-08
+
+### Removed
+- `docs/assets/pill-states.png`, a still of the pill's states that nothing used any more (the README shows
+  the animated pill). The plugin directory held 0.10.2 for review on this one file, under "Files or
+  downloads the validator couldn't inspect".
+
 ## [0.10.2] - 2026-10-04
 
 ### Fixed

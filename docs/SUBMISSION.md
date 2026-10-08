@@ -40,6 +40,7 @@ The repository is already public, which the listing requires before it goes live
 | Component files use the exact names Claude Code expects | Done | `claude plugin validate` |
 | The slash command pre-approves no tools (no `allowed-tools`): broad shell access is held for a reviewer | Done (0.10.1) | **test** |
 | README shows bundled images with Markdown image syntax only, no `<img>` or `<picture>` | Done (0.10.1) | **test** |
+| No image the directory reads as carrying long embedded text (held for a reviewer) | Done (0.10.3: removed the unused `docs/assets/pill-states.png`, the one file it named) | the version's history in the portal |
 
 ## What to expect from review
 
