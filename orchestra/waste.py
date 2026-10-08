@@ -63,9 +63,13 @@ def _target(name: str, params: Any) -> str:
 
 class WasteLog:
     def __init__(self) -> None:
-        # message id -> [first seen at, model, cache_create, cache_read]
+        # message id -> [first seen at, model, cache_create, cache_read, input]; the three token
+        # counts together are the context the model saw on that call (orchestra.pressure).
         self.calls: "OrderedDict[str, List[Any]]" = OrderedDict()
-        self.compactions: List[float] = []
+        # Compactions, once each (Claude Code can write the same boundary twice): at, trigger,
+        # pre and post tokens, duration.
+        self.compactions: List[Dict[str, Any]] = []
+        self._compaction_keys: set = set()
         self.big: List[Dict[str, Any]] = []
         self.rereads = 0
         self.reread_chars = 0
@@ -78,7 +82,7 @@ class WasteLog:
                 continue
             at = parse_timestamp(entry.get("timestamp"))
             if entry.get("type") == "system" and entry.get("subtype") == "compact_boundary" and at is not None:
-                self.compactions.append(at)
+                self._compaction(entry, at)
             message = entry.get("message")
             if not isinstance(message, dict):
                 continue
@@ -96,6 +100,22 @@ class WasteLog:
                 elif block.get("type") == "tool_result":
                     self._result(block, at)
 
+    def _compaction(self, entry: Dict[str, Any], at: float) -> None:
+        meta = entry.get("compactMetadata") if isinstance(entry.get("compactMetadata"), dict) else {}
+        key = entry.get("uuid") or "{}|{}".format(at, meta.get("preTokens"))
+        if key in self._compaction_keys or len(self.compactions) >= 500:
+            return
+        self._compaction_keys.add(key)
+
+        def number(name: str) -> Optional[int]:
+            value = meta.get(name)
+            return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
+
+        trigger = meta.get("trigger")
+        self.compactions.append({"at": at, "trigger": trigger if trigger in ("manual", "auto") else "",
+                                 "pre_tokens": number("preTokens"), "post_tokens": number("postTokens"),
+                                 "duration_s": (number("durationMs") or 0) / 1000.0 or None})
+
     def _call(self, message: Dict[str, Any], at: Optional[float]) -> None:
         mid, usage = message.get("id"), message.get("usage")
         if not isinstance(mid, str) or not mid or not isinstance(usage, dict):
@@ -109,12 +129,13 @@ class WasteLog:
             return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 0
 
         created, read = count("cache_creation_input_tokens"), count("cache_read_input_tokens")
+        fresh = count("input_tokens")
         if mid in self.calls:                      # the same API message again: latest usage wins
             row = self.calls[mid]
             row[1] = model or row[1]
-            row[2], row[3] = created, read
+            row[2], row[3], row[4] = created, read, fresh
         elif len(self.calls) < MAX_CALLS:
-            self.calls[mid] = [at, model, created, read]
+            self.calls[mid] = [at, model, created, read, fresh]
 
     def _result(self, block: Dict[str, Any], at: Optional[float]) -> None:
         name, params = self._tools.pop(block.get("tool_use_id"), ("", None))
@@ -141,11 +162,11 @@ class WasteLog:
         out = []
         calls = self.ordered_calls()
         for previous, call in zip(calls, calls[1:]):
-            at, model, created, read = call
+            at, model, created, read = call[:4]
             if created < REBUILD_MIN_TOKENS or read >= created * REBUILD_READ_SHARE:
                 continue
             gap = at - previous[0]
-            if any(previous[0] <= c <= at for c in self.compactions):
+            if any(previous[0] <= c["at"] <= at for c in self.compactions):
                 cause = COMPACTION
             elif model and previous[1] and model != previous[1]:
                 cause = MODEL
@@ -174,7 +195,8 @@ class WasteLog:
     def snapshot(self) -> "WasteLog":
         copy = WasteLog()
         copy.calls = OrderedDict((k, list(v)) for k, v in self.calls.items())
-        copy.compactions = list(self.compactions)
+        copy.compactions = [dict(c) for c in self.compactions]
+        copy._compaction_keys = set(self._compaction_keys)
         copy.big = [dict(b) for b in self.big]
         copy.rereads, copy.reread_chars = self.rereads, self.reread_chars
         return copy
