@@ -307,7 +307,7 @@ Everything it does, in one place (the full policy is in [PRIVACY.md](PRIVACY.md)
 
 | | |
 |---|---|
-| **Programs it runs** | `orchestra/__main__.py` (the dashboard, started only when you run `/cuelight:open`; Claude Code asks you before it runs, since the command pre-approves nothing) and `orchestra/hook.py` (one short-lived process per Claude Code event, installed by `hooks/hooks.json`). Both are plain Python from this repository; nothing is downloaded or installed. |
+| **Programs it runs** | `bin/cuelight`, a short shell script that starts `orchestra/__main__.py` with your Python (the dashboard, started only when you run `/cuelight:open`; Claude Code asks you before it runs, since the command pre-approves nothing, and "don't ask again" covers only `cuelight`) and `orchestra/hook.py` (one short-lived process per Claude Code event, installed by `hooks/hooks.json`). Both are plain Python from this repository; nothing is downloaded or installed. |
 | **Files it reads** | Claude Code transcripts under `~/.claude/projects`, its own hook spool, and an optional price file you provide |
 | **Files it writes** | The hook spool and a port/token file in a per-user state folder (deleted after 7 days or when the dashboard stops), an optional metrics-only history file (off by default), and an HTML report only when you ask for one. Never anything under `~/.claude` |
 | **Network** | None. The server listens on `127.0.0.1` only and nothing is fetched or sent. Using Claude Code itself is unchanged |

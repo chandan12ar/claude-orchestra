@@ -49,7 +49,8 @@ The repository is already public, which the listing requires before it goes live
 - **Name check.** `cuelight` was checked only informally. The closest name found is Cuelux (stage-lighting
   software). A look-alike can be held for a reviewer; an exact clash blocks. Run a proper trademark search first.
 - **Claude Code only.** The directory shows the surfaces a plugin supports. Cuelight needs a local Python and
-  hooks, so it is meant for Claude Code. Hooks are ignored in claude.ai chat, and the local server cannot run there.
+  hooks, so it is meant for Claude Code. Since 0.11.0 it also ships `bin/cuelight`, and claude.ai and Cowork
+  do not install a plugin with a `bin/` directory. Hooks are ignored in claude.ai chat, and the local server cannot run there.
 
 ## Answers for the form
 
