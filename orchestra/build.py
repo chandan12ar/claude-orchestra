@@ -27,6 +27,7 @@ from orchestra.transcript import IncrementalReader
 from orchestra import verify
 from orchestra.outcomes import OutcomeLog
 from orchestra.context import ContextLog
+from orchestra.sessionmeta import SessionMeta
 
 
 MAX_EVENTS = 5000
@@ -52,6 +53,7 @@ class RunBuilder:
         self._main_times = ActivityTimes()
         self._main_outcomes = OutcomeLog()
         self._main_context = ContextLog()
+        self._main_meta = SessionMeta()
         # ThreadingHTTPServer runs a thread per connection, and every one of
         # them calls refresh() on this same builder. refresh mutates the
         # reader's byte offsets and the per-agent digests, which accumulate
@@ -77,11 +79,13 @@ class RunBuilder:
             self._main_times.clear()
             self._main_outcomes = OutcomeLog()
             self._main_context = ContextLog()
+            self._main_meta = SessionMeta()
         self._main_tally.ingest(main_entries)
         self._parent.ingest(main_entries)
         self._note_main_activity(main_entries)
         self._main_outcomes.ingest(main_entries)
         self._main_context.ingest(main_entries)
+        self._main_meta.ingest(main_entries)
         self._scan_subagents()
         if self._spool is not None:
             self._events.extend(self._spool.read_new(self.paths.session_id))
@@ -120,6 +124,7 @@ class RunBuilder:
         run.waits = waits
         run.main_outcomes = self._main_outcomes.snapshot()
         run.main_context = self._main_context.snapshot()
+        run.meta = self._main_meta.snapshot()
         run.insights = insights.compute(run, now, self._table)
         return run
 

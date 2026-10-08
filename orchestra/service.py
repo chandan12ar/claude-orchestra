@@ -15,6 +15,7 @@ from orchestra.history import HistoryStore
 from orchestra.pricing import PriceSource
 from orchestra.locate import find_session, list_recent_sessions, list_sessions
 from orchestra.redact import scrub
+from orchestra.sessionmeta import peek_title
 
 
 class NotFound(Exception):
@@ -139,8 +140,12 @@ class OrchestraService:
             "session_id": info.session_id, "modified_at": info.modified_at,
             "session_live": (now - info.modified_at) <= C.SESSION_LIVE_THRESHOLD_S,
             "project_path": "", "project_name": "", "attention": None,
-            "ended": None, "has_events": False, "urgency": 0, "totals": None}
+            "ended": None, "has_events": False, "urgency": 0, "totals": None,
+            "title": "", "title_source": "", "recap": "", "recap_at": None,
+            "recap_stale": False, "last_prompt": ""}
         if not build:
+            # Beyond the build budget: no run, but the title is a cheap peek.
+            entry.update(peek_title(os.path.join(info.project_dir, info.session_id + ".jsonl")))
             return entry
         try:
             summary = self._builder(info.session_id).refresh().to_summary_dict()
@@ -152,6 +157,7 @@ class OrchestraService:
         live = summary.get("live") or {}
         attention = live.get("attention")
         totals = summary.get("totals") or {}
+        about = summary.get("session") or {}
         entry.update({
             "project_path": path,
             "project_name": path.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1],
@@ -164,6 +170,9 @@ class OrchestraService:
                        "waiting": totals.get("waiting", 0),
                        "completed": totals.get("completed", 0),
                        "failed": totals.get("failed", 0) + totals.get("orphaned", 0)},
+            "title": about.get("title", ""), "title_source": about.get("title_source", ""),
+            "recap": about.get("recap", ""), "recap_at": about.get("recap_at"),
+            "recap_stale": bool(about.get("recap_stale")), "last_prompt": about.get("last_prompt", ""),
         })
         # An ended session cannot be waiting on anyone.
         if not entry["session_live"]:
@@ -207,9 +216,12 @@ class OrchestraService:
         builder = self._builder(session_id)
         sessions: List[Dict[str, Any]] = []
         for info in list_sessions(builder.paths.project_dir):
-            sessions.append({"session_id": info.session_id,
-                             "modified_at": info.modified_at,
-                             "agent_count": info.agent_count})
+            entry = {"session_id": info.session_id,
+                     "modified_at": info.modified_at,
+                     "agent_count": info.agent_count}
+            entry.update(peek_title(os.path.join(builder.paths.project_dir,
+                                                 info.session_id + ".jsonl")))
+            sessions.append(entry)
         return {"project_dir": os.path.basename(builder.paths.project_dir),
                 "current": builder.paths.session_id,
                 "sessions": sessions}

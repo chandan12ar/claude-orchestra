@@ -84,6 +84,9 @@ cells a spreadsheet would execute as formulas are neutralised.
 11. **See what your approvals cost.** The Insights card "Waiting on you" shows how long agents sat on your
    permission prompts, which agent waited longest, and how much agent time was lost while several waited
    at once, so you can decide which tools to pre-approve.
+12. **Pick up where you left off.** Coming back to three sessions in the same project, the Fleet view
+    names each by its title and shows Claude Code's own "while you were away" recap, so you know which
+    one to open first and what it was doing.
 
 You can try every one of these without a real run: `python -m orchestra --demo`.
 
@@ -194,9 +197,20 @@ You can try every one of these without a real run: `python -m orchestra --demo`.
   most urgent first (blocked on a permission prompt or an API error), with a
   tab badge and an alert when a session you are *not* looking at needs you.
   Click one to jump to it.
+- **Catch me up** — every session is named by its title (the one you gave it
+  with `/rename`, else the one Claude Code generated), in the Fleet view, the
+  session picker, the browser tab, alerts and reports. Under the title the
+  Fleet shows what the session needs from you, else Claude Code's own "while
+  you were away" recap with its age, else the last thing you asked. The recap
+  of the session you are viewing sits under the header (click for all of it),
+  and says so when the session has worked since it was written. Read from the
+  records Claude Code already writes; nothing new is collected.
+
+  ![The Fleet view, dark theme: sessions named by title, one waiting on permission, others with a recap, a last prompt, or nothing to name them](docs/evidence/screenshots/33-fleet-titles-dark.png)
 - **Pill** — a small always-on-top window (Chrome/Edge: click *Pill*) showing
   what needs you across all sessions, with a dot per agent. Every browser also
-  gets a `(2) Cuelight` tab title and a colored, counted favicon.
+  gets a `(2) Cuelight` tab title (with the session's title in front when it has one) and a
+  colored, counted favicon.
 - **Sounds** — optional (click *Sound*). Three synthesized tones: needs you,
   something failed, all done. History never makes noise; at most one sound per
   update. No audio files, so nothing is fetched. *Options* mutes any one of the

@@ -101,6 +101,13 @@ const shots = [
   ["29-produced-dark", DEMO + "#view=insights", 1440, 560, "dark", cardShot("What the run produced")],
   ["30-told-light", DEMO + "#view=insights", 1440, 600, "light", cardShot("What each agent was told")],
   ["31-told-dark", DEMO + "#view=insights", 1440, 600, "dark", cardShot("What each agent was told")],
+  ["32-recap-light", DEMO, 1440, 300, "light",
+    `(async () => { document.getElementById('recap').click(); await new Promise(r => setTimeout(r, 300)); })()`],
+  ["33-fleet-titles-dark", DEMO + "#view=fleet", 1440, 610, "dark",
+    `(async () => { await new Promise(r => setTimeout(r, 900));
+      const h = document.querySelector('header').getBoundingClientRect().height;
+      window.scrollTo(0, document.getElementById('fleet').getBoundingClientRect().top + window.scrollY - h - 70);
+      await new Promise(r => setTimeout(r, 300)); })()`],
   ["14-phone-timeline-light", DEMO, 390, 844, "light"],
   ["15-phone-insights-dark", DEMO + "#view=insights", 390, 1500, "dark"],
   ...(REPORT ? [

@@ -6,6 +6,25 @@ versions follow [SemVer](https://semver.org/) (the `version` in
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-10-08
+
+### Added
+- **Catch me up**: sessions are named by their title (the one you gave with `/rename`, else the one
+  Claude Code generated) in the Fleet view, the session picker, the browser tab, the pill, alerts for
+  other sessions and static reports. Each Fleet row's second line is what the session needs from you,
+  else Claude Code's own "while you were away" recap with its age (two lines), else the last thing you
+  asked, else its status, which then moves to the meta line. The recap of the session on screen sits
+  under the header, one line until clicked, and says "older than the latest activity" once the session
+  has worked since. Read from the `ai-title`, `custom-title`, `away_summary` and `last-prompt` records
+  Claude Code already writes, so it works on past sessions and needs no hook. Lists that cannot build a
+  whole run per session read only the end of each transcript for its title (cached).
+- The demo's Fleet has four neighbouring sessions showing each kind of row.
+
+### Fixed
+- Fleet rows on a phone: the counts line no longer squeezes the title to nothing; it wraps under it.
+- CI: the launcher line-ending test read the checkout, which Git for Windows writes with CRLF; it reads
+  the stored file now (main was red on the Windows jobs after 0.11.0).
+
 ## [0.11.0] - 2026-10-08
 
 ### Changed

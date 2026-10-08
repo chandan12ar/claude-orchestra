@@ -223,13 +223,15 @@ class TestFleetUiWiring(unittest.TestCase):
             self.assertIn(reset, body)
 
     def test_fleet_text_is_escaped(self):
+        # renderFleet joins rows built by fleetRow; every transcript-derived value there is escaped.
         js = self.read("app.js")
-        body = js[js.index("function renderFleet("):]
+        self.assertIn("data.sessions.map((s) => fleetRow(s, current))", js)
+        body = js[js.index("function fleetRow("):]
         body = body[:body.index("\n}\n")]
-        for raw in ("+ s.project_name", "+ s.session_id", "+ sub +", "+ meta +"):
+        for raw in ("+ s.project_name", "+ s.session_id", "+ s.title", "+ sub.text", "+ meta +"):
             self.assertNotIn(raw, body)
-        self.assertIn("esc(s.project_name", body)
-        self.assertIn("esc(sub)", body)
+        for escaped in ("esc(s.project_name", "esc(s.title)", "esc(sub.text)", "esc(meta)"):
+            self.assertIn(escaped, body)
 
     def test_fleet_polling_follows_the_live_toggle_and_skips_reports(self):
         js = self.read("app.js")

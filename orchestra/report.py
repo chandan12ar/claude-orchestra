@@ -1,6 +1,7 @@
 """A single-file HTML snapshot: no server, no network, safe to email."""
 
 import base64
+import html
 import json
 import os
 from typing import Any, Dict
@@ -31,7 +32,7 @@ def _build_shell() -> str:
             raise RuntimeError("report shell: index.html no longer contains " + old[:60])
         html = html.replace(old, new, 1)
 
-    swap("<title>Cuelight</title>", "<title>Cuelight report — {session}</title>")
+    swap("<title>Cuelight</title>", "<title>Cuelight report — {title}</title>")
     swap('<link rel="stylesheet" href="style.css">', "<style>\n{css}\n</style>")
     swap('<script src="app.js"></script>',
          "<script>\nwindow.ORCHESTRA_RUN = {run_json};\n"
@@ -107,6 +108,8 @@ state.offline = true;
 def render_report(run: Run, details: Dict[str, Dict[str, Any]]) -> str:
     return _SHELL.format(
         session=run.session_id,
+        # The session's title when Claude Code (or you) gave it one; the id otherwise.
+        title=html.escape(run.meta.title if run.meta is not None and run.meta.title else run.session_id),
         css=_read_static("style.css"),
         js=_offline_shim(_read_static("app.js")),
         run_json=_script_safe(run.to_summary_dict()),

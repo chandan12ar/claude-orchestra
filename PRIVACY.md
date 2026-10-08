@@ -16,7 +16,7 @@ it reads, what it writes, and what leaves your machine (nothing).
 
 | What | Where | Why |
 |---|---|---|
-| Claude Code session transcripts | `~/.claude/projects/...` | To rebuild the run: which agents ran, what each was asked, what each produced |
+| Claude Code session transcripts | `~/.claude/projects/...` | To rebuild the run: which agents ran, what each was asked, what each produced, and what the session is called and Claude Code's last recap of it |
 | Hook events written by its own hooks | `<state dir>/events/<session>.jsonl` | To know when a session is waiting for your permission or input |
 | An optional price file you supply | the path in `ORCHESTRA_PRICES`, else Cuelight's per-user config folder | To show an estimated cost. It is never fetched from the internet |
 
