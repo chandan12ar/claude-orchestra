@@ -1055,8 +1055,39 @@ pure functions in `app.js`, tested under node.
   then explained in a caption, a labelled marker per compaction with labels closer than 60px skipped),
   the compactions list (`compactionCause`), and agents through `insRank` (amber past 80%).
   `pressureRow` is the agent panel's "context" line. `renderHealth` adds a `context` item per `near`
-  entry; the main session's opens Insights at the card (`openPressure`, offset by the top bar only where
+  entry; the main session's opens Insights at the card (`openCard`, offset by the top bar only where
   it is sticky), and the headline names the main session separately from agents.
+
+### What went wrong (`errors.py`)
+- `ErrorLog` (one per transcript: the main session's, and each agent's digest) keeps:
+  - **API errors**: entries with `isApiErrorMessage` (model `<synthetic>`), their `error` type, `apiErrorStatus`
+    and first line (`_api_text` turns Anthropic's JSON error body into "API Error: 529 Overloaded"). Each is
+    kept once per `uuid`; the same type again before any reply adds to `repeats` instead of a new row.
+    `resumed_at` is the next assistant entry with a real model.
+  - **calls**: `[at, tool, shown target, ok, error line, match key]` per `tool_use`, `ok` set from its
+    `tool_result` (`is_error`). The error line drops `<tool_use_error>` tags and terminal colours and joins a
+    bare "Exit code N" to the line after it. The match key is a hash of the whole command for commands and of
+    the target for everything else, so two heredoc scripts are not one call but two edits of one file are.
+  - **timeouts**: results whose `toolUseResult.timedOutAfterMs` is set, with whether a `backgroundTaskId`
+    says Claude Code moved the command to the background (current versions) rather than stopping it.
+- `retries()`: from each failed call, the next call with the same tool and key within `RETRY_GAP` (3)
+  other calls, repeated until one works. `stuck()`: the latest chain that is still failing, has
+  `STUCK_AFTER` (3) failures in a row, ended within the last `STUCK_RECENT` (10) calls, and was not tried
+  again later. On 202 real transcripts: 49 chains, 47 worked, none stuck; most had one call (the fix)
+  between attempts.
+- `errors.summary` (via `insights._errors`, key `errors`): API rows with `lost_s` (to the reply, to now
+  while live, else none) and per-kind and total lost time as the union of stall spans per transcript;
+  failed calls by tool (with the most common error) and by agent; retries (most attempts first);
+  timeouts; and `stuck` for the live main session and running, waiting or stalled agents. Each agent's
+  light dict has `errors` (`ErrorLog.totals`).
+- UI: `insErrors` after "Did they check their work?" (metrics, a "Stuck now" note, API errors, tried
+  again, failed calls by tool and by agent, past the timeout; rows reuse `.check-list`, with `.check-ok`
+  for a retry that worked). `errorsRow` is the agent panel's "errors" line. `renderHealth` adds a
+  `retrying` item for a stuck agent, or "failing every time" on its POSSIBLE LOOP line, and one for a
+  stuck main session that opens the card (`openCard("errors")`).
+- Dropped from the design: background commands "left running". 54 commands went to the background
+  and only 9 were followed by an output or stop call, but Claude Code reports completion in task
+  notifications that do not reliably tie back, so it could not be told apart from forgotten.
 
 ### Graph and Work Floor
 - **Graph layout** (`layoutGraph`) is a pure function split into `graphRankColumns`

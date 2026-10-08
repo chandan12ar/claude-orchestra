@@ -21,6 +21,7 @@ from orchestra import context
 from orchestra import waste
 from orchestra import turns
 from orchestra import pressure
+from orchestra import errors
 
 # Mirrors the dashboard's tool taxonomy (app.js TOOL_BUCKETS), so a colour means the
 # same thing in the drawer, the ticker and here.
@@ -444,6 +445,13 @@ def _waste(run: Run, now: float, table: Any) -> Optional[Dict[str, Any]]:
     return waste.summary(sources, table, run.waits, now)
 
 
+def _errors(run: Run, now: float) -> Optional[Dict[str, Any]]:
+    """API errors, failed calls, retries and timeouts across the main session and every agent."""
+    sources = [("", "Main session", "running" if run.session_live else "completed", run.main_errors)]
+    sources += [(a.agent_id, scrub(a.description)[:60] or a.agent_id[:12], a.status, a.errors) for a in run.agents]
+    return errors.summary(sources, run.session_live, now)
+
+
 def compute(run: Run, now: float, table: Any = None) -> Dict[str, Any]:
     """The Insights payload for a run. `table` is the optional PriceTable."""
     par = _parallelism(run, now)
@@ -461,4 +469,5 @@ def compute(run: Run, now: float, table: Any = None) -> Dict[str, Any]:
             "context": context.coverage(run.main_context, run.agents),
             "waste": _waste(run, now, table),
             "pressure": pressure.summary(run),
+            "errors": _errors(run, now),
             "prompts": turns.summary(run.main_turns, run, table, now)}

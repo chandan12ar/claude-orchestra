@@ -1415,15 +1415,22 @@ function checkText(v) {
 
 function renderHealth(run) {
   const items = [];
+  // Still running and failing the same call again and again (orchestra/errors.py).
+  const errors = run.insights && run.insights.errors;
+  const stuckFor = (id) => ((errors && errors.stuck) || []).find((s) => s.agent_id === id);
+  const retrying = (label, s) => "RETRYING — " + label + ": " + callText(s) + " failed " + s.failed_in_a_row + " times in a row";
   for (const agent of run.agents) {
     const label = agent.description || agent.agent_id;
+    const stuck = stuckFor(agent.agent_id);
     if (["waiting", "stalled", "failed", "orphaned"].includes(agent.status)) {
       items.push({ id: agent.agent_id, kind: agent.status,
         text: agent.status.toUpperCase() + " — " + label });
     }
     if (agent.loop) {
       items.push({ id: agent.agent_id, kind: "loop",
-        text: "POSSIBLE LOOP — " + label + ": " + loopText(agent.loop) });
+        text: "POSSIBLE LOOP — " + label + ": " + loopText(agent.loop) + (stuck ? ", failing every time" : "") });
+    } else if (stuck) {
+      items.push({ id: agent.agent_id, kind: "retrying", text: retrying(label, stuck) });
     }
     // Only once it has finished: a running agent may still be about to run its tests.
     const v = agent.verification;
@@ -1435,9 +1442,11 @@ function renderHealth(run) {
   // A context near its window is about to be compacted (orchestra/pressure.py).
   const pressure = run.insights && run.insights.pressure;
   for (const near of (pressure && pressure.near) || []) {
-    items.push({ id: near.agent_id, kind: "context",
+    items.push({ id: near.agent_id, kind: "context", card: "pressure",
       text: "CONTEXT " + fmtPct(near.fill) + " FULL — " + near.label + " (" + fmtCount(near.tokens) + " tokens)" });
   }
+  const mainStuck = stuckFor("");
+  if (mainStuck) items.push({ id: "", kind: "retrying", card: "errors", text: retrying("Main session", mainStuck) });
   const box = $("health");
   if (!items.length) { box.hidden = true; return; }
   box.hidden = false;
@@ -1450,16 +1459,16 @@ function renderHealth(run) {
     const item = document.createElement("li");
     item.textContent = entry.text;
     item.setAttribute("data-kind", entry.kind);
-    item.onclick = () => (entry.id ? openDrawer(entry.id) : openPressure());
+    item.onclick = () => (entry.id ? openDrawer(entry.id) : openCard(entry.card));
     list.appendChild(item);
   }
   box.appendChild(list);
 }
 
-// Insights, scrolled to how full each context got.
-function openPressure() {
+// Insights, scrolled to one card (its extra class: "pressure", "errors").
+function openCard(name) {
   setView("insights");
-  const card = document.querySelector("#insights .pressure");
+  const card = document.querySelector("#insights ." + name);
   if (!card) return;
   // Keep the card's title out from under the top bar where it is sticky (not on phones).
   const bar = document.querySelector(".topbar");
@@ -3777,6 +3786,83 @@ function insChecks(ins) {
     metrics + split + notes + rows, "wide");
 }
 
+// An API error type in words.
+function apiKind(kind) {
+  if (kind === "rate_limit") return "usage or rate limit";
+  if (kind === "authentication_failed") return "login failed";
+  if (kind === "server_error") return "API server error";
+  return kind ? String(kind).replace(/_/g, " ") : "API error";
+}
+
+// "Bash npm test": a call in words.
+function callText(r) {
+  return r.tool + (r.target ? " " + r.target : "");
+}
+
+// How an API error ended: answered again after a while, still waiting, or the session stopped there.
+function apiLost(e) {
+  if (e.ongoing) return "no answer yet, " + fmtDuration(e.lost_s || 0);
+  if (e.resumed_at === null || e.resumed_at === undefined) return "the session stopped there";
+  return "answered again after " + fmtDuration(e.lost_s || 0);
+}
+
+// What went wrong: API errors and the time they cost, failed calls, retries and timeouts.
+function insErrors(ins) {
+  const e = ins.errors;
+  if (!e) return "";
+  const metrics = [];
+  if (e.api_count) {
+    metrics.push(insMetric(e.api_count, e.api_count === 1 ? "API error" : "API errors"));
+    if (e.api_lost_s) metrics.push(insMetric(fmtDuration(e.api_lost_s), "until the API answered again"));
+  }
+  metrics.push(insMetric(e.failed + " of " + e.calls, "tool calls failed"));
+  if (e.retry_count) metrics.push(insMetric(e.retries_ok + " of " + e.retry_count, "retried calls worked"));
+  if (e.timeout_count) metrics.push(insMetric(e.timeout_count, "ran past the timeout"));
+  const notes = e.stuck.map((s) => s.label + " keeps failing " + callText(s) + " (" + s.failed_in_a_row + " times in a row).");
+  const row = (cls, agentId, state, who, detail) =>
+    '<li class="' + cls + '"' + (agentId ? ' data-agent="' + esc(agentId) + '" role="button" tabindex="0"' : "") + ">" +
+    '<span class="check-state">' + esc(state) + '</span><span class="check-who">' + esc(who) +
+    "<small>" + esc(detail) + "</small></span></li>";
+  const api = e.api.length ? "<h4>API errors</h4>" + '<ol class="check-list">' + e.api.map((a) =>
+    row("check-failing", a.agent_id, apiKind(a.kind) + (a.status ? " " + a.status : ""),
+      (a.text || apiKind(a.kind)) + (a.repeats > 1 ? " (" + a.repeats + " times)" : ""),
+      a.label + " · " + apiLost(a) + " · " + fmtClock(a.at))).join("") + "</ol>" : "";
+  const tools = e.tools.length ? "<h4>Failed calls by tool</h4>" + insRank(e.tools.map((t) => ({
+    name: t.tool, value: t.failed, title: t.example || t.tool, note: t.example,
+    label: t.failed + " of " + t.calls, color: "var(--failed)" }))) : "";
+  const agents = e.agents.length > 1 ? "<h4>Failed calls by agent</h4>" + insRank(e.agents.map((a) => ({
+    name: a.label, agent: a.agent_id, value: a.failed, label: a.failed + " of " + a.calls, color: "var(--failed)" }))) : "";
+  const retries = e.retries.length ? "<h4>Tried again</h4>" + '<ol class="check-list">' + e.retries.map((r) =>
+    row(r.ok ? "check-ok" : "check-failing", r.agent_id,
+      r.ok ? "worked on try " + r.attempts : r.attempts + " tries, still failing", callText(r),
+      r.label + (r.error ? " · " + r.error : "") + " · " + fmtClock(r.at))).join("") + "</ol>" +
+    (e.retry_count > e.retries.length ? '<p class="card-note">' + esc("And " + (e.retry_count - e.retries.length) + " more.") + "</p>" : "") : "";
+  const timeouts = e.timeouts.length ? "<h4>Ran past the timeout</h4>" + '<ol class="check-list">' + e.timeouts.map((t) =>
+    row("", t.agent_id, "after " + fmtDuration(t.after_s), callText(t),
+      t.label + " · " + (t.background ? "moved to the background, still running then" : "stopped") + " · " + fmtClock(t.at))).join("") +
+    "</ol>" : "";
+  return insCard("What went wrong",
+    "Errors from the API, with how long until it answered again; tool calls whose result was an error; the same " +
+    "call tried again after failing (usually after a fix); and commands that ran past their timeout. A failed call " +
+    "is not always a problem: a failing test run is often the point.",
+    '<div class="metrics">' + metrics.join("") + "</div>" +
+    (notes.length ? '<p class="card-note warn-text">' + esc("Stuck now: " + notes.join(" ")) + "</p>" : "") +
+    api + retries + tools + agents + timeouts, "wide errors");
+}
+
+// The agent panel's line: what went wrong for this agent.
+function errorsRow(e) {
+  if (!e) return "";
+  const parts = [];
+  if (e.failed) parts.push(e.failed + " of " + e.calls + " calls failed");
+  if (e.retries) parts.push(e.retries_ok + " of " + e.retries + (e.retries === 1 ? " retry" : " retries") + " worked");
+  if (e.api) parts.push(e.api + (e.api === 1 ? " API error" : " API errors") + " (" + e.api_kinds.map(apiKind).join(", ") + ")");
+  if (e.timeouts) parts.push(e.timeouts + " past the timeout");
+  return "<dt>errors</dt><dd>" + esc(parts.join(" · ")) +
+    (e.stuck ? '<br><span class="warn-text">' + esc("Keeps failing " + callText(e.stuck) + " (" +
+      e.stuck.failed_in_a_row + " times in a row)") + "</span>" : "") + "</dd>";
+}
+
 // What the run changed: totals, who changed the most, which files changed the most.
 function insChanges(ins) {
   const c = ins.changes;
@@ -4199,7 +4285,7 @@ function renderInsights(run) {
     return;
   }
   const width = Math.max(320, (box.clientWidth || 960) - 38);
-  box.innerHTML = insParallelism(ins, width) + insCritical(ins) + insOutcomes(ins) + insChecks(ins) + insWaits(ins, run) + insWaste(ins) + insPressure(ins, width) + insChanges(ins) + insContext(ins) + insTools(ins) +
+  box.innerHTML = insParallelism(ins, width) + insCritical(ins) + insOutcomes(ins) + insChecks(ins) + insErrors(ins) + insWaits(ins, run) + insWaste(ins) + insPressure(ins, width) + insChanges(ins) + insContext(ins) + insTools(ins) +
     insTokens(ins, run) + insSpend(run) + insSlowest(ins) + insFiles(ins);
   for (const el of box.querySelectorAll("[data-agent]")) {
     const open = () => openDrawer(el.getAttribute("data-agent"));
@@ -4898,7 +4984,7 @@ async function openDrawer(agentId) {
     "<dl>" + rows.map(([k, v]) =>
       "<dt>" + esc(k) + "</dt><dd>" + esc(v) + "</dd>").join("") + waitRow(agent, waitNow(state.run)) +
       (agent.verification ? "<dt>checked its work</dt><dd>" + esc((agent.verification.state === "checked" ? "yes, " : "") +
-        checkText(agent.verification)) + "</dd>" : "") + producedRow(agent.outcomes) + wasteRow(agent.waste) + pressureRow(agent.context_peak) +
+        checkText(agent.verification)) + "</dd>" : "") + producedRow(agent.outcomes) + wasteRow(agent.waste) + pressureRow(agent.context_peak) + errorsRow(agent.errors) +
       contextRow(agent.context, agent.agent_id, state.run) + "</dl>" +
     "<h3>Tool mix</h3>" + (renderToolMix(agent.tool_calls) || '<p class="source-note">no tool calls yet</p>') +
     "<h3>Objective</h3><pre>" + esc(agent.objective || "\u2014") + "</pre>" +

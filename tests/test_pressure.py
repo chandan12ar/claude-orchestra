@@ -286,32 +286,34 @@ class TestShown(unittest.TestCase):
         run_ = {"agents": [], "insights": {"pressure": {"near": [
             {"agent_id": "", "label": "Main session", "fill": 0.86, "tokens": 860000},
             {"agent_id": "a1", "label": "<b>Helper</b>", "fill": 0.91, "tokens": 182000}]}}}
-        body = """
+        out = health(ui, run_)
+        self.assertEqual(out["head"], "<strong>The main session and 1 agent(s) need attention</strong>")
+        self.assertEqual(out["items"], [["CONTEXT 86% FULL — Main session (860.0k tokens)", "context"],
+                                        ["CONTEXT 91% FULL — <b>Helper</b> (182.0k tokens)", "context"]])
+        self.assertEqual(out["opened"], ["card:pressure", "drawer:a1"])
+        self.assertFalse(out["hidden"])
+        alone = health(ui, {"agents": [], "insights": {"pressure": {"near": [run_["insights"]["pressure"]["near"][0]]}}})
+        self.assertEqual(alone["head"], "<strong>The main session needs attention</strong>")
+        self.assertTrue(health(ui, {"agents": [], "insights": None})["hidden"])
+
+
+def health(ui, run_):
+    """renderHealth run in Node: its headline, its items and what clicking each opens."""
+    body = """
 const opened = [];
 function openDrawer(id) { opened.push("drawer:" + id); }
-function openPressure() { opened.push("insights"); }
+function openCard(name) { opened.push("card:" + name); }
+function loopText(loop) { return "same call x" + loop.count; }
 global.document = {createElement: () => ({children: [], attrs: {}, textContent: "",
   setAttribute(k, v) { this.attrs[k] = v; }, appendChild(c) { this.children.push(c); }})};
 box.appendChild = (c) => { box.list = c; };
 renderHealth(%s);
-const items = box.list.children;
+const items = box.list ? box.list.children : [];
 items.forEach((i) => i.onclick());
 console.log(JSON.stringify({head: box.innerHTML, items: items.map((i) => [i.textContent, i.attrs["data-kind"]]),
                             opened: opened, hidden: box.hidden}));
 """ % json.dumps(run_)
-        out = ui.run_js(("fmtCount", "fmtPct", "renderHealth"), [], body)
-        self.assertEqual(out["head"], "<strong>The main session and 1 agent(s) need attention</strong>")
-        self.assertEqual(out["items"], [["CONTEXT 86% FULL — Main session (860.0k tokens)", "context"],
-                                        ["CONTEXT 91% FULL — <b>Helper</b> (182.0k tokens)", "context"]])
-        self.assertEqual(out["opened"], ["insights", "drawer:a1"])
-        self.assertFalse(out["hidden"])
-        alone = ui.run_js(("fmtCount", "fmtPct", "renderHealth"), [], body.replace(
-            json.dumps(run_), json.dumps({"agents": [], "insights": {"pressure": {"near": [run_["insights"]["pressure"]["near"][0]]}}})))
-        self.assertEqual(alone["head"], "<strong>The main session needs attention</strong>")
-        quiet = ui.run_js(("fmtCount", "fmtPct", "renderHealth"), [], body.replace(
-            json.dumps(run_), json.dumps({"agents": [], "insights": None})).replace(
-            "const items = box.list.children;", "const items = [];"))
-        self.assertTrue(quiet["hidden"])
+    return ui.run_js(("fmtCount", "fmtPct", "callText", "renderHealth"), [], body)
 
 
 if __name__ == "__main__":

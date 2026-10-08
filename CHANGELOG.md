@@ -6,6 +6,35 @@ versions follow [SemVer](https://semver.org/) (the `version` in
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-10-08
+
+### Added
+- **What went wrong**: an Insights card after "Did they check their work?". It shows:
+  - each API error (`isApiErrorMessage`, with its `error` type and `apiErrorStatus`): usage or rate limit,
+    failed login, server error, with how long until the next real reply (or that the session stopped there,
+    or that it is still waiting). The same error again before any reply is one stall with a count, and
+    overlapping stalls count their time once. Anthropic's JSON error body reads as words
+    ("API Error: 529 Overloaded");
+  - tool calls whose result was an error, by tool (with the most common error's first line; a bare
+    "Exit code 1" gets the next line, terminal colours removed) and by agent;
+  - **tried again**: the same call within three calls of a failure, until it worked or the tries stopped. A
+    command matches only in full, so two different heredoc scripts are not one call; a file tool matches by
+    file;
+  - commands that ran past their timeout (`timedOutAfterMs`), and whether Claude Code moved them to the
+    background.
+
+  While a session is live, a running, waiting or stalled agent (or the main session) that failed its latest
+  call three times in a row and has not tried it since goes in the Health box as RETRYING; an agent already
+  flagged as a possible loop gets "failing every time" on that line instead. The main session's item opens
+  this card. The agent panel gains an "errors" line. Real transcripts: 16 API stalls (13 session limits,
+  about 18 hours in all), 333 of 8,915 calls failed, 49 retries of which 47 worked, 16 commands moved to
+  the background.
+- The demo has an overloaded API while the design agent works, a security review stuck on a failing
+  `npm audit`, and an end-to-end run moved to the background after 2 minutes.
+
+### Changed
+- `openCard(name)` replaces `openPressure()`: a Health box item for the main session opens its card.
+
 ## [0.15.0] - 2026-10-08
 
 ### Added

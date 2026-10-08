@@ -51,6 +51,7 @@ DEMO_PROMPTS = (
     (611, "Commit and open a PR, then run the verify wave and write up what is left", "suggestion_accepted"),
 )
 DEMO_LAST_PROMPT = DEMO_PROMPTS[-1][1]
+DEMO_API_ERROR = 'API Error: 529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}'
 DEMO_RECAP = ("Goal: ship checkout v2 (cart service, payment adapter, webhooks) behind a flag. "
               "The build wave is in and PR #42 is open; the verify wave is running, the unit "
               "tests failed twice and the docs agent is waiting on your permission. "
@@ -76,6 +77,8 @@ class _Agent:
     asks: Tuple[int, ...] = ()   # a permission prompt just before each of these tool calls
     waiting: int = 0          # > 0: sitting on a prompt raised this many seconds ago
     fails: Tuple[int, ...] = ()  # tool calls whose result is an error (a failing test run)
+    fail_output: str = "Exit code 1\n3 failing"
+    timeouts: Tuple[int, ...] = ()  # commands that ran past their timeout and went to the background
 
     @property
     def agent_id(self) -> str:
@@ -165,12 +168,13 @@ def _scenario() -> List[_Agent]:
                "Tests still fail: 3 of 41 assertions fail in cart rounding.", wave="verify", fails=(3, 5)),
         _Agent("e2e", "Run the end-to-end suite", "general-purpose", "sonnet", 625, None, "running",
                _read("tests/e2e/checkout.spec.ts")
-               + [("Bash", "npm run e2e -- checkout.spec.ts")] * 9, wave="verify", loop=True),
+               + [("Bash", "npm run e2e -- checkout.spec.ts")] * 9, wave="verify", loop=True, timeouts=(1,)),
         _Agent("security", "Review the checkout for security issues", "general-purpose", "opus",
                400, None, "stalled",
                _read("src/payments/adapter.ts", "src/payments/webhooks.ts")
-               + [("Grep", "process.env"), ("Bash", "npm audit --omit=dev")],
-               wave="review", quiet_for=330),
+               + [("Grep", "process.env")] + [("Bash", "npm audit --omit=dev")] * 3,
+               wave="review", quiet_for=330, fails=(3, 4, 5),
+               fail_output="Exit code 1\nnpm ERR! audit endpoint returned an error (503)"),
         _Agent("docs", "Update the developer docs", "general-purpose", "haiku", 700, None, "running",
                _read("docs/DESIGN.md", "README.md")
                + [("Write", CWD + "/docs/checkout.md")], wave="wrapup", waiting=45),
@@ -352,7 +356,10 @@ def _agent_entries(agent: _Agent, clock: _Clock, rng: random.Random,
             "message": {"id": "msg_" + uid, "role": "assistant", "model": model_id,
                         "content": [_tool_block(uid, name, target)],
                         "usage": _usage(rng, agent.model, i)}})
-        output = "Exit code 1\n3 failing" if i in agent.fails else "ok"
+        output = agent.fail_output if i in agent.fails else "ok"
+        if i in agent.timeouts:
+            output = ("Command did not complete within its 120s timeout and was moved to the background "
+                      "(ID: b{}{}).".format(agent.key, i))
         if agent.key == "design" and target.endswith("docs/providers.md"):
             output = _PROVIDERS_DOC       # a long file read whole: the run's biggest result
         result = {
@@ -364,6 +371,9 @@ def _agent_entries(agent: _Agent, clock: _Clock, rng: random.Random,
         patch = _edit_result(name, target)
         if patch is not None:
             result["toolUseResult"] = patch
+        if i in agent.timeouts:
+            result["toolUseResult"] = {"stdout": "", "stderr": "", "interrupted": False,
+                                       "backgroundTaskId": "b{}{}".format(agent.key, i), "timedOutAfterMs": 120000}
         entries.append(result)
     if agent.status in ("completed", "failed") and agent.result:
         uid = agent.key + "_final"
@@ -492,6 +502,13 @@ def build_demo(root: str, now: Optional[float] = None,
     for offset, ms in ((326, 332000), (606, 279000)):
         main.append({"uuid": "turn-end-{}".format(offset), "timestamp": _iso(clock.at(offset)), "type": "system",
                      "subtype": "turn_duration", "durationMs": ms, "messageCount": 40, "isMeta": False, "cwd": CWD})
+    # The API was overloaded once while the design agent worked; the orchestrator said nothing more
+    # until your next prompt, and its first launch after that is the reply.
+    main.append({"uuid": "orch-api-error", "timestamp": _iso(clock.at(200)), "type": "assistant", "cwd": CWD,
+                 "isApiErrorMessage": True, "error": "server_error", "apiErrorStatus": 529,
+                 "message": {"id": "msg_orch_api_error", "role": "assistant", "model": "<synthetic>",
+                             "content": [{"type": "text", "text": DEMO_API_ERROR}],
+                             "usage": {"input_tokens": 0, "output_tokens": 0}}})
     main.sort(key=lambda e: e["timestamp"])
     # The orchestrator's context was compacted while the verify wave ran, so its next call
     # wrote the (now shorter) conversation to the prompt cache again: a cache rebuild.
