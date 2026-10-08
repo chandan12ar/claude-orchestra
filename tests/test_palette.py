@@ -186,8 +186,8 @@ class TestKeyboard(unittest.TestCase):
 
     def test_a_static_report_ignores_fleet_and_history_keys(self):
         out = run_js("global.window = {}; state.offline = true;"
-                     "onGlobalKey({key: '6', target: {tagName: 'BODY'}, preventDefault() {}});"
                      "onGlobalKey({key: '7', target: {tagName: 'BODY'}, preventDefault() {}});"
+                     "onGlobalKey({key: '8', target: {tagName: 'BODY'}, preventDefault() {}});"
                      "console.log(JSON.stringify(calls));")
         self.assertEqual(out, [])
 

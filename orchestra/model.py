@@ -291,6 +291,8 @@ class Run:
     meta: Any = None
     # The main session's own cache rebuilds and big results (orchestra.waste.WasteLog).
     main_waste: Any = None
+    # The main session split at each of your prompts (orchestra.turns.TurnLog).
+    main_turns: Any = None
 
     def agent(self, agent_id: str) -> Optional[Agent]:
         for a in self.agents:

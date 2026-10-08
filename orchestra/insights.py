@@ -19,6 +19,7 @@ from orchestra.edges import normalize_path
 from orchestra import outcomes
 from orchestra import context
 from orchestra import waste
+from orchestra import turns
 
 # Mirrors the dashboard's tool taxonomy (app.js TOOL_BUCKETS), so a colour means the
 # same thing in the drawer, the ticker and here.
@@ -457,4 +458,5 @@ def compute(run: Run, now: float, table: Any = None) -> Dict[str, Any]:
             "changes": _changes(run),
             "outcomes": _outcomes(run),
             "context": context.coverage(run.main_context, run.agents),
-            "waste": _waste(run, now, table)}
+            "waste": _waste(run, now, table),
+            "prompts": turns.summary(run.main_turns, run, table, now)}

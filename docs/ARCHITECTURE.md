@@ -1002,6 +1002,36 @@ pure functions in `app.js`, tested under node.
 - UI: `insWaste` (metrics, rebuilds with cause and wait, biggest results, re-read note) after
   "Waiting on you"; `wasteRow` in the agent panel; `wasteCause` words a cause.
 
+### Your prompts (`turns.py`)
+- `prompt_of` decides what you sent: a `user` entry that is not `isMeta`, not a sidechain, holds no
+  `tool_result`, and does not start with an injected marker (`<local-command…>`, `<system-reminder>`,
+  `<task-notification>`, bash input and output, the "Caveat:" preamble). A `<command-name>` entry becomes
+  the slash command as typed. Real prompts also carry `promptId`, `promptSource` (typed, sdk,
+  suggestion_accepted, queued) and `origin`; only `promptSource` is kept.
+- `TurnLog` splits the main transcript at each prompt and keeps, per turn: its API usage (once per
+  `message.id`, staying with the turn where the message first appeared), tool-call spans, successful
+  edits (normalized paths), the latest entry time, the `turn_duration` record time, and whether a
+  `local_command` system entry marked it. Entries before the first prompt are not attributed.
+- `turns.summary` (via `insights.compute`, key `prompts`): a turn's window runs to the next prompt; its
+  agents are those that started in the window; its end is the latest of its own entries, its record and
+  its agents' ends, clipped to the next prompt, or now while the last prompt is still running. The split
+  is interval arithmetic: waits (all agents) clipped to the window, then agent spans and main tool spans
+  minus the waits, then the rest. Cost prices the main usage plus the agents' `tokens_by_model`. Files
+  are the main edits plus the agents' non-scratch changed files. A turn with nothing in it and either a
+  `local_command` mark or no live work is a local command and is skipped; a session of only those has no
+  card (this was a crash on real data before release). On 40 real sessions: 284 prompts, every split
+  adding up to its duration.
+- Considered and dropped: Claude Code's `cost-state` record (cumulative cost and API, retry and tool
+  time). It restarts on resume and its scope differs from the transcripts (1.0M tokens against 78M in a
+  32-agent session), so it is not shown.
+- UI: its own view, `prompts` (tab after Insights, key 4, `#view=prompts`; not an agent view, so it
+  shows for a session without agents). `renderPrompts` / `promptsHtml`: metrics, a legend, then one
+  `<details>` per prompt. The summary row has a three-part bar (`split-claude`, `split-work`,
+  `split-you`, widths inline as elsewhere) whose words are in its `aria-label`; the body has the whole
+  prompt (up to 500 characters), the time in words, the agents (`data-agent`, opening the drawer), file
+  names (up to 20, `fileLabel`) and commits (up to 5). `state.openPrompts` keeps open rows open across
+  polls. Rows stack on phones. Static reports keep the tab (the data is in the summary).
+
 ### Graph and Work Floor
 - **Graph layout** (`layoutGraph`) is a pure function split into `graphRankColumns`
   (longest path over exact edges; columns indexed, never raw rank), `graphOrderColumns`

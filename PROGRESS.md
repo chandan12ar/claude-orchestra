@@ -196,8 +196,8 @@ taxonomy and similar tools. One branch, PR and minor version each, merged by the
 | # | Feature | State |
 |---|---|---|
 | 1 | **Catch me up** (`feature/catch-me-up`, 0.12.0): session titles and Claude Code's recaps in Fleet, picker, tab, alerts, reports | merged (PR #24) |
-| 2 | **Where tokens were wasted** (`feature/token-waste`, 0.13.0): cache rebuilds with cause, wait and extra cost; biggest results; unchanged re-reads. Unused plugin/MCP overhead dropped (not measurable from transcripts) | built; tests, real-transcript check (matches the census: 31 rebuilds, 9.24M tokens) and browser check (light, dark, phone) done; PR open |
-| 3 | **Your prompts, and what each one set off**: per-prompt duration, agents, cost, changes; model/tool/waiting/retry time split | planned |
+| 2 | **Where tokens were wasted** (`feature/token-waste`, 0.13.0): cache rebuilds with cause, wait and extra cost; biggest results; unchanged re-reads. Unused plugin/MCP overhead dropped (not measurable from transcripts) | merged (PR #25) |
+| 3 | **Prompts tab** (`feature/your-prompts`, 0.14.0; moved from an Insights card to its own tab at the owner's request): per prompt its duration, a waiting/agents-and-tools/Claude split, agents, files, commits, cost. `cost-state` cross-check dropped (restarts on resume, scope differs) | built; tests, real-transcript check (40 sessions, 284 prompts, all splits add up; found and fixed an all-local-commands crash) and browser check (light, dark, phone) done; PR open |
 | 4 | **Context pressure**: context fill per agent, compactions (manual/auto, size, duration) | planned |
 | 5 | **Errors and retries**: API errors, timed-out/interrupted commands, background commands left running | planned |
 
