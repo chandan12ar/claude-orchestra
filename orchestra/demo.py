@@ -43,7 +43,14 @@ PRICES = {"currency": "USD", "models": {
 SESSION_AGE_S = 780          # the demo session "started" this long ago
 PR_URL = "https://github.com/northwind/shop/pull/42"
 DEMO_TITLE = "Checkout rewrite with payments"
-DEMO_LAST_PROMPT = "Run the verify wave once the build is green, then write up what is left"
+# What you asked, in order: (seconds after the session began, text, how it was sent).
+DEMO_PROMPTS = (
+    (-6, "Plan checkout v2 for the shop: audit the current flow, compare payment providers, "
+         "inventory the analytics events, then design it", "typed"),
+    (327, "Design looks good. Build it: cart, payments with webhooks, the UI and the migration", "typed"),
+    (611, "Commit and open a PR, then run the verify wave and write up what is left", "suggestion_accepted"),
+)
+DEMO_LAST_PROMPT = DEMO_PROMPTS[-1][1]
 DEMO_RECAP = ("Goal: ship checkout v2 (cart service, payment adapter, webhooks) behind a flag. "
               "The build wave is in and PR #42 is open; the verify wave is running, the unit "
               "tests failed twice and the docs agent is waiting on your permission. "
@@ -476,6 +483,14 @@ def build_demo(root: str, now: Optional[float] = None,
                          {"type": "tool_result", "tool_use_id": uid, "content": "ok"}]}})
     main.append({"type": "pr-link", "sessionId": session_id, "prNumber": 42, "prUrl": PR_URL,
                  "prRepository": "northwind/shop", "timestamp": _iso(clock.at(624))})
+    # Your prompts, each a turn that Claude Code closes with a turn_duration record.
+    for i, (offset, text, source) in enumerate(DEMO_PROMPTS):
+        main.append({"uuid": "you-{}".format(i), "timestamp": _iso(clock.at(offset)), "type": "user", "cwd": CWD,
+                     "promptId": "prompt-{}".format(i), "promptSource": source, "origin": {"kind": "human"},
+                     "message": {"role": "user", "content": text}})
+    for offset, ms in ((326, 332000), (606, 279000)):
+        main.append({"uuid": "turn-end-{}".format(offset), "timestamp": _iso(clock.at(offset)), "type": "system",
+                     "subtype": "turn_duration", "durationMs": ms, "messageCount": 40, "isMeta": False, "cwd": CWD})
     main.sort(key=lambda e: e["timestamp"])
     # The orchestrator's context was compacted while the verify wave ran, so its next call
     # wrote the (now shorter) conversation to the prompt cache again: a cache rebuild.

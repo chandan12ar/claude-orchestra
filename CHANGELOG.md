@@ -6,6 +6,31 @@ versions follow [SemVer](https://semver.org/) (the `version` in
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-08
+
+### Added
+- **Your prompts**: an Insights card with one row per message you sent (the latest 20). Each row shows:
+  - when, and what you asked (slash commands as typed);
+  - how long the work it started took, counting up while it runs;
+  - a bar splitting that time into waiting on you, agents and tools running, and Claude itself, each
+    moment counted once in that order;
+  - the agents it launched, files edited, commits, and its cost (or fresh tokens without prices).
+
+  The card leads with the number of prompts, the typical time per prompt, and the most expensive prompt's
+  share of the session. Read from the transcript: prompts are `user` entries that are not tool results,
+  reminders or agent notifications; Claude Code's `turn_duration` records close turns, and local commands
+  such as `/plugin` (marked `local_command`) start none. The main session's usage is counted once per API
+  message; agents, commits and waits are matched by time.
+
+  Claude Code's own `cost-state` record was considered for a cost cross-check and a retry-time split, and
+  left out: it restarts when a session is resumed, and in a real 32-agent session it held 1.0M tokens
+  against 78M in the transcripts.
+- The demo has three prompts (plan, build, ship) with turn records.
+
+### Fixed
+- Found on a real session before release: a session whose prompts were all local commands made the new
+  card's summary fail (an empty list), which would have emptied that session's Insights tab.
+
 ## [0.13.0] - 2026-10-08
 
 ### Added

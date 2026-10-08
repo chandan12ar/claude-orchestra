@@ -619,6 +619,27 @@ main { padding: 16px 20px 32px; max-width: 1760px; margin: 0 auto; outline: none
 .out-list span { color: var(--muted); margin-left: auto; }
 .out-list a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 .out-list a:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: 3px; }
+
+/* Your prompts: one row each; the bar splits its time into Claude, agents and tools, and you. */
+.prompt-list { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 2px; font-size: 13px; }
+.prompt-list li { display: grid; grid-template-columns: 3.5ch minmax(0, 1fr) 150px minmax(0, 230px);
+  gap: 4px 14px; align-items: center; padding: 7px 8px; border-radius: var(--r-md); }
+.prompt-list li:nth-child(odd) { background: var(--panel-2); }
+.prompt-n { color: var(--faint); font: 12px var(--mono); }
+.prompt-main { min-width: 0; display: grid; }
+.prompt-main b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prompt-main small { color: var(--muted); font-size: 12px; }
+.prompt-time { display: grid; gap: 5px; }
+.prompt-time strong { font-weight: 650; font-variant-numeric: tabular-nums; }
+.split { display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: var(--line); }
+.split i { display: block; height: 100%; }
+.split-claude { background: var(--unknown); }
+.split-work { background: var(--running); }
+.split-you { background: var(--waiting); }
+.prompt-what { color: var(--muted); font-size: 12.5px; text-align: right; font-variant-numeric: tabular-nums; }
+.split-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 6px; font-size: 12px; color: var(--muted); }
+.split-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.split-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
 .change-total { margin: 0 0 8px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .change { border: 1px solid var(--line); border-radius: var(--r-md); margin: 0 0 6px; background: var(--panel); }
 .change summary { display: flex; align-items: center; gap: 8px; padding: 7px 10px; cursor: pointer; font-size: 13px; }
@@ -756,6 +777,8 @@ main { padding: 16px 20px 32px; max-width: 1760px; margin: 0 auto; outline: none
   .fleet-row { flex-wrap: wrap; row-gap: 4px; }
   .fleet-main { flex-basis: calc(100% - 24px); }
   .fleet-meta { flex: 1 1 100%; text-align: left; padding-left: 24px; }
+  .prompt-list li { grid-template-columns: 3.5ch minmax(0, 1fr); }
+  .prompt-time, .prompt-what { grid-column: 2; text-align: left; }
   .alerts { margin-left: 14px; margin-right: 14px; }
   .alerts > .health { margin-left: 0; margin-right: 0; }
   .filter-bar, .tabs { margin-left: 14px; margin-right: 14px; }

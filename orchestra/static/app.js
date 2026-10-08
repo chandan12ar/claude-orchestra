@@ -3814,6 +3814,46 @@ function insOutcomes(ins) {
     '<div class="metrics">' + metrics.join("") + "</div>" + prs + commits, "wide");
 }
 
+// Your prompts: one row per message you sent, how long it ran, where that time went
+// (waiting on you, agents and tools running, Claude itself) and what it set off.
+function insPrompts(ins) {
+  const p = ins.prompts;
+  if (!p) return "";
+  const money = p.top.by === "cost";
+  const metrics = [insMetric(p.prompts, p.prompts === 1 ? "prompt" : "prompts"),
+    insMetric(p.median_s !== null && p.median_s !== undefined ? fmtDuration(p.median_s) : "—", "typical time per prompt")];
+  if (p.top.share !== null && p.top.share !== undefined && p.prompts > 1) {
+    metrics.push(insMetric(fmtPct(p.top.share), "of this session's " + (money ? "cost" : "fresh tokens") +
+      " went to prompt #" + p.top.n));
+  }
+  const pct = (part, whole) => (whole > 0 ? Math.max(0, part / whole * 100) : 0).toFixed(1);
+  const rows = '<ol class="prompt-list">' + p.rows.map((r) => {
+    const total = r.split.claude + r.split.work + r.split.you;
+    const words = fmtDuration(r.split.claude) + " Claude itself, " + fmtDuration(r.split.work) +
+      " agents and tools, " + fmtDuration(r.split.you) + " waiting on you";
+    const what = [r.agents + (r.agents === 1 ? " agent" : " agents"), r.files + (r.files === 1 ? " file" : " files")];
+    if (r.commits) what.push(r.commits + (r.commits === 1 ? " commit" : " commits"));
+    what.push(r.cost !== null && r.cost !== undefined ? fmtMoney(r.cost, p.currency) : fmtCount(r.tokens) + " tokens");
+    return '<li><span class="prompt-n">#' + esc(r.n) + "</span>" +
+      '<span class="prompt-main"><b title="' + esc(r.prompt) + '">' + esc(r.prompt) + "</b>" +
+      "<small>" + esc(fmtClock(r.at) + (r.source === "suggestion_accepted" ? " · accepted suggestion"
+        : r.source === "queued" ? " · queued" : "")) + "</small></span>" +
+      '<span class="prompt-time"><strong>' + esc(fmtDuration(r.seconds) + (r.ongoing ? " so far" : "")) + "</strong>" +
+      '<span class="split" role="img" aria-label="' + esc(words) + '" title="' + esc(words) + '">' +
+      '<i class="split-claude" style="width:' + pct(r.split.claude, total) + '%"></i>' +
+      '<i class="split-work" style="width:' + pct(r.split.work, total) + '%"></i>' +
+      '<i class="split-you" style="width:' + pct(r.split.you, total) + '%"></i></span></span>' +
+      '<span class="prompt-what">' + esc(what.join(" · ")) + "</span></li>";
+  }).join("") + "</ol>";
+  const legend = '<p class="split-legend"><span><i class="split-claude"></i>Claude itself</span>' +
+    '<span><i class="split-work"></i>agents and tools running</span><span><i class="split-you"></i>waiting on you</span></p>';
+  return insCard("Your prompts",
+    "Each message you sent, how long the work it started took, and what it set off. Agents, files and commits " +
+    "count toward the prompt that was current when they started. Each moment of the time bar counts once: " +
+    "waiting on you first, then agents and tools, then Claude itself.",
+    '<div class="metrics">' + metrics.join("") + "</div>" + legend + rows, "wide");
+}
+
 // Why the prompt cache was written again, in words.
 function wasteCause(r) {
   if (r.cause === "idle_long" || r.cause === "idle_short") return "idle " + fmtDuration(r.gap_s);
@@ -3979,7 +4019,7 @@ function renderInsights(run) {
     return;
   }
   const width = Math.max(320, (box.clientWidth || 960) - 38);
-  box.innerHTML = insParallelism(ins, width) + insCritical(ins) + insOutcomes(ins) + insChecks(ins) + insWaits(ins, run) + insWaste(ins) + insChanges(ins) + insContext(ins) + insTools(ins) +
+  box.innerHTML = insParallelism(ins, width) + insPrompts(ins) + insCritical(ins) + insOutcomes(ins) + insChecks(ins) + insWaits(ins, run) + insWaste(ins) + insChanges(ins) + insContext(ins) + insTools(ins) +
     insTokens(ins, run) + insSpend(run) + insSlowest(ins) + insFiles(ins);
   for (const el of box.querySelectorAll("[data-agent]")) {
     const open = () => openDrawer(el.getAttribute("data-agent"));

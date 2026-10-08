@@ -91,6 +91,9 @@ cells a spreadsheet would execute as formulas are neutralised.
     were wasted" shows the prompt cache was written again from scratch when you came back, how many
     tokens that was, what it cost above the cheap cache-read price, and whether you were sitting on a
     permission prompt at the time.
+14. **Find the prompt that cost the most.** The Insights card "Your prompts" lists each message you sent,
+    how long the work it started took, how much of that was agents running or you being asked, and what
+    it cost, so "that one request was 40% of the session" is something you can see.
 
 You can try every one of these without a real run: `python -m orchestra --demo`.
 
@@ -133,6 +136,15 @@ You can try every one of these without a real run: `python -m orchestra --demo`.
   Read from the git results Claude Code records, not guessed from command text.
 
   ![The run's output, light theme: 2 commits, 1 pull request, 1 push, 7 of 9 test runs passed, cost per commit and per pull request](docs/evidence/screenshots/28-produced-light.png)
+
+- **Your prompts** — one row per message you sent: when, what you asked, how
+  long the work it started took (live while it runs), a bar splitting that time
+  into waiting on you, agents and tools running, and Claude itself, and what it
+  set off: agents launched, files edited, commits, and its cost (or tokens).
+  The most expensive prompt and its share of the session lead the card. Agents,
+  files and commits count toward the prompt that was current when they started.
+
+  ![Your prompts, light theme: three prompts with their durations, time bars, agents, files, commits and cost](docs/evidence/screenshots/37-prompts-light.png)
 
 - **Where tokens were wasted** — every time the prompt cache was written again
   from scratch (after five minutes or an hour idle, a model switch or a
