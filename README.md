@@ -94,6 +94,10 @@ cells a spreadsheet would execute as formulas are neutralised.
 14. **Find the prompt that cost the most.** The Prompts tab lists each message you sent,
     how long the work it started took, how much of that was agents running or you being asked, and what
     it cost, so "that one request was 40% of the session" is something you can see.
+15. **Know before a long session forgets.** The Insights card "How full each context got" draws the main
+    session's context on every call with a mark at each compaction, ranks agents by how full they got,
+    and puts a session or a running agent that is near its window in the Health box, before Claude Code
+    compacts it and detail from earlier is lost.
 
 You can try every one of these without a real run: `python -m orchestra --demo`.
 
@@ -159,6 +163,17 @@ You can try every one of these without a real run: `python -m orchestra --demo`.
   the cache.
 
   ![Where tokens were wasted, dark theme: 58.6k tokens rewritten to the cache after a compaction, the extra cost, and the biggest file read](docs/evidence/screenshots/35-waste-dark.png)
+
+- **How full each context got** — the main session's context on every API call
+  (everything the model was sent, cached or not), with a mark at each
+  compaction and its size before and after, whether you ran `/compact` or Claude
+  Code did, and how long it took; agents ranked by their fullest call; and a
+  Health box item for the main session or a running agent past 80% of its
+  window. Transcripts do not record a model's window, so it is assumed (1M, and
+  200k for Haiku) and `ORCHESTRA_CONTEXT_LIMITS` changes it. On real sessions
+  main contexts reached 885k and agents 235k.
+
+  ![How full each context got, dark theme: the main session climbing to 186k, compacted to 61k, and agents ranked by their peak](docs/evidence/screenshots/41-pressure-dark.png)
 
 - **What changed** — each agent's file changes as real diffs (from the patches Claude
   Code records), folded per file in the agent panel with line numbers and the time of
@@ -336,6 +351,7 @@ ignored in favour of the default.
 | `ORCHESTRA_BUDGET_WARN_RATIO` | 0.8 | Fraction of the budget at which warnings start |
 | `ORCHESTRA_LOOP_REPEATS` | 6 | An open agent whose last N tool calls are identical is flagged as a possible loop |
 | `ORCHESTRA_LOOP_CYCLE_CALLS` | 16 | ...or whose last N calls strictly alternate between two distinct calls |
+| `ORCHESTRA_CONTEXT_LIMITS` | 1M, Haiku 200k | Assumed context windows, as `part-of-model-name=tokens` pairs (e.g. `haiku=200000,opus=1000000`); a context past 80% of its window goes in the Health box |
 | `ORCHESTRA_VERIFY_PATTERN` | none | Extra commands that count as checking work, as a regular expression (e.g. `\bsmoke\.sh\b`); an invalid one is ignored and the Insights card says so |
 | `ORCHESTRA_HISTORY` | off | `on` records run metrics for the History tab |
 | `ORCHESTRA_HISTORY_DB` | `~/.local/share/cuelight/history.sqlite` | Where history is kept |

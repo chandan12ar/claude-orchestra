@@ -252,6 +252,7 @@ button[aria-pressed="true"] { color: var(--ink); background: color-mix(in srgb, 
 .health li[data-kind="checks-failing"]::before { background: var(--failed); }
 .health li[data-kind="unchecked"]::before { background: var(--stalled); }
 .health li[data-kind="waiting"]::before { background: var(--waiting); }
+.health li[data-kind="context"]::before { background: var(--stalled); }
 
 .attention { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
 .attention::before { background: var(--waiting); }
@@ -697,6 +698,8 @@ details[open] > summary .prompt-n::before { transform: rotate(90deg); }
 .ins-axis { fill: var(--faint); font-size: 10.5px; font-variant-numeric: tabular-nums; }
 .ins-avg { stroke: var(--ink); stroke-width: 1.2; stroke-dasharray: 4 4; }
 .ins-avg-label { fill: var(--ink); font-size: 10.5px; font-weight: 650; }
+.pressure-mark { stroke: var(--stalled); stroke-width: 1.4; stroke-dasharray: 3 3; }
+.pressure-mark-label { fill: var(--stalled); font-size: 10.5px; font-weight: 650; }
 
 .chain { display: flex; align-items: stretch; gap: 0; overflow-x: auto; padding-bottom: 4px; }
 .chain-step { flex: 1 1 0; min-width: 150px; position: relative; padding: 10px 12px 12px; border: 1px solid var(--line);

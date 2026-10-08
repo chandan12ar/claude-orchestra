@@ -377,7 +377,7 @@ def _agent_entries(agent: _Agent, clock: _Clock, rng: random.Random,
 
 
 def _launch_entry(agent: _Agent, turn: str, at: float, prompt: str,
-                  sidechain_of: Optional[_Agent]) -> Dict[str, Any]:
+                  sidechain_of: Optional[_Agent], context: int = 24000) -> Dict[str, Any]:
     entry: Dict[str, Any] = {
         "uuid": turn, "timestamp": _iso(at), "type": "assistant", "cwd": CWD,
         "message": {"id": "msg_launch_" + agent.key, "role": "assistant",
@@ -386,7 +386,7 @@ def _launch_entry(agent: _Agent, turn: str, at: float, prompt: str,
                                  "input": {"description": agent.desc, "prompt": prompt,
                                            "model": agent.model}}],
                     "usage": {"input_tokens": 60, "output_tokens": 180,
-                              "cache_read_input_tokens": 24000,
+                              "cache_read_input_tokens": context,
                               "cache_creation_input_tokens": 900}}}
     if sidechain_of is not None:
         entry["isSidechain"] = True
@@ -456,8 +456,9 @@ def build_demo(root: str, now: Optional[float] = None,
         launcher = by_key[agent.parent] if agent.parent else None
         at = clock.at(agent.start)
         turn = turns[agent.wave] if launcher is None else "turn-" + agent.key
-        launch = _launch_entry(agent, turn, at,
-                               _prompt_for(agent, by_key), launcher)
+        # The orchestrator's context grows as each wave's results come back (orchestra.pressure).
+        launch = _launch_entry(agent, turn, at, _prompt_for(agent, by_key), launcher,
+                               24000 + int(agent.start * 210) if launcher is None else 24000)
         ack = _launched(agent, at + 1.0, launcher)
         if launcher is None:
             main += [launch, ack]
@@ -476,7 +477,7 @@ def build_demo(root: str, now: Optional[float] = None,
                      "message": {"id": "msg_orch_git{}".format(i), "role": "assistant", "model": MODELS["opus"],
                                  "content": [_tool_block(uid, "Bash", command)],
                                  "usage": {"input_tokens": 40, "output_tokens": 90,
-                                           "cache_read_input_tokens": 52000}}})
+                                           "cache_read_input_tokens": 152000 + i * 3000}}})
         main.append({"uuid": "orch-git-r{}".format(i), "timestamp": _iso(at + 1.5), "type": "user", "cwd": CWD,
                      "toolUseResult": _git_result(command),
                      "message": {"role": "user", "content": [
@@ -671,7 +672,8 @@ class Simulator(threading.Thread):
                                      "model": MODELS["opus"],
                                      "content": [{"type": "text", "text": "Still waiting."}],
                                      "usage": {"input_tokens": 20, "output_tokens": 40,
-                                               "cache_read_input_tokens": 4000}}}])
+                                               # what is left after the compaction, growing slowly
+                                               "cache_read_input_tokens": 61000 + self._step * 40}}}])
         return moved
 
     def _next_call(self, agent: _Agent) -> Tuple[str, str]:

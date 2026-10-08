@@ -6,6 +6,26 @@ versions follow [SemVer](https://semver.org/) (the `version` in
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-10-08
+
+### Added
+- **How full each context got**: an Insights card after "Where tokens were wasted". It shows:
+  - the main session's context on every API call (input plus cache read plus cache write, once per API
+    message), with a mark at each compaction and the size Claude Code recorded just before it;
+  - each compaction: its size before and after, whether you ran `/compact` or Claude Code did, and how
+    long it took (the same boundary written twice counts once; when the size after is not recorded, the
+    next call's context stands in);
+  - agents ranked by their fullest call, with how often each was compacted.
+
+  While a session is live, the main session or a running agent past 80% of its window goes in the Health
+  box ("CONTEXT 86% FULL"); the main session's item opens this card. The agent panel gains a "context"
+  line. Transcripts do not record a model's window, so it is assumed: 1M, and 200k for Haiku, set with
+  `ORCHESTRA_CONTEXT_LIMITS` (`haiku=200000,opus=1000000`). A context past its assumed window says the
+  window is too small. On real sessions main contexts reached 885k and agents 235k, and every compaction
+  was a manual `/compact`.
+- The demo's orchestrator context now grows with each wave (24k to 186k) before its compaction to 61k,
+  and its live ticks continue from there.
+
 ## [0.14.0] - 2026-10-08
 
 ### Added
