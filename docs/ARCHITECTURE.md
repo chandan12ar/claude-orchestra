@@ -1032,6 +1032,32 @@ pure functions in `app.js`, tested under node.
   names (up to 20, `fileLabel`) and commits (up to 5). `state.openPrompts` keeps open rows open across
   polls. Rows stack on phones. Static reports keep the tab (the data is in the summary).
 
+### Context pressure (`pressure.py`)
+- Reads what `WasteLog` already keeps: each API call's `input_tokens`, `cache_read_input_tokens` and
+  `cache_creation_input_tokens` (once per `message.id`; their sum is the context the model saw) and each
+  `compact_boundary` with its `compactMetadata` (trigger `manual`/`auto`, `preTokens`, `postTokens`,
+  `durationMs`). A boundary is kept once per `uuid` (Claude Code can write the same one twice); values
+  that are not non-negative integers are dropped.
+- `series` is the calls plus, at each compaction, its `preTokens` (a `/compact` after a quiet spell can
+  come long after the last call). `peak_of` takes the highest point; "now" is the latest call, never a
+  compaction point. `summary` (via `insights.compute`, key `pressure`): the main session's peak, fill and
+  curve (thinned to 240 points, each bucket keeping its highest), its compactions (a missing `postTokens`
+  falls back to the next call's context), agents ranked by peak (top 10, plus a count), and `near`: while
+  the session is live, the main session or a running, waiting or stalled agent whose latest call is past
+  `NEAR` (0.8) of its window.
+- Windows are not in the transcript. `limit_for` matches `ORCHESTRA_CONTEXT_LIMITS` (case-insensitive
+  model-name parts) before the defaults: 200k for Haiku, else 1M. On real sessions main contexts reached
+  885k (Sonnet) and 726k (Opus) between compactions, agents 235k, Haiku agents 90k; all 5 compactions were
+  manual. A fill past 1 means the assumed window is wrong, and the card says so.
+- Each agent's light dict has `context_peak` (tokens, limit, fill, now, now fill, model, compactions).
+- UI: `insPressure` after "Where tokens were wasted": metrics, notes (near, agent compactions, past the
+  window), `insPressureChart` (area of the curve, dashed 80% line only when it is inside the y range and
+  then explained in a caption, a labelled marker per compaction with labels closer than 60px skipped),
+  the compactions list (`compactionCause`), and agents through `insRank` (amber past 80%).
+  `pressureRow` is the agent panel's "context" line. `renderHealth` adds a `context` item per `near`
+  entry; the main session's opens Insights at the card (`openPressure`, offset by the top bar only where
+  it is sticky), and the headline names the main session separately from agents.
+
 ### Graph and Work Floor
 - **Graph layout** (`layoutGraph`) is a pure function split into `graphRankColumns`
   (longest path over exact edges; columns indexed, never raw rank), `graphOrderColumns`

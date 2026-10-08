@@ -9,7 +9,8 @@
 //
 // Optional: DEMO_URL (default http://127.0.0.1:8766/?k=demo&session=demo-checkout-v2),
 // ONLY (comma-separated shot names; default: all), REPORT_URL and BIG_REPORT_URL (file:// URLs of two static reports; those shots are
-// skipped when unset).
+// skipped when unset), NEAR_URL (a second demo whose main session is near its window, e.g.
+// ORCHESTRA_CONTEXT_LIMITS=opus=70000 python -m orchestra --demo --no-open --port 8768 --token near; skipped when unset).
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -24,6 +25,7 @@ mkdirSync(outDir, { recursive: true });
 const DEMO = process.env.DEMO_URL || "http://127.0.0.1:8766/?k=demo&session=demo-checkout-v2";
 const REPORT = process.env.REPORT_URL || "";
 const BIG = process.env.BIG_REPORT_URL || "";
+const NEAR = process.env.NEAR_URL || "";
 
 const candidates = [
   process.env.CHROME_PATH,
@@ -115,6 +117,13 @@ const shots = [
   ["34-waste-light", DEMO + "#view=insights", 1440, 520, "light", cardShot("Where tokens were wasted")],
   ["35-waste-dark", DEMO + "#view=insights", 1440, 520, "dark", cardShot("Where tokens were wasted")],
   ["36-phone-waste-dark", DEMO + "#view=insights", 390, 760, "dark", cardShot("Where tokens were wasted")],
+  ["40-pressure-light", DEMO + "#view=insights", 1440, 640, "light", cardShot("How full each context got")],
+  ["41-pressure-dark", DEMO + "#view=insights", 1440, 640, "dark", cardShot("How full each context got")],
+  ["42-phone-pressure-dark", DEMO + "#view=insights", 390, 1150, "dark", cardShot("How full each context got")],
+  ...(NEAR ? [["43-health-context-light", NEAR, 1440, 420, "light",
+    `(async () => { await new Promise(r => setTimeout(r, 600)); const h = document.querySelector('header').getBoundingClientRect().height;
+      window.scrollTo(0, document.getElementById('health').getBoundingClientRect().top + window.scrollY - h - 12);
+      await new Promise(r => setTimeout(r, 300)); })()`]] : []),
   ["32-recap-light", DEMO, 1440, 300, "light",
     `(async () => { document.getElementById('recap').click(); await new Promise(r => setTimeout(r, 300)); })()`],
   ["33-fleet-titles-dark", DEMO + "#view=fleet", 1440, 610, "dark",

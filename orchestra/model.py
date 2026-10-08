@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 from orchestra import constants as C
+from orchestra import pressure
 from orchestra.redact import scrub, scrub_obj
 
 
@@ -176,6 +177,7 @@ class Agent:
                           "pushes": self.outcomes.pushes}
                          if self.outcomes is not None and not self.outcomes.empty() else None),
             "waste": self._waste_totals(),
+            "context_peak": self._context_peak(),
         }
 
     def _waste_totals(self) -> Optional[Dict[str, int]]:
@@ -183,6 +185,15 @@ class Agent:
             return None
         rebuilds = self.waste.rebuilds()
         return {"rebuilds": len(rebuilds), "rebuilt_tokens": sum(r["tokens"] for r in rebuilds)}
+
+    def _context_peak(self) -> Optional[Dict[str, Any]]:
+        """How full its context got (orchestra.pressure), and how often it was compacted."""
+        peak = pressure.peak_of(self.waste)
+        if peak is None:
+            return None
+        return {"tokens": peak["tokens"], "limit": peak["limit"], "fill": peak["fill"],
+                "now": peak["now"], "now_fill": peak["now_fill"], "model": peak["model"],
+                "compactions": len(self.waste.compactions)}
 
     def to_detail_dict(self) -> Dict[str, Any]:
         d = self.to_light_dict()

@@ -20,6 +20,7 @@ from orchestra import outcomes
 from orchestra import context
 from orchestra import waste
 from orchestra import turns
+from orchestra import pressure
 
 # Mirrors the dashboard's tool taxonomy (app.js TOOL_BUCKETS), so a colour means the
 # same thing in the drawer, the ticker and here.
@@ -459,4 +460,5 @@ def compute(run: Run, now: float, table: Any = None) -> Dict[str, Any]:
             "outcomes": _outcomes(run),
             "context": context.coverage(run.main_context, run.agents),
             "waste": _waste(run, now, table),
+            "pressure": pressure.summary(run),
             "prompts": turns.summary(run.main_turns, run, table, now)}

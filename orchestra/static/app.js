@@ -1432,20 +1432,39 @@ function renderHealth(run) {
         text: (v.state === "failing" ? "CHECKS FAILING — " : "UNCHECKED — ") + label + ": " + checkText(v) });
     }
   }
+  // A context near its window is about to be compacted (orchestra/pressure.py).
+  const pressure = run.insights && run.insights.pressure;
+  for (const near of (pressure && pressure.near) || []) {
+    items.push({ id: near.agent_id, kind: "context",
+      text: "CONTEXT " + fmtPct(near.fill) + " FULL — " + near.label + " (" + fmtCount(near.tokens) + " tokens)" });
+  }
   const box = $("health");
   if (!items.length) { box.hidden = true; return; }
   box.hidden = false;
-  const distinct = new Set(items.map((i) => i.id)).size;
-  box.innerHTML = "<strong>" + distinct + " agent(s) need attention</strong>";
+  const ids = new Set(items.map((i) => i.id));
+  const main = ids.delete("");       // the main session's own items carry no agent id
+  box.innerHTML = "<strong>" + (main ? (ids.size ? "The main session and " + ids.size + " agent(s) need attention"
+    : "The main session needs attention") : ids.size + " agent(s) need attention") + "</strong>";
   const list = document.createElement("ul");
   for (const entry of items) {
     const item = document.createElement("li");
     item.textContent = entry.text;
     item.setAttribute("data-kind", entry.kind);
-    item.onclick = () => openDrawer(entry.id);
+    item.onclick = () => (entry.id ? openDrawer(entry.id) : openPressure());
     list.appendChild(item);
   }
   box.appendChild(list);
+}
+
+// Insights, scrolled to how full each context got.
+function openPressure() {
+  setView("insights");
+  const card = document.querySelector("#insights .pressure");
+  if (!card) return;
+  // Keep the card's title out from under the top bar where it is sticky (not on phones).
+  const bar = document.querySelector(".topbar");
+  const cover = bar && getComputedStyle(bar).position === "sticky" ? bar.offsetHeight : 0;
+  window.scrollTo({ top: card.getBoundingClientRect().top + window.scrollY - cover - 12 });
 }
 
 function attentionTitle(att) {
@@ -3965,6 +3984,116 @@ function wasteRow(w) {
     fmtCount(w.rebuilt_tokens) + " tokens · " + causes.join(", ")) + "</dd>";
 }
 
+// A context window in words: "1M", "200k".
+function fmtWindow(limit) {
+  return limit >= 1000000 ? +(limit / 1000000).toFixed(1) + "M" : Math.round(limit / 1000) + "k";
+}
+
+// Why a compaction ran, in words.
+function compactionCause(c) {
+  if (c.trigger === "manual") return "you ran /compact";
+  if (c.trigger === "auto") return "Claude Code compacted it";
+  return "compacted";
+}
+
+// The main session's context on each call, with a marker at every compaction.
+function insPressureChart(m, width) {
+  const H = 150;
+  const left = 40;
+  const right = 6;
+  const top = 14;
+  const bottom = 22;
+  const pts = m.points;
+  const plotW = Math.max(60, width - left - right);
+  const plotH = H - top - bottom;
+  const t0 = pts[0][0];
+  const span = Math.max(pts[pts.length - 1][0] - t0, 1e-6);
+  const x = (t) => left + ((t - t0) / span) * plotW;
+  const ceil = Math.max(m.tokens, 1) * 1.12;
+  const y = (n) => top + plotH - (n / ceil) * plotH;
+  let line = "";
+  for (let i = 0; i < pts.length; i++) line += (i ? " L" : "M") + x(pts[i][0]).toFixed(1) + "," + y(pts[i][1]).toFixed(1);
+  const area = line + " L" + x(pts[pts.length - 1][0]).toFixed(1) + "," + y(0).toFixed(1) +
+    " L" + x(t0).toFixed(1) + "," + y(0).toFixed(1) + " Z";
+  let grid = "";
+  for (let i = 0; i <= 3; i++) {
+    const n = (m.tokens * i) / 3;
+    grid += '<line class="ins-grid-line" x1="' + left + '" x2="' + (left + plotW) + '" y1="' + y(n).toFixed(1) +
+      '" y2="' + y(n).toFixed(1) + '"/><text class="ins-axis" x="' + (left - 6) + '" y="' + (y(n) + 3.5).toFixed(1) +
+      '" text-anchor="end">' + esc(n ? fmtCount(Math.round(n)) : "0") + "</text>";
+  }
+  const near = m.limit * 0.8;
+  const nearLine = near <= ceil ? '<line class="ins-avg" x1="' + left + '" x2="' + (left + plotW) + '" y1="' + y(near).toFixed(1) +
+    '" y2="' + y(near).toFixed(1) + '"/>' : "";
+  let lastLabel = -Infinity;     // markers closer than this to the last label go unlabelled
+  const marks = m.compactions.filter((c) => c.at >= t0).map((c) => {
+    const cx = x(c.at);
+    const label = cx - lastLabel >= 60;
+    if (label) lastLabel = cx;
+    return '<line class="pressure-mark" x1="' + cx.toFixed(1) + '" x2="' + cx.toFixed(1) + '" y1="' + top + '" y2="' + y(0).toFixed(1) + '"/>' +
+      (label ? '<text class="pressure-mark-label" x="' + cx.toFixed(1) + '" y="' + (top - 4) + '" text-anchor="' +
+        (cx > left + plotW - 30 ? "end" : cx < left + 30 ? "start" : "middle") + '">' +
+        esc(c.trigger === "manual" ? "/compact" : "compacted") + "</text>" : "");
+  }).join("");
+  const ticks = [0, 0.5, 1].map((f) =>
+    '<text class="ins-axis" x="' + (left + f * plotW).toFixed(1) + '" y="' + (H - 5) + '" text-anchor="' +
+    (f === 0 ? "start" : f === 1 ? "end" : "middle") + '">' + esc(fmtDuration(f * span)) + "</text>").join("");
+  return '<svg class="ins-chart" viewBox="0 0 ' + width + " " + H + '" width="' + width + '" height="' + H +
+    '" role="img" aria-label="' + esc("The main session's context over time. Peak " + fmtCount(m.tokens) + " tokens, " +
+      m.compactions.length + (m.compactions.length === 1 ? " compaction." : " compactions.")) + '">' +
+    grid + '<path class="ins-area" d="' + area + '"/>' + nearLine + marks + ticks + "</svg>" +
+    (nearLine ? '<p class="card-note">' + esc("The dashed line is 80% of the assumed " + fmtWindow(m.limit) + " window.") + "</p>" : "");
+}
+
+// How full each context got: the main session's curve and compactions, and agents by peak.
+function insPressure(ins, width) {
+  const p = ins.pressure;
+  if (!p) return "";
+  const m = p.main;
+  const metrics = [];
+  if (m) {
+    metrics.push(insMetric(fmtCount(m.tokens), "peak in the main session"));
+    metrics.push(insMetric(fmtPct(m.fill), "of an assumed " + fmtWindow(m.limit) + " window"));
+    metrics.push(insMetric(m.compactions.length, m.compactions.length === 1 ? "compaction" : "compactions"));
+  }
+  if (p.agents.length) metrics.push(insMetric(fmtCount(p.agents[0].tokens), "fullest agent"));
+  const notes = [];
+  if (p.near.length) {
+    notes.push("Near the window now: " + p.near.map((n) => n.label + " (" + fmtPct(n.fill) + ")").join(", ") + ".");
+  }
+  if (p.agent_compactions) {
+    notes.push("Agents were compacted " + p.agent_compactions + (p.agent_compactions === 1 ? " time." : " times."));
+  }
+  if ((m && m.fill > 1) || p.agents.some((a) => a.fill > 1)) {
+    notes.push("A context went past its assumed window, so that window is too small: set ORCHESTRA_CONTEXT_LIMITS.");
+  }
+  const chart = m && m.points.length > 1 ? insPressureChart(m, width) : "";
+  const compactions = m && m.compactions.length ? "<h4>Compactions</h4>" + '<ul class="out-list">' + m.compactions.map((c) =>
+    "<li><code>" + esc((c.pre_tokens !== null ? fmtCount(c.pre_tokens) : "?") + " → " +
+      (c.post_tokens !== null ? fmtCount(c.post_tokens) : "?")) + "</code><b>" + esc(compactionCause(c)) + "</b>" +
+    "<span>" + esc((c.duration_s ? "took " + fmtDuration(c.duration_s) + " · " : "") + fmtClock(c.at)) + "</span></li>").join("") +
+    "</ul>" : "";
+  const agents = p.agents.length ? "<h4>Agents by peak context</h4>" + insRank(p.agents.map((a) => ({
+    name: a.label, agent: a.agent_id, value: a.tokens,
+    note: a.compactions ? "compacted " + a.compactions + "×" : "",
+    color: a.fill >= p.near_at ? "var(--stalled)" : "",
+    label: fmtCount(a.tokens) + " · " + fmtPct(a.fill) }))) +
+    (p.agent_count > p.agents.length ? '<p class="card-note">' + esc("And " + (p.agent_count - p.agents.length) + " more.") + "</p>" : "") : "";
+  return insCard("How full each context got",
+    "Everything the model was sent on each call, cached or not. Near the model's window Claude Code compacts the " +
+    "conversation into a summary (you can also run /compact), and detail from before it is gone. Windows are assumed: " +
+    "1M, and 200k for Haiku; set ORCHESTRA_CONTEXT_LIMITS to change them.",
+    '<div class="metrics">' + metrics.join("") + "</div>" +
+    (notes.length ? '<p class="card-note">' + esc(notes.join(" ")) + "</p>" : "") + chart + compactions + agents, "wide pressure");
+}
+
+// The agent panel's line: how full its context got.
+function pressureRow(c) {
+  if (!c) return "";
+  return "<dt>context</dt><dd>" + esc("Peak " + fmtCount(c.tokens) + " tokens · " + fmtPct(c.fill) + " of an assumed " +
+    fmtWindow(c.limit) + " window" + (c.compactions ? " · compacted " + c.compactions + "×" : "")) + "</dd>";
+}
+
 // What each agent was told: the instruction files and skills it had, and who ran without
 // the project rules the main session had.
 function insContext(ins) {
@@ -4070,7 +4199,7 @@ function renderInsights(run) {
     return;
   }
   const width = Math.max(320, (box.clientWidth || 960) - 38);
-  box.innerHTML = insParallelism(ins, width) + insCritical(ins) + insOutcomes(ins) + insChecks(ins) + insWaits(ins, run) + insWaste(ins) + insChanges(ins) + insContext(ins) + insTools(ins) +
+  box.innerHTML = insParallelism(ins, width) + insCritical(ins) + insOutcomes(ins) + insChecks(ins) + insWaits(ins, run) + insWaste(ins) + insPressure(ins, width) + insChanges(ins) + insContext(ins) + insTools(ins) +
     insTokens(ins, run) + insSpend(run) + insSlowest(ins) + insFiles(ins);
   for (const el of box.querySelectorAll("[data-agent]")) {
     const open = () => openDrawer(el.getAttribute("data-agent"));
@@ -4769,7 +4898,7 @@ async function openDrawer(agentId) {
     "<dl>" + rows.map(([k, v]) =>
       "<dt>" + esc(k) + "</dt><dd>" + esc(v) + "</dd>").join("") + waitRow(agent, waitNow(state.run)) +
       (agent.verification ? "<dt>checked its work</dt><dd>" + esc((agent.verification.state === "checked" ? "yes, " : "") +
-        checkText(agent.verification)) + "</dd>" : "") + producedRow(agent.outcomes) + wasteRow(agent.waste) +
+        checkText(agent.verification)) + "</dd>" : "") + producedRow(agent.outcomes) + wasteRow(agent.waste) + pressureRow(agent.context_peak) +
       contextRow(agent.context, agent.agent_id, state.run) + "</dl>" +
     "<h3>Tool mix</h3>" + (renderToolMix(agent.tool_calls) || '<p class="source-note">no tool calls yet</p>') +
     "<h3>Objective</h3><pre>" + esc(agent.objective || "\u2014") + "</pre>" +

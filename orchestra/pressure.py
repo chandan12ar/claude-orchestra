@@ -47,7 +47,7 @@ def limit_for(model: str, overrides: Optional[str] = None) -> int:
     return DEFAULT_LIMIT
 
 
-def series(log: Any) -> List[Tuple[float, int, str]]:
+def calls_of(log: Any) -> List[Tuple[float, int, str]]:
     """(time, context tokens, model) per API call, in time order; calls with no tokens skipped."""
     if log is None:
         return []
@@ -59,14 +59,30 @@ def series(log: Any) -> List[Tuple[float, int, str]]:
     return out
 
 
+def series(log: Any) -> List[Tuple[float, int, str]]:
+    """The calls plus, at each compaction, the size Claude Code recorded just before it (a
+    /compact after a quiet spell can come long after the last call), in time order."""
+    calls = calls_of(log)
+    out = list(calls)
+    for c in (log.compactions if log is not None else []):
+        if c["pre_tokens"]:
+            before = [p for p in calls if p[0] <= c["at"]]
+            model = before[-1][2] if before else (calls[0][2] if calls else "")
+            out.append((c["at"], c["pre_tokens"], model))
+    out.sort(key=lambda p: p[0])
+    return out
+
+
 def peak_of(log: Any) -> Optional[Dict[str, Any]]:
-    """The fullest the context got: tokens, model, its assumed window and the fill."""
+    """The fullest the context got (tokens, model, its assumed window, the fill) and how full
+    it is on the latest call."""
     points = series(log)
+    calls = calls_of(log)
     if not points:
         return None
     at, tokens, model = max(points, key=lambda p: p[1])
     limit = limit_for(model)
-    last = points[-1]
+    last = calls[-1] if calls else points[-1]
     return {"tokens": tokens, "at": at, "model": model, "limit": limit, "fill": tokens / limit,
             "now": last[1], "now_fill": last[1] / limit_for(last[2])}
 
@@ -104,7 +120,7 @@ def summary(run: Any) -> Optional[Dict[str, Any]]:
     for c in (main_log.compactions if main_log is not None else []):
         after = c["post_tokens"]
         if after is None:                          # older versions: the next call's context
-            later = [p for p in main_points if p[0] > c["at"]]
+            later = [p for p in calls_of(main_log) if p[0] > c["at"]]
             after = later[0][1] if later else None
         compactions.append(dict(c, post_tokens=after))
     near = []
