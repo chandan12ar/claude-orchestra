@@ -188,6 +188,19 @@ observability layers and Build 2026. One branch, PR and minor version each, in t
 | 4 | **What the run produced** (`feature/run-outcomes`, 0.9.0): commits, pushes, PRs, merges, test runs; cost per commit/PR | built; tests and browser check done; PR open (stacked on #3) |
 | 5 | **What each agent was told** (`feature/agent-instructions`, 0.10.0): instruction files and skills per agent, coverage of project rules; read from transcripts, so no new hook | built; tests and browser check done; PR open (stacked on #4) |
 
+## Second round of five (agreed with the owner 2026-10-08)
+
+From a census of 200 real transcripts (records Cuelight did not read yet), the MAST failure
+taxonomy and similar tools. One branch, PR and minor version each, merged by the owner:
+
+| # | Feature | State |
+|---|---|---|
+| 1 | **Catch me up** (`feature/catch-me-up`, 0.12.0): session titles and Claude Code's recaps in Fleet, picker, tab, alerts, reports | built; tests, real-transcript check and browser check (light, dark, phone) done; PR open |
+| 2 | **Where tokens were wasted**: repeated reads, cache rebuilds, oversized outputs, unused plugin/MCP overhead | next |
+| 3 | **Your prompts, and what each one set off**: per-prompt duration, agents, cost, changes; model/tool/waiting/retry time split | planned |
+| 4 | **Context pressure**: context fill per agent, compactions (manual/auto, size, duration) | planned |
+| 5 | **Errors and retries**: API errors, timed-out/interrupted commands, background commands left running | planned |
+
 Still to check: whether Claude Code agent teams (teammates) show up correctly; the code has no
 handling for them yet, and no team run exists in the local transcripts to test against.
 

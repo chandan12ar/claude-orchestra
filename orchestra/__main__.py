@@ -245,6 +245,7 @@ def cmd_demo(args) -> int:
     if C.BUDGET <= 0:
         C.BUDGET = 8.0               # so the budget meter has something to show
     paths, agents = demo.build_demo(os.environ["CLAUDE_CONFIG_DIR"])
+    demo.write_side_sessions(os.environ["CLAUDE_CONFIG_DIR"])
     spool = _make_spool()
     if spool is not None:
         demo.write_events(spool, paths.session_id)

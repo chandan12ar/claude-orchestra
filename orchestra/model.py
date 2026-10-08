@@ -277,6 +277,8 @@ class Run:
     main_outcomes: Any = None
     # The main session's instruction files and skills (orchestra.context.ContextLog).
     main_context: Any = None
+    # What Claude Code calls the session and last said about it (orchestra.sessionmeta.SessionMeta).
+    meta: Any = None
 
     def agent(self, agent_id: str) -> Optional[Agent]:
         for a in self.agents:
@@ -317,4 +319,5 @@ class Run:
             "orchestrator": self.orchestrator,
             "cost": self.cost,
             "insights": self.insights,
+            "session": self.meta.to_dict() if self.meta is not None else None,
         }

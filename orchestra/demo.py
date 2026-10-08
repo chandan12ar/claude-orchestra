@@ -42,6 +42,12 @@ PRICES = {"currency": "USD", "models": {
 
 SESSION_AGE_S = 780          # the demo session "started" this long ago
 PR_URL = "https://github.com/northwind/shop/pull/42"
+DEMO_TITLE = "Checkout rewrite with payments"
+DEMO_LAST_PROMPT = "Run the verify wave once the build is green, then write up what is left"
+DEMO_RECAP = ("Goal: ship checkout v2 (cart service, payment adapter, webhooks) behind a flag. "
+              "The build wave is in and PR #42 is open; the verify wave is running, the unit "
+              "tests failed twice and the docs agent is waiting on your permission. "
+              "Next: approve the docs agent, then review the failing payment test.")
 
 
 @dataclass
@@ -465,6 +471,14 @@ def build_demo(root: str, now: Optional[float] = None,
                              "usage": {"input_tokens": 80, "output_tokens": 240,
                                        "cache_read_input_tokens": 61000,
                                        "cache_creation_input_tokens": 1200}}})
+    # What Claude Code calls the session and says about it: its title (written early and
+    # repeated), your last prompt, and the "while you were away" recap.
+    title = {"type": "ai-title", "sessionId": session_id, "aiTitle": DEMO_TITLE}
+    main.insert(0, title)
+    main.append(title)
+    main.append({"type": "last-prompt", "sessionId": session_id, "lastPrompt": DEMO_LAST_PROMPT})
+    main.append({"uuid": "orch-recap", "timestamp": _iso(now - 1), "type": "system",
+                 "subtype": "away_summary", "isMeta": False, "cwd": CWD, "content": DEMO_RECAP})
     _write_jsonl(session_jsonl, main)
 
     os.makedirs(subagents, exist_ok=True)
@@ -516,6 +530,60 @@ def write_events(spool: Any, session_id: str, now: Optional[float] = None) -> No
             prompt(before + 2.6, agent.agent_id, agent.tools[i][0])
         if agent.waiting:
             prompt(now_off - agent.waiting + 1, agent.agent_id, "Bash")
+
+
+def write_side_sessions(root: str, now: Optional[float] = None) -> List[str]:
+    """A few other recent sessions, so the demo's Fleet view has neighbours: one Claude Code
+    titled and recapped, one you renamed whose recap is older than its latest work, one
+    with only a last prompt, and one with nothing to name it. Small transcripts in the real
+    format, read by the real code. Returns their session ids."""
+    now = time.time() if now is None else now
+    sides = [
+        # session id, project, ago (s), title kind, title, recap (ago, text) or None, last prompt
+        ("demo-ecg-report", "ecg-tools", 95, "ai-title", "ECG report analysis",
+         (60, "You asked for an ECG analysis report with charts; the PDF is written to "
+               "reports/ecg-2026-10.pdf and the summary table is done. Next: check the "
+               "arrhythmia section against the cardiologist's notes."),
+         "Make the report a PDF with the charts inline"),
+        ("demo-orders-migration", PROJECT_NAME, 5400, "custom-title", "Migrate orders table to Postgres 17",
+         (9000, "Goal: move the orders table to Postgres 17. The migration ran and the tests "
+                "pass. Next: drop the old status column once reads have switched over."),
+         "Now switch the reads over and drop the old column"),
+        ("demo-docs-pass", "handbook", 300, "ai-title", "Tidy the onboarding handbook", None,
+         "Fix the broken links in the onboarding section"),
+        ("demo-scratch", "scratch", 12000, "", "", None, ""),
+    ]
+    made = []
+    for session_id, project, ago, kind, title, recap, prompt in sides:
+        cwd = "/home/dev/" + project
+        end = now - ago
+        start = end - 900
+        entries: List[Dict[str, Any]] = []
+        if kind:
+            entries.append({"type": kind, "sessionId": session_id,
+                            ("aiTitle" if kind == "ai-title" else "customTitle"): title})
+        entries.append({"uuid": session_id + "-u1", "timestamp": _iso(start), "type": "user", "cwd": cwd,
+                        "sessionId": session_id,
+                        "message": {"role": "user", "content": prompt or "Look around this folder"}})
+        entries.append({"uuid": session_id + "-a1", "timestamp": _iso(end), "type": "assistant", "cwd": cwd,
+                        "sessionId": session_id,
+                        "message": {"id": "msg_" + session_id, "role": "assistant", "model": MODELS["sonnet"],
+                                    "content": [{"type": "text", "text": "Done."}],
+                                    "usage": {"input_tokens": 120, "output_tokens": 340,
+                                              "cache_read_input_tokens": 18000}}})
+        if recap is not None:
+            entries.append({"uuid": session_id + "-r", "timestamp": _iso(now - recap[0]), "type": "system",
+                            "subtype": "away_summary", "isMeta": False, "cwd": cwd, "content": recap[1]})
+        if prompt:
+            entries.append({"type": "last-prompt", "sessionId": session_id, "lastPrompt": prompt})
+        if kind:
+            entries.append({"type": kind, "sessionId": session_id,
+                            ("aiTitle" if kind == "ai-title" else "customTitle"): title})
+        path = os.path.join(root, "projects", project, session_id + ".jsonl")
+        _write_jsonl(path, entries)
+        os.utime(path, (end, end))
+        made.append(session_id)
+    return made
 
 
 class Simulator(threading.Thread):

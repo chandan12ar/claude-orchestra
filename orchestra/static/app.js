@@ -1004,6 +1004,34 @@ function tickTransport() {
 
 const STAT_DOTS = ["running", "waiting", "done", "failed"];
 
+// Claude Code's own "while you were away" recap of this session, one line until clicked.
+// A recap describes the moment it was written, so say when that was, and say so plainly
+// once the session has worked since.
+function recapHtml(about) {
+  if (!about || !about.recap) return "";
+  return '<span class="recap-label">Recap' + (about.recap_at ? " · " + esc(fleetAgo(about.recap_at)) : "") +
+    "</span>" + '<span class="recap-text">' + esc(about.recap) + "</span>" +
+    (about.recap_stale ? '<span class="recap-stale">older than the latest activity</span>' : "");
+}
+
+function renderRecap(run) {
+  const bar = $("recap");
+  if (!bar) return;
+  const html = recapHtml(run.session);
+  bar.hidden = !html;
+  if (!html) return;
+  if (bar.dataset.html !== html) {       // re-render only when it changed, keeping the open state
+    bar.dataset.html = html;
+    bar.innerHTML = html;
+  }
+  if (!bar.onclick) {
+    bar.onclick = () => {
+      const open = bar.getAttribute("aria-expanded") !== "true";
+      bar.setAttribute("aria-expanded", open ? "true" : "false");
+    };
+  }
+}
+
 function renderHeader(run) {
   const t = run.totals;
   const box = $("totals");
@@ -1690,6 +1718,7 @@ function render() {
     if (section) section.hidden = state.view !== name || none;
   }
   renderHeader(state.run);
+  renderRecap(state.run);
   renderPulse(state.run);
   updateChrome();
   renderAttention(state.run);
@@ -2353,7 +2382,8 @@ function pillModel(run, fleet) {
   // Before the first fleet poll, fall back to the session on screen.
   if (!fleet && run && run.live && run.live.attention && run.session_live &&
       run.live.attention.kind !== "idle") {
-    needing = [{ attention: run.live.attention, project_name: "", session_id: run.session_id }];
+    needing = [{ attention: run.live.attention, project_name: "", session_id: run.session_id,
+      title: (run.session && run.session.title) || "" }];
   }
   const totals = run ? run.totals : null;
   const running = fleet
@@ -2363,7 +2393,7 @@ function pillModel(run, fleet) {
   let kind = "idle";
   if (top) kind = top.attention.kind;
   else if (running > 0) kind = "running";
-  const where = top ? (top.project_name || (top.session_id || "").slice(0, 8)) : "";
+  const where = top ? (top.title || top.project_name || (top.session_id || "").slice(0, 8)) : "";
   const more = needing.length - 1;
   return {
     kind: kind,
@@ -2374,13 +2404,15 @@ function pillModel(run, fleet) {
       ? where + (more > 0 ? " · +" + more + " more" : "")
       : (totals ? totals.agents + " agents · " + totals.completed + " done" : ""),
     agents: run ? run.agents.slice(0, 16).map((a) => a.status) : [],
+    title: (run && run.session && run.session.title) || "",
   };
 }
 
 function tabTitle(model) {
-  if (model.count > 0) return "(" + model.count + ") Cuelight";
-  if (model.kind === "running") return "\u25B6 Cuelight";
-  return "Cuelight";
+  const name = (model.title ? model.title + " \u00B7 " : "") + "Cuelight";
+  if (model.count > 0) return "(" + model.count + ") " + name;
+  if (model.kind === "running") return "\u25B6 " + name;
+  return name;
 }
 
 // Blend two #rrggbb colours; t is how much of `to` to mix in.
@@ -2742,6 +2774,51 @@ function renderFleetBadge() {
   badge.textContent = n ? String(n) : "";
 }
 
+function fleetStatus(s) {
+  const t = s.totals;
+  if (!s.session_live) return "Ended" + (s.ended && s.ended.reason ? " (" + s.ended.reason + ")" : "");
+  return t && t.running ? t.running + " agent(s) running" : "Idle";
+}
+
+// A row's second line: what the session needs from you comes first, then Claude
+// Code's own recap of it, then the last thing you asked, then its status.
+function fleetSub(s) {
+  const att = s.attention && s.session_live ? s.attention : null;
+  if (att) return { kind: "attention", text: attentionTitle(att) + (att.message ? " — " + att.message : "") };
+  if (s.recap) {
+    return { kind: "recap",
+      text: "Recap" + (s.recap_at ? " · " + fleetAgo(s.recap_at) : "") + ": " + s.recap };
+  }
+  if (s.last_prompt) return { kind: "prompt", text: "Last asked: " + s.last_prompt };
+  return { kind: "status", text: fleetStatus(s) };
+}
+
+function fleetRow(s, current) {
+  const att = s.attention && s.session_live ? s.attention : null;
+  const t = s.totals;
+  const sub = fleetSub(s);
+  // The status moves to the meta line when the second line is taken by something else.
+  const meta = (sub.kind === "status" ? "" : fleetStatus(s) + " · ") +
+    (t ? t.agents + " agents" +
+      (t.waiting ? " · " + t.waiting + " waiting" : "") +
+      (t.failed ? " · " + t.failed + " failed" : "") + " · " : "") + fleetAgo(s.modified_at);
+  // A session Claude Code (or you) titled leads with that title; its project follows.
+  const name = s.title
+    ? esc(s.title) + '<span class="fleet-project">' + esc(s.project_name || s.session_id.slice(0, 8)) + "</span>"
+    : esc(s.project_name || "(unknown project)") +
+      '<span class="fleet-id">' + esc(s.session_id.slice(0, 8)) + "</span>";
+  const stale = sub.kind === "recap" && s.recap_stale;
+  return '<div class="fleet-row' + (s.session_id === current ? " fleet-current" : "") +
+    (s.session_live ? "" : " fleet-quiet") + '" data-session="' + esc(s.session_id) + '"' +
+    (att ? ' data-kind="' + esc(att.kind) + '"' : "") +
+    (s.session_live ? ' data-live="1"' : "") + ' role="button" tabindex="0">' +
+    '<span class="fleet-dot"></span>' +
+    '<div class="fleet-main"><div class="fleet-title">' + name + "</div>" +
+      '<div class="fleet-sub fleet-sub-' + sub.kind + (stale ? " is-stale" : "") + '"' +
+      (stale ? ' title="Older than the latest activity"' : "") + ">" + esc(sub.text) + "</div></div>" +
+    '<div class="fleet-meta">' + esc(meta) + "</div></div>";
+}
+
 function renderFleet() {
   const box = $("fleet");
   if (!box) return;
@@ -2753,27 +2830,7 @@ function renderFleet() {
     return;
   }
   const current = state.run && state.run.session_id;
-  box.innerHTML = data.sessions.map((s) => {
-    const att = s.attention && s.session_live ? s.attention : null;
-    const t = s.totals;
-    const sub = att
-      ? attentionTitle(att) + (att.message ? " — " + att.message : "")
-      : (!s.session_live ? "Ended" + (s.ended && s.ended.reason ? " (" + s.ended.reason + ")" : "")
-        : (t && t.running ? t.running + " agent(s) running" : "Idle"));
-    const meta = (t ? t.agents + " agents" +
-      (t.waiting ? " · " + t.waiting + " waiting" : "") +
-      (t.failed ? " · " + t.failed + " failed" : "") + " · " : "") + fleetAgo(s.modified_at);
-    return '<div class="fleet-row' + (s.session_id === current ? " fleet-current" : "") +
-      (s.session_live ? "" : " fleet-quiet") + '" data-session="' + esc(s.session_id) + '"' +
-      (att ? ' data-kind="' + esc(att.kind) + '"' : "") +
-      (s.session_live ? ' data-live="1"' : "") + ' role="button" tabindex="0">' +
-      '<span class="fleet-dot"></span>' +
-      '<div class="fleet-main"><div class="fleet-title">' +
-        esc(s.project_name || "(unknown project)") +
-        '<span class="fleet-id">' + esc(s.session_id.slice(0, 8)) + "</span></div>" +
-        '<div class="fleet-sub">' + esc(sub) + "</div></div>" +
-      '<div class="fleet-meta">' + esc(meta) + "</div></div>";
-  }).join("");
+  box.innerHTML = data.sessions.map((s) => fleetRow(s, current)).join("");
   for (const row of box.querySelectorAll(".fleet-row")) {
     const open = () => { switchSession(row.dataset.session); setView("timeline"); };
     row.onclick = open;
@@ -2796,7 +2853,7 @@ function checkFleetNotifications(data) {
     next[s.session_id] = key;
     if (state.fleetSeeded && state.notifyEnabled && s.session_id !== viewing &&
         state.fleetAttention[s.session_id] !== key) {
-      notify(attentionTitle(att) + " — " + (s.project_name || s.session_id.slice(0, 8)),
+      notify(attentionTitle(att) + " — " + (s.title || s.project_name || s.session_id.slice(0, 8)),
         att.message || "");
     }
   }
@@ -2892,6 +2949,12 @@ function startStream() {
   };
 }
 
+// The picker names a session by its title when it has one. Plain text: it goes into textContent.
+function sessionLabel(session, current) {
+  return (session.title || session.session_id.slice(0, 8)) + " · " +
+    session.agent_count + " agents" + (session.session_id === current ? " (current)" : "");
+}
+
 async function loadSessions() {
   try {
     const data = await api("/api/sessions");
@@ -2900,9 +2963,7 @@ async function loadSessions() {
     for (const session of data.sessions) {
       const option = document.createElement("option");
       option.value = session.session_id;
-      option.textContent = session.session_id.slice(0, 8) + " · " +
-        session.agent_count + " agents" +
-        (session.session_id === data.current ? " (current)" : "");
+      option.textContent = sessionLabel(session, data.current);
       picker.appendChild(option);
     }
     picker.value = state.sessionId || data.current;

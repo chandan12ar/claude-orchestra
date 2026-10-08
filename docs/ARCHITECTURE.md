@@ -957,6 +957,30 @@ pure functions in `app.js`, tested under node.
   refresh. `test_what_the_main_session_recorded_survives_later_reads` refreshes again after the
   transcript grows, for the instruction files and the outcomes alike.
 
+### Catch me up (`sessionmeta.py`)
+- Claude Code writes, into the main transcript: `ai-title` (`aiTitle`, generated, repeated through
+  the file), `custom-title` (`customTitle`, from `/rename`, also repeated), a `system` entry with
+  subtype `away_summary` (`content`, `timestamp`: the "while you were away" recap) and `last-prompt`
+  (`lastPrompt`, the start of your last prompt; no timestamp). Checked on 57 real sessions: 40 titled,
+  35 with a recap (at most ~340 characters), none in subagent files.
+- `SessionMeta` keeps the latest of each on one line, scrubbed before it is cut (title 80, recap 400,
+  prompt 200 characters). A title you set wins over Claude's. A recap is `recap_stale` once a user or
+  assistant entry arrives more than `STALE_AFTER_S` (60 s) after it, because it then no longer
+  describes the session. The builder resets it only with the other main-session logs.
+- `Run.meta` becomes the summary's `session` block; the fleet entry copies it. Lists that must not
+  build a run per session (the session picker, fleet rows beyond the build budget) use
+  `peek_title`: it reads the last 256 KB of the transcript, then the first 256 KB if the end has no
+  title, and caches by (path, size, mtime). On real data it matched a full read for all 40 titled
+  sessions and took 26 ms cold for a 19-session, 19 MB project.
+- UI: `fleetRow` / `fleetSub` / `fleetStatus` (what needs you, else the recap with its age, else the
+  last prompt, else the status, which then moves to the meta line), `sessionLabel` for the picker
+  (plain text, set through `textContent`), `recapHtml` / `renderRecap` for the bar under the header
+  (one line; `aria-expanded` toggles the rest), and the title in `tabTitle`, the pill and fleet alerts.
+  Static reports carry it too (`<title>` is HTML-escaped).
+- `demo.write_side_sessions` gives the demo's Fleet four neighbours (titled with a fresh recap,
+  renamed with a stale one, last prompt only, untitled), written in the real format and read by the
+  real code; only `--demo` writes them.
+
 ### Graph and Work Floor
 - **Graph layout** (`layoutGraph`) is a pure function split into `graphRankColumns`
   (longest path over exact edges; columns indexed, never raw rank), `graphOrderColumns`
