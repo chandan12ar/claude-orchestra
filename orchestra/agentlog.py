@@ -9,6 +9,7 @@ from orchestra.verify import classify
 from orchestra.changes import EDIT_TOOLS, ChangeLog, extract
 from orchestra.outcomes import OutcomeLog
 from orchestra.waste import WasteLog
+from orchestra.errors import ErrorLog
 from orchestra.context import ContextLog
 
 
@@ -195,6 +196,8 @@ class AgentDigest:
     context: ContextLog = field(default_factory=ContextLog)
     # Where its tokens went to waste: cache rebuilds, big results, re-reads (orchestra.waste).
     waste: WasteLog = field(default_factory=WasteLog)
+    # What went wrong: API errors, failed calls, retries, timeouts (orchestra.errors).
+    errors: ErrorLog = field(default_factory=ErrorLog)
     # tool_use id -> its call, until the result arrives (and says whether it failed).
     _open_tool_ids: Dict[str, ToolCall] = field(default_factory=dict)
     # tool_use id -> (tool, input) of an edit waiting for its result.
@@ -230,6 +233,7 @@ class AgentDigest:
         self.outcomes.ingest(entries)
         self.context.ingest(entries)
         self.waste.ingest(entries)
+        self.errors.ingest(entries)
 
     def _note_tokens(self, at: float, added: int) -> None:
         if len(self.token_events) >= MAX_TOKEN_EVENTS:

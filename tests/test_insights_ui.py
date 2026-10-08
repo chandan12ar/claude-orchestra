@@ -62,6 +62,7 @@ INSIGHT_FNS = ("esc", "fmtDuration", "fmtCount", "fmtPct", "fmtMoney", "fmtModel
                "insCritical", "insTools", "insTokens", "insSpend", "insFiles", "insSlowest",
                "fmtClock", "liveSpan", "waitNow", "insWaits", "fileName", "checkText", "insChecks", "insChanges", "safeLink", "insOutcomes", "fileLabel", "insContext", "wasteCause", "insWaste",
                "fmtWindow", "compactionCause", "insPressureChart", "insPressure",
+               "apiKind", "callText", "apiLost", "insErrors",
                "transportSeconds", "fmtTimecode", "renderInsights")
 
 

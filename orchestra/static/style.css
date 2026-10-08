@@ -253,6 +253,7 @@ button[aria-pressed="true"] { color: var(--ink); background: color-mix(in srgb, 
 .health li[data-kind="unchecked"]::before { background: var(--stalled); }
 .health li[data-kind="waiting"]::before { background: var(--waiting); }
 .health li[data-kind="context"]::before { background: var(--stalled); }
+.health li[data-kind="retrying"]::before { background: var(--failed); }
 
 .attention { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
 .attention::before { background: var(--waiting); }
@@ -685,6 +686,7 @@ details[open] > summary .prompt-n::before { transform: rotate(90deg); }
 .check-state { font-weight: 650; display: flex; align-items: center; gap: 7px; }
 .check-state::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--stalled); flex: none; }
 .check-failing .check-state::before { background: var(--failed); }
+.check-ok .check-state::before { background: var(--completed); }
 .check-who { min-width: 0; overflow-wrap: anywhere; }
 .check-who small { display: block; color: var(--muted); margin-top: 2px; }
 @media (max-width: 560px) {

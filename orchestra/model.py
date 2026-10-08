@@ -94,6 +94,8 @@ class Agent:
     context: Any = None
     # Where its tokens went to waste (orchestra.waste.WasteLog).
     waste: Any = None
+    # What went wrong: API errors, failed calls, retries, timeouts (orchestra.errors.ErrorLog).
+    errors: Any = None
 
     @property
     def started_at(self) -> Optional[float]:
@@ -178,6 +180,7 @@ class Agent:
                          if self.outcomes is not None and not self.outcomes.empty() else None),
             "waste": self._waste_totals(),
             "context_peak": self._context_peak(),
+            "errors": self.errors.totals() if self.errors is not None else None,
         }
 
     def _waste_totals(self) -> Optional[Dict[str, int]]:
@@ -304,6 +307,8 @@ class Run:
     main_waste: Any = None
     # The main session split at each of your prompts (orchestra.turns.TurnLog).
     main_turns: Any = None
+    # The main session's own API errors, failed calls and retries (orchestra.errors.ErrorLog).
+    main_errors: Any = None
 
     def agent(self, agent_id: str) -> Optional[Agent]:
         for a in self.agents:

@@ -98,6 +98,11 @@ cells a spreadsheet would execute as formulas are neutralised.
     session's context on every call with a mark at each compaction, ranks agents by how full they got,
     and puts a session or a running agent that is near its window in the Health box, before Claude Code
     compacts it and detail from earlier is lost.
+16. **See what a session limit cost you.** The Insights card "What went wrong" lists each API error
+    (usage limits, expired logins, an overloaded API) with how long nothing happened until the API
+    answered again, which tools failed most, which failed calls were tried again and whether that
+    worked, and commands that ran past their timeout. An agent still failing the same call three times
+    in a row goes in the Health box.
 
 You can try every one of these without a real run: `python -m orchestra --demo`.
 
@@ -174,6 +179,18 @@ You can try every one of these without a real run: `python -m orchestra --demo`.
   main contexts reached 885k and agents 235k.
 
   ![How full each context got, dark theme: the main session climbing to 186k, compacted to 61k, and agents ranked by their peak](docs/evidence/screenshots/41-pressure-dark.png)
+
+- **What went wrong** — every API error Claude Code recorded (usage or rate limits,
+  failed logins, server errors), with how long until the API answered again (a burst
+  of the same error before any reply counts as one stall); tool calls whose result was
+  an error, by tool and by agent, each tool with its most common error; the same call
+  tried again after failing and whether it worked (a command must match in full, a file
+  edit only by file); and commands that ran past their timeout, which Claude Code now
+  moves to the background. A running agent that fails its latest call three times in a
+  row goes in the Health box as RETRYING. On real sessions most retries were the normal
+  fix-and-rerun and worked (47 of 49); session limits cost about 18 hours across 13 stalls.
+
+  ![What went wrong, dark theme: an overloaded API answered again after 2m 20s, a security review stuck on npm audit, failed calls by tool and agent, and a test run moved to the background](docs/evidence/screenshots/45-errors-dark.png)
 
 - **What changed** — each agent's file changes as real diffs (from the patches Claude
   Code records), folded per file in the agent panel with line numbers and the time of

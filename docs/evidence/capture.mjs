@@ -120,6 +120,9 @@ const shots = [
   ["40-pressure-light", DEMO + "#view=insights", 1440, 640, "light", cardShot("How full each context got")],
   ["41-pressure-dark", DEMO + "#view=insights", 1440, 640, "dark", cardShot("How full each context got")],
   ["42-phone-pressure-dark", DEMO + "#view=insights", 390, 1150, "dark", cardShot("How full each context got")],
+  ["44-errors-light", DEMO + "#view=insights", 1440, 900, "light", cardShot("What went wrong")],
+  ["45-errors-dark", DEMO + "#view=insights", 1440, 900, "dark", cardShot("What went wrong")],
+  ["46-phone-errors-dark", DEMO + "#view=insights", 390, 1500, "dark", cardShot("What went wrong")],
   ...(NEAR ? [["43-health-context-light", NEAR, 1440, 420, "light",
     `(async () => { await new Promise(r => setTimeout(r, 600)); const h = document.querySelector('header').getBoundingClientRect().height;
       window.scrollTo(0, document.getElementById('health').getBoundingClientRect().top + window.scrollY - h - 12);
