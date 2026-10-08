@@ -87,6 +87,10 @@ cells a spreadsheet would execute as formulas are neutralised.
 12. **Pick up where you left off.** Coming back to three sessions in the same project, the Fleet view
     names each by its title and shows Claude Code's own "while you were away" recap, so you know which
     one to open first and what it was doing.
+13. **See what a coffee break cost.** Left a big session idle for an hour? The Insights card "Where tokens
+    were wasted" shows the prompt cache was written again from scratch when you came back, how many
+    tokens that was, what it cost above the cheap cache-read price, and whether you were sitting on a
+    permission prompt at the time.
 
 You can try every one of these without a real run: `python -m orchestra --demo`.
 
@@ -129,6 +133,17 @@ You can try every one of these without a real run: `python -m orchestra --demo`.
   Read from the git results Claude Code records, not guessed from command text.
 
   ![The run's output, light theme: 2 commits, 1 pull request, 1 push, 7 of 9 test runs passed, cost per commit and per pull request](docs/evidence/screenshots/28-produced-light.png)
+
+- **Where tokens were wasted** — every time the prompt cache was written again
+  from scratch (after five minutes or an hour idle, a model switch or a
+  compaction), for the main session and each agent: how many tokens, why, the
+  permission prompt you were answering meanwhile, and what it cost above the
+  cache-read price. Also the biggest tool results pulled into context (with how
+  many later calls carried them) and re-reads of files that came back
+  unchanged. On real sessions, rebuilds were a third of everything written to
+  the cache.
+
+  ![Where tokens were wasted, dark theme: 58.6k tokens rewritten to the cache after a compaction, the extra cost, and the biggest file read](docs/evidence/screenshots/35-waste-dark.png)
 
 - **What changed** — each agent's file changes as real diffs (from the patches Claude
   Code records), folded per file in the agent panel with line numbers and the time of

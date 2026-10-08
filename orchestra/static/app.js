@@ -3814,6 +3814,66 @@ function insOutcomes(ins) {
     '<div class="metrics">' + metrics.join("") + "</div>" + prs + commits, "wide");
 }
 
+// Why the prompt cache was written again, in words.
+function wasteCause(r) {
+  if (r.cause === "idle_long" || r.cause === "idle_short") return "idle " + fmtDuration(r.gap_s);
+  if (r.cause === "model") return "the model changed";
+  if (r.cause === "compaction") return "after a compaction";
+  return "cause not recorded";
+}
+
+// Where tokens were wasted: prompt-cache rebuilds (with the prompt you were answering, when
+// that is why the session sat idle), the biggest tool results, and unchanged re-reads.
+function insWaste(ins) {
+  const w = ins.waste;
+  if (!w) return "";
+  const metrics = [insMetric(fmtCount(w.rebuilt_tokens), "tokens rewritten to the cache"),
+    insMetric(w.rebuilds, w.rebuilds === 1 ? "cache rebuild" : "cache rebuilds")];
+  if (w.rebuilds && w.extra_cost !== null && w.extra_cost !== undefined) {
+    metrics.push(insMetric(fmtMoney(w.extra_cost, w.currency), "paid above the cache-read price"));
+  }
+  if (w.rebuilds && w.share_of_cache_writes !== null && w.share_of_cache_writes !== undefined) {
+    metrics.push(insMetric(fmtPct(w.share_of_cache_writes), "of everything written to the cache"));
+  }
+  const notes = [];
+  if (w.unpriced) notes.push("Some models have no price, so the cost leaves them out.");
+  if (w.rereads) {
+    notes.push(w.rereads + (w.rereads === 1 ? " re-read of an unchanged file" : " re-reads of unchanged files") +
+      (w.reread_tokens >= 100 ? " added about " + fmtCount(w.reread_tokens) + " tokens." : " added next to nothing."));
+  }
+  const waited = (r) => r.wait_s
+    ? ", while waiting for your " + (r.wait_kind === "permission" ? "approval" : "answer") + " (" + fmtDuration(r.wait_s) + ")" : "";
+  const rows = w.rows.length ? "<h4>Rebuilds</h4>" + '<ul class="out-list">' + w.rows.map((r) =>
+    "<li" + (r.agent_id ? ' data-agent="' + esc(r.agent_id) + '" role="button" tabindex="0"' : "") + ">" +
+    "<code>" + esc(fmtCount(r.tokens)) + "</code><b>" + esc(r.label) + "</b>" +
+    "<span>" + esc(wasteCause(r) + waited(r) + " · " + fmtClock(r.at) +
+      (r.extra_cost !== null && r.extra_cost !== undefined ? " · " + fmtMoney(r.extra_cost, w.currency) : "")) +
+    "</span></li>").join("") + "</ul>" : "";
+  const big = w.big.length ? "<h4>Biggest things pulled into context</h4>" + '<ul class="out-list">' + w.big.map((b) =>
+    "<li" + (b.agent_id ? ' data-agent="' + esc(b.agent_id) + '" role="button" tabindex="0"' : "") + ">" +
+    "<code>~" + esc(fmtCount(b.tokens)) + "</code><b>" + esc(b.tool + (b.target ? " " + b.target : "")) + "</b>" +
+    "<span>" + esc(b.label + " · carried through " + b.carried + (b.carried === 1 ? " later call" : " later calls")) +
+    "</span></li>").join("") + "</ul>" : "";
+  return insCard("Where tokens were wasted",
+    "When the prompt cache expires (about five minutes idle, or an hour on the longer cache) or is reset by a " +
+    "model switch or a compaction, the next call writes the whole conversation to the cache again at the higher " +
+    "write price. Tool result sizes are estimated at four characters a token.",
+    '<div class="metrics">' + metrics.join("") + "</div>" +
+    (notes.length ? '<p class="card-note">' + esc(notes.join(" ")) + "</p>" : "") + rows + big, "wide");
+}
+
+// The agent panel's line: how often this agent's cache was rebuilt, how much, and why.
+function wasteRow(w) {
+  if (!w || !w.rebuilds || !w.rebuilds.length) return "";
+  const causes = [];
+  for (const r of w.rebuilds) {
+    const text = wasteCause(r);
+    if (causes.indexOf(text) < 0) causes.push(text);
+  }
+  return "<dt>cache</dt><dd>" + esc("Cache rebuilt " + w.rebuilds.length + "× · " +
+    fmtCount(w.rebuilt_tokens) + " tokens · " + causes.join(", ")) + "</dd>";
+}
+
 // What each agent was told: the instruction files and skills it had, and who ran without
 // the project rules the main session had.
 function insContext(ins) {
@@ -3919,7 +3979,7 @@ function renderInsights(run) {
     return;
   }
   const width = Math.max(320, (box.clientWidth || 960) - 38);
-  box.innerHTML = insParallelism(ins, width) + insCritical(ins) + insOutcomes(ins) + insChecks(ins) + insWaits(ins, run) + insChanges(ins) + insContext(ins) + insTools(ins) +
+  box.innerHTML = insParallelism(ins, width) + insCritical(ins) + insOutcomes(ins) + insChecks(ins) + insWaits(ins, run) + insWaste(ins) + insChanges(ins) + insContext(ins) + insTools(ins) +
     insTokens(ins, run) + insSpend(run) + insSlowest(ins) + insFiles(ins);
   for (const el of box.querySelectorAll("[data-agent]")) {
     const open = () => openDrawer(el.getAttribute("data-agent"));
@@ -4618,7 +4678,7 @@ async function openDrawer(agentId) {
     "<dl>" + rows.map(([k, v]) =>
       "<dt>" + esc(k) + "</dt><dd>" + esc(v) + "</dd>").join("") + waitRow(agent, waitNow(state.run)) +
       (agent.verification ? "<dt>checked its work</dt><dd>" + esc((agent.verification.state === "checked" ? "yes, " : "") +
-        checkText(agent.verification)) + "</dd>" : "") + producedRow(agent.outcomes) +
+        checkText(agent.verification)) + "</dd>" : "") + producedRow(agent.outcomes) + wasteRow(agent.waste) +
       contextRow(agent.context, agent.agent_id, state.run) + "</dl>" +
     "<h3>Tool mix</h3>" + (renderToolMix(agent.tool_calls) || '<p class="source-note">no tool calls yet</p>') +
     "<h3>Objective</h3><pre>" + esc(agent.objective || "\u2014") + "</pre>" +

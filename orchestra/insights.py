@@ -18,6 +18,7 @@ from orchestra import verify
 from orchestra.edges import normalize_path
 from orchestra import outcomes
 from orchestra import context
+from orchestra import waste
 
 # Mirrors the dashboard's tool taxonomy (app.js TOOL_BUCKETS), so a colour means the
 # same thing in the drawer, the ticker and here.
@@ -433,6 +434,14 @@ def _outcomes(run: Run) -> Optional[Dict[str, Any]]:
     return outcomes.summary(sources, run.cost, fresh)
 
 
+def _waste(run: Run, now: float, table: Any) -> Optional[Dict[str, Any]]:
+    """Cache rebuilds, big results and unchanged re-reads across the main session and every
+    agent, priced when a price table is set, with the prompts you were answering meanwhile."""
+    sources = [("", "Main session", run.main_waste)]
+    sources += [(a.agent_id, scrub(a.description)[:60] or a.agent_id[:12], a.waste) for a in run.agents]
+    return waste.summary(sources, table, run.waits, now)
+
+
 def compute(run: Run, now: float, table: Any = None) -> Dict[str, Any]:
     """The Insights payload for a run. `table` is the optional PriceTable."""
     par = _parallelism(run, now)
@@ -447,4 +456,5 @@ def compute(run: Run, now: float, table: Any = None) -> Dict[str, Any]:
             "checks": verify.summary(run.agents) if run.agents else None,
             "changes": _changes(run),
             "outcomes": _outcomes(run),
-            "context": context.coverage(run.main_context, run.agents)}
+            "context": context.coverage(run.main_context, run.agents),
+            "waste": _waste(run, now, table)}
