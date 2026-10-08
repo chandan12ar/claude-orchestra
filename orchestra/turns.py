@@ -20,8 +20,9 @@ from orchestra.parent import parse_timestamp
 from orchestra.redact import scrub
 
 MAX_TURNS = 1000
-MAX_PROMPT = 160
-SHOWN = 20
+MAX_PROMPT = 500
+SHOWN = 200
+MAX_NAMES = 20
 EDIT_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
 _NOT_PROMPTS = ("<local-command", "<system-reminder>", "<task-notification", "<bash-input>",
                 "<bash-stdout>", "<bash-stderr>", "Caveat:")
@@ -180,11 +181,11 @@ def summary(log: Optional[TurnLog], run: Any, table: Any, now: float) -> Optiona
     if log is None or not log.turns:
         return None
     usage = log.usage_by_turn()
-    commits: Dict[str, float] = {}
+    commits: Dict[str, Dict[str, Any]] = {}
     for source in [getattr(run, "main_outcomes", None)] + [a.outcomes for a in run.agents]:
         for key, c in (getattr(source, "commits", None) or {}).items():
-            if c.get("at") is not None and (key not in commits or c["at"] < commits[key]):
-                commits[key] = c["at"]
+            if c.get("at") is not None and (key not in commits or c["at"] < commits[key]["at"]):
+                commits[key] = c
     waits = [(w.start, w.start + w.seconds(now)) for w in run.waits if w.state != "unanswered"]
     rows = []
     turns = log.turns
@@ -225,6 +226,7 @@ def summary(log: Optional[TurnLog], run: Any, table: Any, now: float) -> Optiona
         cost = None
         if table is not None:
             cost, _ = table.cost(tokens_by_model)
+        made = sorted((c for c in commits.values() if start <= c["at"] < window_end), key=lambda c: c["at"])
         files = set(turn["edits"])
         for a in agents:
             if a.changes is not None:
@@ -236,7 +238,10 @@ def summary(log: Optional[TurnLog], run: Any, table: Any, now: float) -> Optiona
             "agents": len(agents), "agent_ids": [a.agent_id for a in agents][:12],
             "tokens": sum(_fresh(t) for t in tokens_by_model.values()), "cost": cost,
             "files": len(files),
-            "commits": sum(1 for at in commits.values() if start <= at < window_end),
+            "file_names": sorted(scrub(f) for f in files)[:MAX_NAMES],
+            "commits": len(made),
+            "commit_list": [{"sha": scrub(str(c.get("sha") or ""))[:12], "message": scrub(str(c.get("message") or ""))[:120]}
+                            for c in made[:5]],
         })
     if not rows:
         return None                              # only local commands: no turn ran

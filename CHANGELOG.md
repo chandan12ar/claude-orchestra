@@ -9,14 +9,16 @@ versions follow [SemVer](https://semver.org/) (the `version` in
 ## [0.14.0] - 2026-10-08
 
 ### Added
-- **Your prompts**: an Insights card with one row per message you sent (the latest 20). Each row shows:
+- **Prompts**: a tab of its own (key 4; Activity and the views after it move up one number), with one row
+  per message you sent. Each row shows:
   - when, and what you asked (slash commands as typed);
   - how long the work it started took, counting up while it runs;
   - a bar splitting that time into waiting on you, agents and tools running, and Claude itself, each
     moment counted once in that order;
   - the agents it launched, files edited, commits, and its cost (or fresh tokens without prices).
 
-  The card leads with the number of prompts, the typical time per prompt, and the most expensive prompt's
+  A row opens to the whole prompt, the time in words, the agents it launched (each opens its panel), the
+  files it edited and its commits; open rows stay open as the page refreshes. The tab leads with the number of prompts, the typical time per prompt, and the most expensive prompt's
   share of the session. Read from the transcript: prompts are `user` entries that are not tool results,
   reminders or agent notifications; Claude Code's `turn_duration` records close turns, and local commands
   such as `/plugin` (marked `local_command`) start none. The main session's usage is counted once per API

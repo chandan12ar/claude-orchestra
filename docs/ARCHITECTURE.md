@@ -1024,9 +1024,13 @@ pure functions in `app.js`, tested under node.
 - Considered and dropped: Claude Code's `cost-state` record (cumulative cost and API, retry and tool
   time). It restarts on resume and its scope differs from the transcripts (1.0M tokens against 78M in a
   32-agent session), so it is not shown.
-- UI: `insPrompts`, right after Parallelism: metrics, a legend, then one row per prompt with a
-  three-part bar (`split-claude`, `split-work`, `split-you`, widths inline as elsewhere) whose words are
-  in its `aria-label`; rows stack on phones.
+- UI: its own view, `prompts` (tab after Insights, key 4, `#view=prompts`; not an agent view, so it
+  shows for a session without agents). `renderPrompts` / `promptsHtml`: metrics, a legend, then one
+  `<details>` per prompt. The summary row has a three-part bar (`split-claude`, `split-work`,
+  `split-you`, widths inline as elsewhere) whose words are in its `aria-label`; the body has the whole
+  prompt (up to 500 characters), the time in words, the agents (`data-agent`, opening the drawer), file
+  names (up to 20, `fileLabel`) and commits (up to 5). `state.openPrompts` keeps open rows open across
+  polls. Rows stack on phones. Static reports keep the tab (the data is in the summary).
 
 ### Graph and Work Floor
 - **Graph layout** (`layoutGraph`) is a pure function split into `graphRankColumns`

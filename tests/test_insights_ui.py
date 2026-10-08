@@ -60,7 +60,7 @@ def run_js(names, consts, body):
 INSIGHT_FNS = ("esc", "fmtDuration", "fmtCount", "fmtPct", "fmtMoney", "fmtModelShort", "statusVar",
                "insMetric", "insCard", "insEmpty", "insRank", "insStepChart", "insParallelism",
                "insCritical", "insTools", "insTokens", "insSpend", "insFiles", "insSlowest",
-               "fmtClock", "liveSpan", "waitNow", "insWaits", "fileName", "checkText", "insChecks", "insChanges", "safeLink", "insOutcomes", "fileLabel", "insContext", "wasteCause", "insWaste", "insPrompts",
+               "fmtClock", "liveSpan", "waitNow", "insWaits", "fileName", "checkText", "insChecks", "insChanges", "safeLink", "insOutcomes", "fileLabel", "insContext", "wasteCause", "insWaste",
                "transportSeconds", "fmtTimecode", "renderInsights")
 
 

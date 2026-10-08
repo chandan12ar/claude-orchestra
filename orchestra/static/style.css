@@ -622,10 +622,28 @@ main { padding: 16px 20px 32px; max-width: 1760px; margin: 0 auto; outline: none
 
 /* Your prompts: one row each; the bar splits its time into Claude, agents and tools, and you. */
 .prompt-list { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 2px; font-size: 13px; }
-.prompt-list li { display: grid; grid-template-columns: 3.5ch minmax(0, 1fr) 150px minmax(0, 230px);
-  gap: 4px 14px; align-items: center; padding: 7px 8px; border-radius: var(--r-md); }
+.prompt-list li { border-radius: var(--r-md); }
 .prompt-list li:nth-child(odd) { background: var(--panel-2); }
-.prompt-n { color: var(--faint); font: 12px var(--mono); }
+.prompt-list summary { display: grid; grid-template-columns: 4.5ch minmax(0, 1fr) 150px minmax(0, 230px);
+  gap: 4px 14px; align-items: center; padding: 7px 8px; border-radius: var(--r-md); cursor: pointer; list-style: none; }
+.prompt-list summary::-webkit-details-marker { display: none; }
+.prompt-list summary:hover { background: color-mix(in srgb, var(--ink) 5%, transparent); }
+.prompt-list summary:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+.prompt-n { color: var(--faint); font: 12px var(--mono); white-space: nowrap; }
+.prompt-n::before { content: "\25B8"; display: inline-block; width: 1.4ch; transition: transform 120ms var(--ease); }
+details[open] > summary .prompt-n::before { transform: rotate(90deg); }
+.prompt-detail { padding: 2px 12px 12px calc(4.5ch + 22px); font-size: 13px; }
+.prompt-full { margin: 0 0 10px; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+.prompt-detail dl { display: grid; grid-template-columns: 7ch minmax(0, 1fr); gap: 6px 12px; margin: 0; }
+.prompt-detail dt { color: var(--muted); }
+.prompt-detail dd { margin: 0; display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--ink-2); }
+.prompt-agent { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; text-decoration: underline;
+  text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
+.prompt-agent:hover, .prompt-agent:focus-visible { text-decoration-color: currentColor; outline: none; }
+.prompt-agent .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.prompt-detail code { font: 12px var(--mono); color: var(--muted); }
+.prompt-more-n { color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { .prompt-n::before { transition: none; } }
 .prompt-main { min-width: 0; display: grid; }
 .prompt-main b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .prompt-main small { color: var(--muted); font-size: 12px; }
@@ -777,8 +795,9 @@ main { padding: 16px 20px 32px; max-width: 1760px; margin: 0 auto; outline: none
   .fleet-row { flex-wrap: wrap; row-gap: 4px; }
   .fleet-main { flex-basis: calc(100% - 24px); }
   .fleet-meta { flex: 1 1 100%; text-align: left; padding-left: 24px; }
-  .prompt-list li { grid-template-columns: 3.5ch minmax(0, 1fr); }
+  .prompt-list summary { grid-template-columns: 4.5ch minmax(0, 1fr); }
   .prompt-time, .prompt-what { grid-column: 2; text-align: left; }
+  .prompt-detail { padding-left: 12px; }
   .alerts { margin-left: 14px; margin-right: 14px; }
   .alerts > .health { margin-left: 0; margin-right: 0; }
   .filter-bar, .tabs { margin-left: 14px; margin-right: 14px; }

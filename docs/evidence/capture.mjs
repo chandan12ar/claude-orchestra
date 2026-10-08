@@ -48,6 +48,14 @@ const cardShot = (title) => `(async () => { await new Promise(r => setTimeout(r,
   window.scrollTo(0, card.getBoundingClientRect().top + window.scrollY - h - 12);
   await new Promise(r => setTimeout(r, 300)); })()`;
 
+// The Prompts tab with one prompt opened, scrolled to just under the header.
+const promptShot = (n) => `(async () => { await new Promise(r => setTimeout(r, 600));
+  const d = document.querySelector('details[data-prompt="${n}"]'); d.open = true;
+  await new Promise(r => setTimeout(r, 200));
+  const h = document.querySelector('header').getBoundingClientRect().height;
+  window.scrollTo(0, document.getElementById('prompts').getBoundingClientRect().top + window.scrollY - h - 12);
+  await new Promise(r => setTimeout(r, 300)); })()`;
+
 // name, url, width, height, colour scheme, optional script run before the shot
 const shots = [
   ["01-timeline-light", DEMO, 1440, 900, "light"],
@@ -101,9 +109,9 @@ const shots = [
   ["29-produced-dark", DEMO + "#view=insights", 1440, 560, "dark", cardShot("What the run produced")],
   ["30-told-light", DEMO + "#view=insights", 1440, 600, "light", cardShot("What each agent was told")],
   ["31-told-dark", DEMO + "#view=insights", 1440, 600, "dark", cardShot("What each agent was told")],
-  ["37-prompts-light", DEMO + "#view=insights", 1440, 590, "light", cardShot("Your prompts")],
-  ["38-prompts-dark", DEMO + "#view=insights", 1440, 590, "dark", cardShot("Your prompts")],
-  ["39-phone-prompts-dark", DEMO + "#view=insights", 390, 900, "dark", cardShot("Your prompts")],
+  ["37-prompts-light", DEMO + "#view=prompts", 1440, 720, "light", promptShot(2)],
+  ["38-prompts-dark", DEMO + "#view=prompts", 1440, 720, "dark", promptShot(2)],
+  ["39-phone-prompts-dark", DEMO + "#view=prompts", 390, 1100, "dark", promptShot(2)],
   ["34-waste-light", DEMO + "#view=insights", 1440, 520, "light", cardShot("Where tokens were wasted")],
   ["35-waste-dark", DEMO + "#view=insights", 1440, 520, "dark", cardShot("Where tokens were wasted")],
   ["36-phone-waste-dark", DEMO + "#view=insights", 390, 760, "dark", cardShot("Where tokens were wasted")],

@@ -1673,7 +1673,7 @@ function renderTimeline(run) {
 
 // ------------------------------------------------------------ view state
 
-const VIEWS = ["timeline", "graph", "insights", "activity", "workfloor", "fleet", "history"];
+const VIEWS = ["timeline", "graph", "insights", "prompts", "activity", "workfloor", "fleet", "history"];
 
 function setView(view) {
   if (VIEWS.indexOf(view) < 0) view = "timeline";
@@ -1734,6 +1734,7 @@ function render() {
   else if (state.view === "fleet") renderFleet();
   else if (state.view === "history") renderHistory();
   else if (state.view === "insights") renderInsights(state.run);
+  else if (state.view === "prompts") renderPrompts(state.run);
   else renderTicker();
 }
 
@@ -2978,8 +2979,8 @@ async function loadSessions() {
 
 const PALETTE_VIEWS = [
   ["timeline", "Timeline", "1"], ["graph", "Graph", "2"], ["insights", "Insights", "3"],
-  ["activity", "Activity", "4"], ["workfloor", "Work Floor", "5"], ["fleet", "Fleet", "6"],
-  ["history", "History", "7"],
+  ["prompts", "Prompts", "4"], ["activity", "Activity", "5"], ["workfloor", "Work Floor", "6"],
+  ["fleet", "Fleet", "7"], ["history", "History", "8"],
 ];
 const palette = { open: false, query: "", items: [], index: 0, remote: null, seq: 0, timer: null, opener: null };
 const PALETTE_SEARCH_DELAY_MS = 160;
@@ -3203,7 +3204,7 @@ function closePalette(keepFocus) {
 
 const SHORTCUTS = [
   [["Ctrl K", "/"], "Search agents, tool calls, files and commands"],
-  [["1", "–", "7"], "Switch view"],
+  [["1", "–", "8"], "Switch view"],
   [["L"], "Pause or resume live updates"],
   [["R"], "Replay the run"],
   [["F"], "Filter agents"],
@@ -3270,7 +3271,7 @@ function onGlobalKey(event) {
     if (live && !live.hidden) live.click();
     return;
   }
-  const index = "1234567".indexOf(key);
+  const index = "12345678".indexOf(key);
   if (index >= 0 && key.length === 1 && viewAvailable(PALETTE_VIEWS[index][0])) setView(PALETTE_VIEWS[index][0]);
 }
 
@@ -3814,11 +3815,14 @@ function insOutcomes(ins) {
     '<div class="metrics">' + metrics.join("") + "</div>" + prs + commits, "wide");
 }
 
-// Your prompts: one row per message you sent, how long it ran, where that time went
-// (waiting on you, agents and tools running, Claude itself) and what it set off.
-function insPrompts(ins) {
-  const p = ins.prompts;
-  if (!p) return "";
+// ---------------------------------------------------------------- prompts
+//
+// The Prompts tab: one row per message you sent, how long the work it started took,
+// where that time went (waiting on you, agents and tools running, Claude itself) and
+// what it set off. A row opens to the full prompt, the agents it launched (each opens
+// its panel), the files it edited and its commits. Open rows stay open across polls.
+
+function promptsHtml(p, run) {
   const money = p.top.by === "cost";
   const metrics = [insMetric(p.prompts, p.prompts === 1 ? "prompt" : "prompts"),
     insMetric(p.median_s !== null && p.median_s !== undefined ? fmtDuration(p.median_s) : "—", "typical time per prompt")];
@@ -3826,16 +3830,38 @@ function insPrompts(ins) {
     metrics.push(insMetric(fmtPct(p.top.share), "of this session's " + (money ? "cost" : "fresh tokens") +
       " went to prompt #" + p.top.n));
   }
+  const names = {};
+  for (const a of (run && run.agents) || []) names[a.agent_id] = a;
+  const open = state.openPrompts || new Set();
   const pct = (part, whole) => (whole > 0 ? Math.max(0, part / whole * 100) : 0).toFixed(1);
   const rows = '<ol class="prompt-list">' + p.rows.map((r) => {
     const total = r.split.claude + r.split.work + r.split.you;
     const words = fmtDuration(r.split.claude) + " Claude itself, " + fmtDuration(r.split.work) +
       " agents and tools, " + fmtDuration(r.split.you) + " waiting on you";
+    const spend = r.cost !== null && r.cost !== undefined ? fmtMoney(r.cost, p.currency) : fmtCount(r.tokens) + " tokens";
     const what = [r.agents + (r.agents === 1 ? " agent" : " agents"), r.files + (r.files === 1 ? " file" : " files")];
     if (r.commits) what.push(r.commits + (r.commits === 1 ? " commit" : " commits"));
-    what.push(r.cost !== null && r.cost !== undefined ? fmtMoney(r.cost, p.currency) : fmtCount(r.tokens) + " tokens");
-    return '<li><span class="prompt-n">#' + esc(r.n) + "</span>" +
-      '<span class="prompt-main"><b title="' + esc(r.prompt) + '">' + esc(r.prompt) + "</b>" +
+    what.push(spend);
+    const agents = (r.agent_ids || []).map((id) => {
+      const a = names[id];
+      return '<span class="prompt-agent" data-agent="' + esc(id) + '" role="button" tabindex="0">' +
+        '<i class="dot" style="background:' + statusVar(a ? a.status : "unknown") + '"></i>' +
+        esc(a ? a.description || id : id) + "</span>";
+    }).join("") + (r.agents > (r.agent_ids || []).length
+      ? '<span class="prompt-more-n">+' + esc(r.agents - r.agent_ids.length) + " more</span>" : "");
+    const files = (r.file_names || []).map((f) => '<span title="' + esc(f) + '">' + esc(fileLabel(f)) + "</span>").join("") +
+      (r.files > (r.file_names || []).length ? '<span class="prompt-more-n">+' + esc(r.files - r.file_names.length) + " more</span>" : "");
+    const commits = (r.commit_list || []).map((c) =>
+      "<span><code>" + esc(c.sha || "—") + "</code> " + esc(c.message || "(no message seen)") + "</span>").join("");
+    const detail = '<div class="prompt-detail"><p class="prompt-full">' + esc(r.prompt) + "</p><dl>" +
+      "<dt>time</dt><dd>" + esc(fmtDuration(r.seconds) + (r.ongoing ? " so far" : "") + ": " + words) + "</dd>" +
+      "<dt>agents</dt><dd>" + (agents || "none") + "</dd>" +
+      "<dt>files</dt><dd>" + (files || "none") + "</dd>" +
+      (commits ? "<dt>commits</dt><dd>" + commits + "</dd>" : "") +
+      "<dt>" + (r.cost !== null && r.cost !== undefined ? "cost" : "tokens") + "</dt><dd>" + esc(spend) + "</dd></dl></div>";
+    return '<li><details data-prompt="' + esc(r.n) + '"' + (open.has(String(r.n)) ? " open" : "") + "><summary>" +
+      '<span class="prompt-n">#' + esc(r.n) + "</span>" +
+      '<span class="prompt-main"><b>' + esc(r.prompt) + "</b>" +
       "<small>" + esc(fmtClock(r.at) + (r.source === "suggestion_accepted" ? " · accepted suggestion"
         : r.source === "queued" ? " · queued" : "")) + "</small></span>" +
       '<span class="prompt-time"><strong>' + esc(fmtDuration(r.seconds) + (r.ongoing ? " so far" : "")) + "</strong>" +
@@ -3843,15 +3869,40 @@ function insPrompts(ins) {
       '<i class="split-claude" style="width:' + pct(r.split.claude, total) + '%"></i>' +
       '<i class="split-work" style="width:' + pct(r.split.work, total) + '%"></i>' +
       '<i class="split-you" style="width:' + pct(r.split.you, total) + '%"></i></span></span>' +
-      '<span class="prompt-what">' + esc(what.join(" · ")) + "</span></li>";
+      '<span class="prompt-what">' + esc(what.join(" · ")) + "</span></summary>" + detail + "</details></li>";
   }).join("") + "</ol>";
   const legend = '<p class="split-legend"><span><i class="split-claude"></i>Claude itself</span>' +
     '<span><i class="split-work"></i>agents and tools running</span><span><i class="split-you"></i>waiting on you</span></p>';
   return insCard("Your prompts",
     "Each message you sent, how long the work it started took, and what it set off. Agents, files and commits " +
     "count toward the prompt that was current when they started. Each moment of the time bar counts once: " +
-    "waiting on you first, then agents and tools, then Claude itself.",
+    "waiting on you first, then agents and tools, then Claude itself. Open a prompt for its details.",
     '<div class="metrics">' + metrics.join("") + "</div>" + legend + rows, "wide");
+}
+
+function renderPrompts(run) {
+  const box = $("prompts");
+  if (!box) return;
+  const p = run.insights && run.insights.prompts;
+  if (!p) {
+    box.innerHTML = insCard("Your prompts", "", insEmpty(run.replay_at !== undefined
+      ? "Prompts describe the whole session. Leave replay to see them."
+      : "No prompts recorded in this session yet. Each message you send appears here with what it set off."), "wide");
+    return;
+  }
+  if (!state.openPrompts) state.openPrompts = new Set();
+  box.innerHTML = promptsHtml(p, run);
+  for (const d of box.querySelectorAll("details[data-prompt]")) {
+    d.ontoggle = () => {
+      if (d.open) state.openPrompts.add(d.getAttribute("data-prompt"));
+      else state.openPrompts.delete(d.getAttribute("data-prompt"));
+    };
+  }
+  for (const el of box.querySelectorAll("[data-agent]")) {
+    const openAgent = () => openDrawer(el.getAttribute("data-agent"));
+    el.onclick = openAgent;
+    el.onkeydown = (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openAgent(); } };
+  }
 }
 
 // Why the prompt cache was written again, in words.
@@ -4019,7 +4070,7 @@ function renderInsights(run) {
     return;
   }
   const width = Math.max(320, (box.clientWidth || 960) - 38);
-  box.innerHTML = insParallelism(ins, width) + insPrompts(ins) + insCritical(ins) + insOutcomes(ins) + insChecks(ins) + insWaits(ins, run) + insWaste(ins) + insChanges(ins) + insContext(ins) + insTools(ins) +
+  box.innerHTML = insParallelism(ins, width) + insCritical(ins) + insOutcomes(ins) + insChecks(ins) + insWaits(ins, run) + insWaste(ins) + insChanges(ins) + insContext(ins) + insTools(ins) +
     insTokens(ins, run) + insSpend(run) + insSlowest(ins) + insFiles(ins);
   for (const el of box.querySelectorAll("[data-agent]")) {
     const open = () => openDrawer(el.getAttribute("data-agent"));

@@ -65,7 +65,7 @@ class TestPrompts(unittest.TestCase):
         cmd = you(1, "<command-name>/cuelight:open</command-name>\n<command-message>cuelight:open</command-message>\n"
                      "<command-args>stop</command-args>")
         self.assertEqual(T.prompt_of(cmd), "/cuelight:open stop")
-        long = T.prompt_of(you(1, "use " + fake.GITHUB_TOKEN + " " + "word " * 80))
+        long = T.prompt_of(you(1, "use " + fake.GITHUB_TOKEN + " " + "word " * 200))
         self.assertLessEqual(len(long), T.MAX_PROMPT)
         self.assertTrue(long.endswith("…"))
         self.assertNotIn("ABCDEFGHIJKLMNOP", long)
@@ -130,6 +130,8 @@ class TestSummary(unittest.TestCase):
         plan, build = s["rows"]
         self.assertEqual((plan["agents"], plan["files"], plan["commits"]), (1, 2, 0))
         self.assertEqual((build["agents"], build["files"], build["commits"]), (1, 1, 1))
+        self.assertEqual(plan["file_names"], ["/p/plan.md", "/p/x.py"])
+        self.assertEqual(build["commit_list"], [{"sha": "", "message": ""}])
         self.assertEqual(build["seconds"], 80)          # until its agent finished
 
     def test_cost_and_the_most_expensive_prompt(self):
@@ -187,28 +189,51 @@ class TestBuiltAndShown(unittest.TestCase):
             self.skipTest("node is not on PATH")
         return ui
 
-    def test_the_card(self):
+    FNS = ("esc", "fmtDuration", "fmtCount", "fmtPct", "fmtMoney", "fmtClock", "statusVar", "insMetric",
+           "insCard", "insEmpty", "fileLabel", "promptsHtml")
+
+    def tab(self, mutate=None, events=True):
         ui = self.ui()
-        html = ui.card(ui.render_insights(ui.demo_run(events=True)), "Your prompts")
+        summary = ui.demo_run(mutate, events=events)
+        return ui.run_js(self.FNS, [], "console.log(JSON.stringify(promptsHtml(%s, %s)));"
+                         % (json.dumps(summary["insights"]["prompts"]), json.dumps(summary)))
+
+    def test_the_tab(self):
+        html = self.tab()
         self.assertIn("Design looks good. Build it", html)
         self.assertIn("of this session&#39;s cost went to prompt #3", html)
         self.assertIn("1m 14s waiting on you", html)
         self.assertIn('class="split-you"', html)
+        self.assertIn('<details data-prompt="2">', html)
+        self.assertIn("Implement the cart service", html)        # an agent it launched, by name
+        self.assertIn('data-agent="a', html)
         for bad in ("NaN", "undefined", "null"):
             self.assertNotIn(bad, html)
 
     def test_hostile_prompts_are_text(self):
-        ui = self.ui()
         evil = '"><img src=x onerror=alert(1)>'
 
         def hit(summary):
             p = summary["insights"]["prompts"]
             p["top"]["prompt"] = evil
             for r in p["rows"]:
-                r["prompt"], r["source"] = evil, evil
-        html = ui.card(ui.render_insights(ui.demo_run(hit)), "Your prompts")
-        self.assertNotIn("<img", html)
+                r["prompt"], r["source"], r["file_names"] = evil, evil, [evil]
+                r["commit_list"] = [{"sha": evil, "message": evil}]
+            for a in summary["agents"]:
+                a["description"] = evil
+        self.assertNotIn("<img", self.tab(hit))
 
+    def test_it_is_a_tab_of_its_own_and_not_an_insights_card(self):
+        ui = self.ui()
+        js, html = ui.read("app.js"), ui.read("index.html")
+        self.assertIn('data-view="prompts"', html)
+        self.assertIn('id="view-prompts"', html)
+        self.assertIn('["prompts", "Prompts", "4"]', js)
+        self.assertIn('"12345678".indexOf(key)', js)
+        self.assertNotIn("Your prompts", ui.render_insights(ui.demo_run()))
+        from orchestra import report
+        i = report._SHELL.index('data-view="prompts"')
+        self.assertNotIn("hidden", report._SHELL[i - 60:i])   # static reports keep it
 
 if __name__ == "__main__":
     unittest.main()
