@@ -6,6 +6,17 @@ versions follow [SemVer](https://semver.org/) (the `version` in
 
 ## [Unreleased]
 
+## [0.21.2] - 2026-10-09
+
+### Fixed
+- **No credential-shaped text in any shipped file (again).** The plugin directory held 0.21.0 for
+  "Secret in a shipped file": a loop-detection test (`tests/test_runaway.py`) had a fake
+  `Authorization: Bearer …` header written out in a curl command. It is now built at run time from
+  `tests/fake_secrets.py` like every other fake credential, and an old planning document's fake Bearer
+  token and password are now obvious placeholders. The check that keeps such text out of the repository
+  (`test_directory_readiness`) now also looks for Bearer and Basic values, password and AWS secret
+  assignments, quoted keys and tokens, and passwords inside URLs, so this fails the tests first next time.
+
 ## [0.21.1] - 2026-10-09
 
 ### Fixed

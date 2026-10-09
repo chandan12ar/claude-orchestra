@@ -43,9 +43,16 @@ Tabs: Timeline, Graph, Insights, Prompts, Activity, Work Floor, Fleet, History.
 
 ## 4. Still open
 - **Next, in order (when work resumes):**
-  1. Owner merges #35 (docs), then #36 (0.21.1 focus fix) once its CI is green.
+  1. Owner merges #35 (docs), then #36 (0.21.1 focus fix; CI green 10/10), then #37 (0.21.2).
+     **#37 unblocks the directory:** 0.21.0 was held for "Secret in a shipped file" (a literal
+     Bearer token in `tests/test_runaway.py`). After merging, "Check for new commits" in the portal
+     rescans at once instead of within ~6 h.
   2. GitHub Release v0.21.1 (notes from CHANGELOG 0.18.0-0.21.1), owner's yes first.
-  3. Agent teams (teammates): needs one real team run from the owner to build against.
+  3. **Name the pending call on a permission prompt** (0.22.0): proposed, design not yet shown
+     (the owner paused work 2026-10-09 before it was). Show a short design and wait for the
+     go-ahead. Real-data basis in `PROGRESS.md` "Resumed".
+  4. Agent teams (teammates): needs one real team run from the owner to build against
+     (re-checked 2026-10-09: none on this machine yet).
   - Done: keyboard focus across live refreshes (#36). It went wider than the Prompts and Insights
     tabs: Spend's toggle and links, Work Floor, Fleet and History lost focus the same way; one shared
     `noteFocus`/`restoreFocus` now covers all of them, Agents included. The older proposed session
@@ -55,8 +62,9 @@ Tabs: Timeline, Graph, Insights, Prompts, Activity, Work Floor, Fleet, History.
 - **Unverified:** agent teams (teammates): no handling, and no team run in the local
   transcripts to test against; `bin/cuelight` launcher's permission prompt in a live Claude
   Code; the API-error hook fields `error_type`/`error_message` (docs only).
-- **Known gaps:** `agent_type` is empty on `agent_stop`; the permission notification carries no
-  tool name; history records only sessions that were viewed or scanned.
+- **Known gaps:** the permission notification often carries no tool name (item 3 above); history
+  records only sessions that were viewed or scanned. (`agent_type` is empty on `agent_stop`, but
+  nothing reads it: agent types come from the transcripts.)
 - **Ideas not started:** Fleet ticker.
 - **File size:** the plugin directory takes no non-image file over 256 KiB. `app.js` is ~234 KiB in
   a CRLF checkout (239,706 bytes at 0.21.1); put new tab-sized views in `static/tabs.js` (`test_directory_readiness` fails

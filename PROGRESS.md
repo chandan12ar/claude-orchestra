@@ -234,4 +234,32 @@ Insights fold buttons, (3) agent teams once the owner provides a real team run.
 
 | # | Item | State |
 |---|---|---|
-| 1 | **Keyboard focus across live refreshes** (`fix/keep-focus-on-refresh`, 0.21.1, stacked on #35). Not only Prompts and Insights: Spend's split toggle and agent links, Work Floor cards, Fleet rows and History rows lost focus on every redraw too. One helper (`noteFocus`/`restoreFocus` in `app.js`) now brackets every `innerHTML` redraw, Agents and the Spend chart included. `tests/test_focus_ui.py` (20 tests) redraws each view over a parsing DOM stub; checked in a real browser on the demo (each control replaced, focus on its replacement; a real poll 1.2 s in kept it; Tab continues from the right chip; the Spend chart keeps focus and its reading) | PR #36, CI pending |
+| 1 | **Keyboard focus across live refreshes** (`fix/keep-focus-on-refresh`, 0.21.1, stacked on #35). Not only Prompts and Insights: Spend's split toggle and agent links, Work Floor cards, Fleet rows and History rows lost focus on every redraw too. One helper (`noteFocus`/`restoreFocus` in `app.js`) now brackets every `innerHTML` redraw, Agents and the Spend chart included. `tests/test_focus_ui.py` (20 tests) redraws each view over a parsing DOM stub; checked in a real browser on the demo (each control replaced, focus on its replacement; a real poll 1.2 s in kept it; Tab continues from the right chip; the Spend chart keeps focus and its reading) | PR #36, CI green (10/10, run 37917810689) |
+
+Checked while picking the next item (real data, read-only):
+- **Agent teams:** still no team run on this machine (no `TeamCreate` call in any transcript, no
+  `~/.claude/teams`). Blocked on the owner.
+- **`agent_type` empty on `agent_stop`:** nothing reads it; agent types come from the transcripts.
+  No visible effect, so it is not worth a fix.
+- **Permission prompts without a tool name:** all 4 real prompts in the local event spool have exactly
+  one open tool call (a `tool_use` with no result yet) in the session's transcripts, written 6.2-6.5 s
+  before the notification. Claude Code now sometimes names the tool in the message ("Claude needs your
+  permission to use AskUserQuestion", 1 of 4); older messages do not. So the dashboard can name the
+  pending call (tool and command or file) from the transcript. Not built; the design is not yet shown.
+
+**Paused here (2026-10-09, owner's request).** Nothing in flight beyond PRs #35 and #36 (both
+open, #36 CI green). Next: `RESUME.md` section 4.
+
+**Directory hold on 0.21.0 (owner showed the portal, 2026-10-09).** Status "Needs changes", one
+blocking finding: Secret in a shipped file, `tests/test_runaway.py` (`SECRET_IN_SCRIPT`). Cause: a
+fake `Authorization: Bearer <32 chars>` in a curl command, written out in a loop test. Our guard
+(`TestNoSecretShapedText`) only knew key formats (sk-, ghp_, AKIA, JWT, PEM), not values after a
+header or a name. Fixed in `fix/no-secret-in-tests` (0.21.2, PR #37, stacked on #36): the test uses
+`fake_secrets.BEARER_HEADER`; an old plan doc's fake Bearer token and password became `<fake-...>`
+placeholders; the guard now also matches Bearer/Basic values, password and AWS secret assignments,
+quoted key/token assignments and URL credentials (shown to fail on the old files). Warnings in the
+same review, not blocking: `orchestra/static/agent-sprite.png` "couldn't inspect" (it has no text
+chunks, only IHDR/IDAT/IEND; 1.46 MB, so size is the likely reason); image/font the code could run x9,
+credential from the user's machine x5, unrecognized plugin.json field x3 (seen before); a
+download-and-run command read from the screenshot `docs/evidence/screenshots/52-phone-agents-dark.png`
+(documentation only, no change needed); uses hooks (information).
