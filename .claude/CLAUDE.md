@@ -15,15 +15,16 @@ vanilla JS front end, **no build step, no network egress**. Package name is
 Positioning: **the observability and control plane for Claude Code multi-agent
 work** = the record (transcripts) + the live truth (hooks), across all sessions.
 
-- Branch for this work: `feature/live-events` (merge to the default branch later).
+- One branch, one PR and one minor version per feature; `main` changes only by a
+  PR the owner merges. Show a short design for new feature work before building it.
 - **Out of scope for now (owner decision): dashboard approve/deny** and any
   other-agent adapter (Gemini/Cursor). Do not build them; revisit later.
   Approvals, if ever built, are a *separate opt-in plugin* with an audit log.
 - Phases (details in `docs/ROADMAP.md`, live status in `PROGRESS.md`):
   0 Foundations/bug fixes -> 1 Event layer (hooks) -> 2 Attention (pill, sounds,
-  cost) -> 4 History/replay/export. **All five phases are built on this branch.**
-  What is left is in `PROGRESS.md` under "Open items" (first: verify hook payload
-  field names against a live Claude Code session).
+  cost) -> 4 History/replay/export, then two research-led rounds of five features
+  and "Insights at a glance". **All merged (0.17.0).** What is left: `RESUME.md`
+  section 4.
 
 ## Working rules the owner set (follow exactly)
 
@@ -34,7 +35,8 @@ work** = the record (transcripts) + the live truth (hooks), across all sessions.
 3. If the owner says "stop": commit and push all work, update `PROGRESS.md`
    with exactly where we stopped and what is next, push, and end.
 4. Keep this file and `PROGRESS.md` current — they are how context survives.
-5. Push only to `feature/live-events` (never force-push, never rewrite history).
+5. Push only to your feature branch, never to `main` (never force-push, never
+   rewrite history). Read the PR's CI and say it is green before asking for a merge.
 
 ## Invariants that must not regress
 
