@@ -425,6 +425,24 @@ main { padding: 16px 20px 32px; max-width: 1760px; margin: 0 auto; outline: none
 .ticker-agent { color: var(--muted); flex: none; max-width: 28%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ticker-tool { font-weight: 650; flex: none; }
 .ticker-target { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The Activity search: a bar above the list, matched text marked, the current match outlined. */
+.calls-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 10px; }
+.calls-bar input[type="search"] { flex: 1 1 320px; min-width: 0; max-width: 560px; height: 34px; padding: 0 12px;
+  border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--panel); color: var(--ink); font: inherit; }
+.calls-bar input[type="search"]::placeholder { color: var(--faint); }
+.calls-bar input[type="search"]:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+.calls-count { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.call-row mark { background: none; color: var(--ink); font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+.call-row.current { background: var(--panel-2); box-shadow: inset 3px 0 0 var(--ink); }
+.call-count { flex: none; color: var(--muted); }
+.call-failed { flex: none; color: var(--failed); font-weight: 650; }
+@media (max-width: 760px) {
+  /* On a phone a row wraps: time, agent and tool on the first line, the whole command under it. */
+  .ticker-row { flex-wrap: wrap; row-gap: 2px; }
+  .ticker-agent { max-width: calc(100% - 190px); }
+  .ticker-target { order: 2; flex: 1 1 100%; padding-left: 74px; white-space: normal; overflow-wrap: anywhere; }
+  .call-count, .call-failed { order: 1; }
+}
 
 .evidence { margin-top: 12px; padding: 12px 14px; background: var(--panel); border: 1px solid var(--line);
   border-radius: var(--r-md); }

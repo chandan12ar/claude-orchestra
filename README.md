@@ -251,7 +251,13 @@ You can try every one of these without a real run: `python -m orchestra --demo`.
   `0` to fit; hover an agent to fade everything unrelated to it. A newly-detected handoff flashes a dot
   traveling the edge the moment it happens.
 - **Activity** — a merged, live, newest-first feed of tool calls across every
-  running agent, click-through to the agent it came from.
+  running agent, click-through to the agent it came from. Its search box looks
+  through every tool call the run made, finished agents included: by tool, file,
+  command or agent, or only the calls that failed. Matches are marked, repeats of
+  one call show as one row with a count and how many failed, and Enter steps
+  through them (Shift+Enter back, Escape clears).
+
+  ![The Activity search, light theme: "npm" matched in 41 calls across agents, repeats counted, failures in red, the second row outlined](docs/evidence/screenshots/56-activity-search-light.png)
 - **Work Floor** — every agent as a small pixel-art sprite, animated by its
   status (idle, running, waving on completion, a one-shot jump burst the
   moment it finishes), tinted a stable per-agent hue so a busy floor still

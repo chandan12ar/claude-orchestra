@@ -15,6 +15,7 @@ MIN_QUERY = 2
 MAX_QUERY = 200
 MAX_SCANNED_CALLS = 20000
 LIMITS = {"agents": 12, "tools": 30, "files": 15}
+CALL_ROWS = 300             # the Activity tab's search shows at most this many rows
 
 
 def _terms(query: str) -> List[str]:
@@ -83,4 +84,45 @@ def search(run: Run, query: str) -> Dict[str, Any]:
     if len(rows) > LIMITS["files"]:
         out["truncated"] = True
     out["files"] = rows[:LIMITS["files"]]
+    return out
+
+
+def calls(run: Run, query: str, failed_only: bool = False) -> Dict[str, Any]:
+    """The Activity tab's search: every tool call in the run whose tool, target or agent matches
+    (scrubbed text only, as above), or every failed one. Identical calls by one agent are one row
+    with a count, how many of them failed, and the latest one's time and result. Newest first;
+    `matched` counts calls, not rows."""
+    query = (query or "").strip()[:MAX_QUERY]
+    out: Dict[str, Any] = {"query": query, "failed_only": bool(failed_only), "rows": [], "matched": 0,
+                           "truncated": False}
+    terms = _terms(query)
+    if not failed_only and (len(query) < MIN_QUERY or not terms):
+        return out
+    scanned = 0
+    merged: Dict[Any, Dict[str, Any]] = {}
+    for agent in run.agents:
+        label = scrub(agent.description)
+        for call in reversed(agent.tool_calls):          # newest first, so the first seen is the latest
+            scanned += 1
+            if scanned > MAX_SCANNED_CALLS:
+                out["truncated"] = True
+                break
+            if failed_only and call.ok is not False:
+                continue
+            target = scrub(call.target)
+            if terms and not _hit(terms, call.name, target, label):
+                continue
+            out["matched"] += 1
+            key = (agent.agent_id, call.name, target)
+            row = merged.get(key)
+            if row is None:
+                row = merged[key] = {"agent_id": agent.agent_id, "description": label, "tool": call.name,
+                                     "target": target, "timestamp": call.timestamp, "ok": call.ok,
+                                     "count": 0, "failed": 0}
+            row["count"] += 1
+            row["failed"] += 1 if call.ok is False else 0
+    rows = sorted(merged.values(), key=lambda r: -(r["timestamp"] or 0))
+    if len(rows) > CALL_ROWS:
+        out["truncated"] = True
+    out["rows"] = rows[:CALL_ROWS]
     return out

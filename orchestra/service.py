@@ -188,6 +188,10 @@ class OrchestraService:
     def search(self, query: str, session_id: str = "") -> Dict[str, Any]:
         return search_mod.search(self._builder(session_id).refresh(), query)
 
+    def calls(self, query: str, failed_only: bool = False, session_id: str = "") -> Dict[str, Any]:
+        """The Activity tab's search over every tool call in the run."""
+        return search_mod.calls(self._builder(session_id).refresh(), query, failed_only)
+
     def history_list(self, limit: int = 50) -> Dict[str, Any]:
         if self.history is None:
             return {"enabled": False, "runs": [], "error": ""}

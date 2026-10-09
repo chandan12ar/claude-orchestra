@@ -1,4 +1,4 @@
-// Cuelight: the views that are tabs of their own (Prompts, Agents, Spend).
+// Cuelight: the views that are tabs of their own (Prompts, Agents, Spend) and the Activity search.
 //
 // Loaded after app.js, whose globals (state, esc, insCard, openDrawer...) these use; app.js's
 // render() calls renderPrompts, renderAgents and renderSpend. Split out so neither file
@@ -511,4 +511,179 @@ function renderSpend(run) {
   // put back directly, since a focus event does not fire while the window is in the background.
   if (hadFocus) svg.focus({ preventScroll: true });
   if (reading !== null && reading !== undefined) show(reading);
+}
+
+// --------------------------------------------------------- activity search
+//
+// The Activity tab's search: every tool call the run made, not only the live tail, matched on
+// tool, file or command and agent, or only the failed ones. The server matches scrubbed text
+// (/api/calls); a static report runs the same rules over the details baked into it (localCalls).
+// Enter steps to the next match, Shift+Enter back, Escape clears.
+
+function activitySearching() {
+  return String(state.callQuery || "").trim().length >= 2 || !!state.callFailed;
+}
+
+// Text with every search term marked, case-insensitively; each piece escaped on its own.
+function markTerms(text, query) {
+  const raw = String(text || "");
+  const lower = raw.toLowerCase();
+  const terms = String(query || "").toLowerCase().split(/\s+/).filter(Boolean);
+  const hit = new Array(raw.length).fill(false);
+  for (const term of terms) {
+    for (let at = lower.indexOf(term); at >= 0; at = lower.indexOf(term, at + 1)) {
+      for (let i = at; i < at + term.length; i++) hit[i] = true;
+    }
+  }
+  let out = "";
+  let i = 0;
+  while (i < raw.length) {
+    let j = i;
+    while (j < raw.length && hit[j] === hit[i]) j++;
+    out += hit[i] ? "<mark>" + esc(raw.slice(i, j)) + "</mark>" : esc(raw.slice(i, j));
+    i = j;
+  }
+  return out;
+}
+
+// The same rules as orchestra/search.py calls(), over a static report's baked-in details.
+function localCalls(query, failedOnly) {
+  query = String(query || "").trim().slice(0, 200);
+  const out = { query, failed_only: !!failedOnly, rows: [], matched: 0, truncated: false };
+  const terms = query.toLowerCase().split(/\s+/).filter(Boolean).slice(0, 8);
+  if (!failedOnly && (query.length < 2 || !terms.length)) return out;
+  const details = (typeof window !== "undefined" && window.ORCHESTRA_DETAILS) || {};
+  const merged = new Map();
+  let scanned = 0;
+  for (const a of (state.run && state.run.agents) || []) {
+    const d = details[a.agent_id];
+    if (!d) continue;
+    const label = d.description || a.description || "";
+    const calls = d.tool_calls || [];
+    for (let i = calls.length - 1; i >= 0; i--) {
+      if (++scanned > 20000) { out.truncated = true; break; }
+      const c = calls[i];
+      if (failedOnly && c.ok !== false) continue;
+      const target = c.target || "";
+      const hay = [c.name, target, label].join(" ").toLowerCase();
+      if (terms.length && !terms.every((t) => hay.includes(t))) continue;
+      out.matched += 1;
+      const key = JSON.stringify([a.agent_id, c.name, target]);
+      let row = merged.get(key);
+      if (!row) {
+        row = { agent_id: a.agent_id, description: label, tool: c.name, target, timestamp: c.timestamp,
+          ok: c.ok === undefined ? null : c.ok, count: 0, failed: 0 };
+        merged.set(key, row);
+      }
+      row.count += 1;
+      if (c.ok === false) row.failed += 1;
+    }
+  }
+  const rows = [...merged.values()].sort((p, q) => (q.timestamp || 0) - (p.timestamp || 0));
+  if (rows.length > 300) out.truncated = true;
+  out.rows = rows.slice(0, 300);
+  return out;
+}
+
+function callsCount(res) {
+  if (!res.rows.length) return "No tool call matches";
+  const n = res.matched;
+  let text = n + " " + (res.failed_only ? "failed call" : "call") + (n === 1 ? "" : "s") +
+    (res.query ? (n === 1 ? " matches" : " match") : "");
+  if (res.truncated) text += " · showing the newest " + res.rows.length + " rows";
+  const at = state.callAt;
+  if (at !== null && at !== undefined && at >= 0 && at < res.rows.length) text += " · row " + (at + 1) + " of " + res.rows.length;
+  return text;
+}
+
+function callsHtml(res) {
+  if (!res.rows.length) {
+    return '<div class="ticker-empty">' + esc(res.failed_only && !res.query ? "No tool call failed in this run."
+      : "No tool call matches. Try fewer words, or part of a file name.") + "</div>";
+  }
+  return res.rows.map((r, i) => {
+    const [, cssVar] = toolBucket(r.tool);
+    return '<div class="ticker-row call-row' + (i === state.callAt ? " current" : "") + '" data-agent="' + esc(r.agent_id) +
+      '" data-i="' + i + '">' +
+      '<span class="ticker-time">' + esc(fmtClock(r.timestamp)) + "</span>" +
+      '<span class="ticker-dot" style="background:var(--' + cssVar + ')"></span>' +
+      '<span class="ticker-agent">' + markTerms(r.description, res.query) + "</span>" +
+      '<span class="ticker-tool">' + markTerms(r.tool, res.query) + "</span>" +
+      '<span class="ticker-target">' + markTerms(r.target, res.query) + "</span>" +
+      (r.count > 1 ? '<span class="call-count">×' + esc(r.count) + "</span>" : "") +
+      (r.failed ? '<span class="call-failed">' + esc(r.count > 1 ? r.failed + " failed" : "failed") + "</span>" : "") +
+      "</div>";
+  }).join("");
+}
+
+async function loadCalls() {
+  const seq = (state.callSeq = (state.callSeq || 0) + 1);
+  if (!activitySearching()) {
+    state.callResults = null;
+    renderTicker();
+    return;
+  }
+  let res;
+  try {
+    res = state.offline ? localCalls(state.callQuery, state.callFailed)
+      : await api("/api/calls?q=" + encodeURIComponent(String(state.callQuery || "").trim()) + (state.callFailed ? "&failed=1" : ""));
+  } catch (err) {
+    return;      // a transient failure; the next poll asks again
+  }
+  if (seq !== state.callSeq) return;      // a newer search has been sent since
+  state.callResults = res;
+  if (state.callAt >= res.rows.length) state.callAt = -1;
+  renderTicker();
+}
+
+function renderCalls(box) {
+  const res = state.callResults;
+  const count = $("calls-count");
+  if (!res) {
+    box.innerHTML = '<div class="ticker-empty">Searching…</div>';
+    if (count) count.textContent = "";
+    return;
+  }
+  box.innerHTML = callsHtml(res);
+  if (count) count.textContent = callsCount(res);
+  for (const row of box.querySelectorAll(".call-row")) row.onclick = () => openDrawer(row.dataset.agent);
+}
+
+function setupActivitySearch() {
+  const input = $("calls-q");
+  const failed = $("calls-failed");
+  if (!input || !failed) return;
+  let timer = null;
+  const search = () => { state.callQuery = input.value; state.callAt = -1; loadCalls(); };
+  input.oninput = () => { clearTimeout(timer); timer = setTimeout(search, 160); };
+  input.onkeydown = (event) => {
+    if (event.key === "Escape") {
+      if (input.value || state.callFailed) {
+        event.preventDefault();
+        event.stopPropagation();
+        input.value = "";
+        state.callFailed = false;
+        failed.setAttribute("aria-pressed", "false");
+        clearTimeout(timer);
+        search();
+      }
+      return;
+    }
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    if (input.value !== (state.callQuery || "")) { clearTimeout(timer); search(); return; }
+    const rows = (state.callResults && state.callResults.rows) || [];
+    if (!rows.length) return;
+    const at = state.callAt === null || state.callAt === undefined ? -1 : state.callAt;
+    state.callAt = (at + (event.shiftKey ? -1 : 1) + rows.length) % rows.length;
+    renderTicker();
+    const row = document.querySelector('#ticker .call-row[data-i="' + state.callAt + '"]');
+    if (row && row.scrollIntoView) row.scrollIntoView({ block: "nearest" });
+  };
+  failed.onclick = () => {
+    state.callFailed = !state.callFailed;
+    failed.setAttribute("aria-pressed", String(state.callFailed));
+    state.callAt = -1;
+    loadCalls();
+  };
 }

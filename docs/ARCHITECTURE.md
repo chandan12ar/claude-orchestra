@@ -854,6 +854,15 @@ pure functions in `app.js`, tested under node.
   probe a redacted secret one character at a time. Identical calls by one agent
   collapse into one counted row. A static report searches the details baked into it
   (`localSearch`).
+- **Activity search** (`GET /api/calls?q=&failed=1`, `search.calls`) is the same matching
+  over every tool call in the run (tool, scrubbed target, agent), or only the failed ones
+  (`ToolCall.ok is False`; no query needed then). Identical calls by one agent are one row
+  with `count`, `failed` and the latest one's time and `ok`; newest first; `matched` counts
+  calls; at most `CALL_ROWS` (300) rows, 20,000 calls scanned. In `tabs.js`, `localCalls`
+  applies the same rules to a static report's details (a test checks the two agree on a
+  whole demo run), `markTerms` marks matches piece by piece, each piece escaped, and
+  `renderTicker` hands the list over to `renderCalls` while `activitySearching()`. A live
+  session asks again on every poll.
 - **Demo** (`python -m orchestra --demo`) builds a fixed, seeded 13-agent scenario in a
   temp directory (own `CLAUDE_CONFIG_DIR`, state dir and price file), then a simulator
   thread appends tool calls to the running agents and re-asserts a pending permission

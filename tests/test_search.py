@@ -105,3 +105,61 @@ class TestRepeatedCalls(unittest.TestCase):
         a2 = agent("a2", "two", [("Bash", "npm test")])
         out = search.search(Run(session_id="s", agents=[a1, a2]), "npm test")
         self.assertEqual(sorted(t["agent_id"] for t in out["tools"]), ["a1", "a2"])
+
+
+def calls_agent(aid, desc, calls):
+    """calls: (tool, target, ok, at)"""
+    a = Agent(agent_id=aid, description=desc, status="completed")
+    a.rounds = [Round(started_at=0, ended_at=1)]
+    a.tool_calls = [ToolCall(n, t, at, ok=ok) for n, t, ok, at in calls]
+    return a
+
+
+CALLS_RUN = Run(session_id="s", agents=[
+    calls_agent("a1", "Build the checkout UI", [
+        ("Edit", "/p/src/ui/Checkout.tsx", True, 10), ("Bash", "npm run lint", False, 20),
+        ("Bash", "npm run lint", False, 30), ("Bash", "npm run lint", True, 40)]),
+    calls_agent("a2", "Write the unit tests", [
+        ("Read", "/p/src/ui/Checkout.tsx", True, 15), ("Bash", "npm test", False, 50)]),
+])
+
+
+class TestCalls(unittest.TestCase):
+    """The Activity tab's search: every tool call in the run, not only the live tail."""
+
+    def test_matches_tool_target_and_agent_newest_first(self):
+        out = search.calls(CALLS_RUN, "checkout.tsx")
+        self.assertEqual([(r["agent_id"], r["tool"]) for r in out["rows"]], [("a2", "Read"), ("a1", "Edit")])
+        self.assertEqual(out["matched"], 2)
+        self.assertEqual(search.calls(CALLS_RUN, "unit tests")["matched"], 2)    # by the agent's name
+        self.assertEqual(search.calls(CALLS_RUN, "bash test")["rows"][0]["target"], "npm test")
+
+    def test_identical_calls_collapse_with_a_count_and_their_failures(self):
+        lint = search.calls(CALLS_RUN, "lint")["rows"]
+        self.assertEqual(len(lint), 1)
+        self.assertEqual((lint[0]["count"], lint[0]["failed"], lint[0]["timestamp"]), (3, 2, 40))
+        self.assertTrue(lint[0]["ok"])                 # the latest one worked
+
+    def test_failed_only_needs_no_query(self):
+        out = search.calls(CALLS_RUN, "", failed_only=True)
+        self.assertEqual([(r["target"], r["failed"]) for r in out["rows"]], [("npm test", 1), ("npm run lint", 2)])
+        self.assertEqual(out["matched"], 3)            # failed calls, not rows
+        self.assertEqual(search.calls(CALLS_RUN, "lint", failed_only=True)["matched"], 2)
+
+    def test_short_query_without_failed_only_returns_nothing(self):
+        for q in ("", " ", "a"):
+            out = search.calls(CALLS_RUN, q)
+            self.assertEqual((out["rows"], out["matched"]), ([], 0))
+
+    def test_rows_are_capped_and_say_so(self):
+        many = calls_agent("a3", "Poll", [("Bash", "curl /health?n=%d" % i, True, i) for i in range(500)])
+        out = search.calls(Run(session_id="s", agents=[many]), "health")
+        self.assertEqual(len(out["rows"]), search.CALL_ROWS)
+        self.assertEqual(out["matched"], 500)
+        self.assertTrue(out["truncated"])
+
+    def test_a_secret_in_a_command_is_neither_shown_nor_searchable(self):
+        secret = "sk-ant-api03-" + "Z" * 40
+        run = Run(session_id="s", agents=[calls_agent("a", "deploy", [("Bash", "curl -H " + secret, True, 1)])])
+        self.assertEqual(search.calls(run, "ZZZZZZZZZZ")["rows"], [])
+        self.assertNotIn("ZZZZZZZZZZ", str(search.calls(run, "curl")))

@@ -84,6 +84,15 @@ const spendShot = (byModel) => `(async () => { await new Promise(r => setTimeout
     clientX: r.left + (g.left + 0.7 * g.plotW) / svg.viewBox.baseVal.width * r.width }));
   await new Promise(r => setTimeout(r, 300)); })()`;
 
+// The Activity tab searching every call for "npm", stepped to the second match.
+const activityShot = `(async () => { await new Promise(r => setTimeout(r, 600));
+  const q = document.getElementById('calls-q'); q.value = 'npm'; q.dispatchEvent(new Event('input'));
+  await new Promise(r => setTimeout(r, 700));
+  for (let i = 0; i < 2; i++) q.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  const h = document.querySelector('header').getBoundingClientRect().height;
+  window.scrollTo(0, document.getElementById('view-activity').getBoundingClientRect().top + window.scrollY - h - 12);
+  await new Promise(r => setTimeout(r, 300)); })()`;
+
 // name, url, width, height, colour scheme, optional script run before the shot
 const shots = [
   ["01-timeline-light", DEMO, 1440, 900, "light"],
@@ -158,6 +167,8 @@ const shots = [
   ["53-spend-light", DEMO + "#view=spend", 1440, 1000, "light", spendShot(false)],
   ["54-spend-by-model-dark", DEMO + "#view=spend", 1440, 760, "dark", spendShot(true)],
   ["55-phone-spend-dark", DEMO + "#view=spend", 390, 1300, "dark", spendShot(false)],
+  ["56-activity-search-light", DEMO + "#view=activity", 1440, 620, "light", activityShot],
+  ["57-phone-activity-search-dark", DEMO + "#view=activity", 390, 900, "dark", activityShot],
   ...(NEAR ? [["43-health-context-light", NEAR, 1440, 420, "light",
     `(async () => { await new Promise(r => setTimeout(r, 600)); const h = document.querySelector('header').getBoundingClientRect().height;
       window.scrollTo(0, document.getElementById('health').getBoundingClientRect().top + window.scrollY - h - 12);
