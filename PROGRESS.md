@@ -1,7 +1,8 @@
 # PROGRESS
 
-Branch: `feature/live-events`. Rules: test -> commit -> push after every
-feature; on failure record it here and stop. See `.claude/CLAUDE.md`.
+State on 2026-10-09: 0.17.0 on `main`, every PR through #29 merged, CI green. One branch and PR
+per feature; rules in `.claude/CLAUDE.md`, one-page handoff in `RESUME.md`. The tables below are
+the record of each round, oldest first.
 
 ## Status
 
@@ -49,9 +50,8 @@ plugin rename.
 2. **Confirm plugin hooks reach already-running sessions** or only after reload
    (affects onboarding wording). Docs (per the same lookup, not tested by us) say
    they do NOT: a new/resumed session, `/reload-plugins` or a restart is needed.
-3. **Merge to the default branch / release.** Not done: `feature/live-events`
-   is unmerged; `.claude-plugin/plugin.json` was bumped to `0.2.0` for the PR (the `version`
-   pins installed users). Suggest 0.2.0 at merge; CHANGELOG `[Unreleased]` is ready.
+3. ~~Merge to the default branch / release.~~ **Done** (0.2.0 merged 2026-10-03; every later
+   version shipped by its own PR). Last GitHub Release: v0.10.3.
 4. **Naming: decided, done (0.4.0).** The product, plugin and repo are **Cuelight**
    (`/cuelight:open`, `chandan12ar/cuelight`); a cue light is the lamp that tells a
    performer "now", which is what the dashboard is for. The internal Python package stays
@@ -131,9 +131,8 @@ is wrong. Dollar signs are now avoided/escaped in commit messages.
 
 ## Next step
 
-Everything planned is built and pushed; CI is green through 1960490. Do, in order:
-(1) Open item 1 with a real Claude Code session, (2) open a PR from
-`feature/live-events` and merge, bumping `plugin.json` to 0.2.0.
+(Historical; both steps were done on 2026-10-03.) For what is next now, see `RESUME.md`
+section 4.
 
 ### CI blocked by GitHub billing (2026-10-03, from 6a77988 on) - RESOLVED
 Resolved the same day: once the repository was made public the jobs ran, and every job is green on Linux, macOS and Windows (Python 3.9, 3.12, 3.13) on PRs #1 to #4 and on main. What follows is the record of the incident.
@@ -183,10 +182,10 @@ observability layers and Build 2026. One branch, PR and minor version each, in t
 | # | Feature | State |
 |---|---|---|
 | 1 | **Waiting on you**: time agents sat on permission/input prompts (`feature/waiting-on-you`, 0.6.0) | merged (PR #14) |
-| 2 | **Did it check its work?** (`feature/verified-work`, 0.7.0): checked / failing / unchecked after the last code edit; finished unchecked and failing agents in the Health box (owner's choice) | built; tests, real-transcript check and browser check done; PR open |
-| 3 | **Review the changes** (`feature/change-review`, 0.8.0): per-agent diffs from recorded patches, "What changed" card | built; tests and browser check done; PR open (stacked on #2) |
-| 4 | **What the run produced** (`feature/run-outcomes`, 0.9.0): commits, pushes, PRs, merges, test runs; cost per commit/PR | built; tests and browser check done; PR open (stacked on #3) |
-| 5 | **What each agent was told** (`feature/agent-instructions`, 0.10.0): instruction files and skills per agent, coverage of project rules; read from transcripts, so no new hook | built; tests and browser check done; PR open (stacked on #4) |
+| 2 | **Did it check its work?** (`feature/verified-work`, 0.7.0): checked / failing / unchecked after the last code edit; finished unchecked and failing agents in the Health box (owner's choice) | merged (PR #15) |
+| 3 | **Review the changes** (`feature/change-review`, 0.8.0): per-agent diffs from recorded patches, "What changed" card | merged (PR #16) |
+| 4 | **What the run produced** (`feature/run-outcomes`, 0.9.0): commits, pushes, PRs, merges, test runs; cost per commit/PR | merged (PR #17) |
+| 5 | **What each agent was told** (`feature/agent-instructions`, 0.10.0): instruction files and skills per agent, coverage of project rules; read from transcripts, so no new hook | merged (PR #18) |
 
 ## Second round of five (agreed with the owner 2026-10-08)
 
@@ -201,7 +200,7 @@ taxonomy and similar tools. One branch, PR and minor version each, merged by the
 | 4 | **Context pressure** (`feature/context-pressure`, 0.15.0): Insights card "How full each context got" (main curve with compaction marks, compactions list, agents by peak), agent panel "context" line, Health box item past 80% of the window (main session's opens the card). Windows assumed (1M, Haiku 200k), `ORCHESTRA_CONTEXT_LIMITS` overrides | merged (PR #27) |
 | 5 | **What went wrong** (`feature/errors-retries`, 0.16.0): Insights card with API errors and the time until the API answered again (bursts are one stall, overlaps counted once), failed calls by tool and agent, calls tried again and whether they worked, commands past their timeout; agent panel "errors" line; Health box RETRYING for a live agent failing its latest call 3 times in a row. Dropped: "background commands left running" (completion is reported in ways the transcript does not tie back reliably) | merged (PR #28) |
 
-After the round, at the owner's go-ahead (2026-10-08): **Insights at a glance** (`feature/insights-glance`, 0.17.0). Insights had grown to 15 cards (about 6,500px tall on desktop, 10,000px on a phone), so a strip of chips at the top says what each card found, worst first, and jumps to it; cards fold and stay folded in this browser. Built; tests (`tests/test_glance.py`), real-session and browser checks done; PR open.
+After the round, at the owner's go-ahead (2026-10-08): **Insights at a glance** (`feature/insights-glance`, 0.17.0). Insights had grown to 15 cards (about 6,500px tall on desktop, 10,000px on a phone), so a strip of chips at the top says what each card found, worst first, and jumps to it; cards fold and stay folded in this browser. Merged (PR #29); CI on main green on all 10 jobs.
 
 Still to check: whether Claude Code agent teams (teammates) show up correctly; the code has no
 handling for them yet, and no team run exists in the local transcripts to test against.
