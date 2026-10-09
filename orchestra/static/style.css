@@ -683,6 +683,62 @@ details[open] > summary .prompt-n::before { transform: rotate(90deg); }
 .split-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 6px; font-size: 12px; color: var(--muted); }
 .split-legend span { display: inline-flex; align-items: center; gap: 6px; }
 .split-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+/* Agents: one row each, what it was asked and expected beside what came back. */
+.agents-bar { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px 16px;
+  margin-bottom: 12px; }
+.agents-bar .metrics { margin-bottom: 0; }
+.agents-wrap { overflow-x: auto; }
+.agents-table { width: 100%; min-width: 980px; border-collapse: collapse; table-layout: fixed; font-size: 13px; }
+.agents-table th { padding: 6px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap;
+  font-size: 11.5px; font-weight: 600; color: var(--muted); }
+.agents-table th:nth-child(1) { width: 18%; }
+.agents-table th:nth-child(2), .agents-table th:nth-child(3) { width: 16%; }
+.agents-table th:nth-child(4) { width: 20%; }
+.agents-table th:nth-child(5) { width: 8%; }
+.agents-table th:nth-child(6) { width: 7%; }
+.agents-table th:nth-child(n+7) { width: 5%; text-align: right; }
+.agents-table th button { height: auto; padding: 0; border: 0; background: none; font: inherit; color: inherit; cursor: pointer; }
+.agents-table th button:hover { color: var(--ink); background: none; }
+.agents-table th button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.agents-table th button::after { content: ""; display: inline-block; width: 1.4ch; text-align: right; }
+.agents-table th[aria-sort="ascending"] button::after { content: "\2191"; }
+.agents-table th[aria-sort="descending"] button::after { content: "\2193"; }
+.agents-table th[aria-sort="ascending"], .agents-table th[aria-sort="descending"] { color: var(--ink); }
+.agents-table td { padding: 9px 6px; border-bottom: 1px solid var(--line); vertical-align: top; color: var(--ink-2); }
+.agents-table tbody tr { cursor: pointer; }
+.agents-table tbody tr:hover { background: var(--panel-2); }
+.agents-table tbody tr:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+.agents-table tr.flagged td:first-child { box-shadow: inset 3px 0 0 var(--stalled); padding-left: 10px; }
+.ag-agent b { display: block; font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+.ag-agent small { display: block; margin-top: 2px; font-size: 11.5px; color: var(--muted); }
+.ag-text > span, .ag-text > em { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3;
+  overflow: hidden; overflow-wrap: anywhere; }
+.agents-table .muted { color: var(--muted); font-style: normal; }
+.agents-table .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.agents-table .dot { display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; }
+.ag-check[data-state="failing"] { color: var(--failed); font-weight: 600; }
+.ag-check[data-state="unchecked"] { color: var(--stalled); }
+.flags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.flag { padding: 2px 7px; border: 1px solid currentColor; border-radius: 999px; font-size: 11px; white-space: nowrap; }
+.flag.bad { color: var(--failed); }
+.flag.warn { color: var(--stalled); }
+@media (max-width: 760px) {
+  /* A row becomes a block: the words full width, the small values two to a line. */
+  .agents-table { min-width: 0; table-layout: auto; }
+  .agents-table thead tr { display: flex; flex-wrap: wrap; gap: 2px 14px; }
+  .agents-table th { width: auto !important; padding: 4px 0; border: 0; }
+  .agents-table th:not([aria-sort]) { display: none; }
+  .agents-table tbody, .agents-table td { display: block; }
+  .agents-table tbody tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 14px;
+    padding: 12px 6px; border-top: 1px solid var(--line); }
+  .agents-table td { padding: 0; border: 0; }
+  .agents-table .ag-agent, .agents-table .ag-text { grid-column: 1 / -1; }
+  .agents-table td[data-label]::before { content: attr(data-label); display: block; font-size: 11px; color: var(--muted); }
+  .agents-table td.ag-agent::before { content: none; }
+  .agents-table .num { text-align: left; }
+  .agents-table tr.flagged { box-shadow: inset 3px 0 0 var(--stalled); padding-left: 12px; }
+  .agents-table tr.flagged td:first-child { box-shadow: none; padding-left: 0; }
+}
 .change-total { margin: 0 0 8px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .change { border: 1px solid var(--line); border-radius: var(--r-md); margin: 0 0 6px; background: var(--panel); }
 .change summary { display: flex; align-items: center; gap: 8px; padding: 7px 10px; cursor: pointer; font-size: 13px; }

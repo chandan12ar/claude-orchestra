@@ -93,6 +93,7 @@ try { var t = localStorage.getItem("orchestra-theme");
 <nav class="tabs" role="tablist">
   <button type="button" class="tab active" data-view="timeline" role="tab">Timeline</button>
   <button type="button" class="tab" data-view="graph" role="tab">Graph</button>
+  <button type="button" class="tab" data-view="agents" role="tab">Agents</button>
   <button type="button" class="tab" data-view="insights" role="tab">Insights</button>
   <button type="button" class="tab" data-view="prompts" role="tab">Prompts</button>
   <button type="button" class="tab" data-view="activity" role="tab">Activity</button>
@@ -121,6 +122,9 @@ try { var t = localStorage.getItem("orchestra-theme");
     </div>
     <svg id="graph" role="group" tabindex="0" aria-label="Agent dependency graph. Drag to pan; plus, minus and zero zoom and fit."></svg>
     <div id="edge-evidence" class="evidence" hidden></div>
+  </section>
+  <section id="view-agents" class="view" hidden>
+    <div id="agents" class="agents"></div>
   </section>
   <section id="view-insights" class="view" hidden>
     <div id="insights" class="insights"></div>

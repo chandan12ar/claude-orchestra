@@ -19,13 +19,25 @@ _OUTPUT_HEADINGS = (
     "expected result", "expected results", "report format",
 )
 
+# Headings that open with these words introduce the deliverable too: "When you are done,
+# report back with" (seen on real briefs).
+_OUTPUT_HEADING_STARTS = (
+    "when you are done", "when youre done", "when done", "when finished", "report back",
+    "final message", "final report", "what to report", "how to report",
+)
+
 _OBJECTIVE_HEADINGS = (
     "objective", "objectives", "goal", "goals", "task", "your task",
     "the task", "mission", "purpose", "your job", "task description",
 )
 
+# The specific phrasings real briefs use may also sit behind a list marker ("3. Report back
+# concisely: ..."); a bare "Return" or "Output" step in a list stays an instruction.
 _OUTPUT_IMPERATIVES = re.compile(
-    r"^(return|report|produce|output|deliver|write up|respond with)\b", re.IGNORECASE)
+    r"^(?:(?:return|report|produce|output|deliver|write up|respond with)\b"
+    r"|(?:[-*]\s+|\d+[.)]\s+)?(?:report back|reply with|write (?:your|the) (?:full |final )?report"
+    r"|final (?:message|reply|report|answer|deliverable)|your final (?:message|reply|report|answer)"
+    r"|when (?:you are|you're) (?:done|finished))\b)", re.IGNORECASE)
 
 _OBJECTIVE_IMPERATIVES = re.compile(
     r"^(you are|your job is|your task is|you will)\b", re.IGNORECASE)
@@ -37,14 +49,16 @@ def _normalize_heading(text: str) -> str:
     return re.sub(r"[^a-z0-9 ]", "", text.lower()).strip()
 
 
-def _find_section(brief: str, wanted: Tuple[str, ...]) -> Optional[Tuple[str, str]]:
+def _find_section(brief: str, wanted: Tuple[str, ...],
+                  starts: Tuple[str, ...] = ()) -> Optional[Tuple[str, str]]:
     """Return (section_body, raw_heading) for the first matching heading."""
     lines = brief.splitlines()
     for i, line in enumerate(lines):
         m = _HEADING.match(line)
         if not m:
             continue
-        if _normalize_heading(m.group(2)) not in wanted:
+        name = _normalize_heading(m.group(2))
+        if name not in wanted and not (starts and name.startswith(starts)):
             continue
         level = len(m.group(1))
         body: List[str] = []
@@ -99,7 +113,7 @@ def _fallback(brief: str, description: str) -> Extraction:
 
 def extract_expected_output(brief: str, description: str = "") -> Extraction:
     brief = brief or ""
-    found = _find_section(brief, _OUTPUT_HEADINGS)
+    found = _find_section(brief, _OUTPUT_HEADINGS, _OUTPUT_HEADING_STARTS)
     if found:
         return Extraction(_truncate(found[0]), 'heading "{}"'.format(found[1]))
     imperative = _find_imperative(brief, _OUTPUT_IMPERATIVES)

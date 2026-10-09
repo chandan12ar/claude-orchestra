@@ -65,6 +65,13 @@ const promptShot = (n) => `(async () => { await new Promise(r => setTimeout(r, 6
   window.scrollTo(0, document.getElementById('prompts').getBoundingClientRect().top + window.scrollY - h - 12);
   await new Promise(r => setTimeout(r, 300)); })()`;
 
+// The Agents tab, scrolled to just under the header; optionally only the rows that need a look.
+const agentsShot = (flagged) => `(async () => { await new Promise(r => setTimeout(r, 600));
+  ${flagged ? "document.querySelector('.agents-only').click(); await new Promise(r => setTimeout(r, 200));" : ""}
+  const h = document.querySelector('header').getBoundingClientRect().height;
+  window.scrollTo(0, document.getElementById('agents').getBoundingClientRect().top + window.scrollY - h - 12);
+  await new Promise(r => setTimeout(r, 300)); })()`;
+
 // name, url, width, height, colour scheme, optional script run before the shot
 const shots = [
   ["01-timeline-light", DEMO, 1440, 900, "light"],
@@ -133,6 +140,9 @@ const shots = [
   ["47-glance-light", DEMO + "#view=insights", 1440, 520, "light", glanceShot(false)],
   ["48-glance-folded-dark", DEMO + "#view=insights", 1440, 1100, "dark", glanceShot(true)],
   ["49-phone-glance-dark", DEMO + "#view=insights", 390, 900, "dark", glanceShot(false)],
+  ["50-agents-light", DEMO + "#view=agents", 1440, 1180, "light", agentsShot(false)],
+  ["51-agents-flagged-dark", DEMO + "#view=agents", 1440, 760, "dark", agentsShot(true)],
+  ["52-phone-agents-dark", DEMO + "#view=agents", 390, 1400, "dark", agentsShot(false)],
   ...(NEAR ? [["43-health-context-light", NEAR, 1440, 420, "light",
     `(async () => { await new Promise(r => setTimeout(r, 600)); const h = document.querySelector('header').getBoundingClientRect().height;
       window.scrollTo(0, document.getElementById('health').getBoundingClientRect().top + window.scrollY - h - 12);

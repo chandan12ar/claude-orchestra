@@ -141,6 +141,45 @@ class TestExpectedOutput(unittest.TestCase):
         self.assertIn("Deliverable", e.source)
 
 
+class TestDeliverablePhrasings(unittest.TestCase):
+    """How real briefs say what to hand back (a census of 41 briefs the rules above missed)."""
+
+    def test_final_message_line(self):
+        brief = ("You are the task reviewer for Task 1. Read your instructions at x.md.\n\n"
+                 "- BASE_SHA: 38efa45\n\n"
+                 "Final message: the report itself, beginning with the two verdict lines.\n")
+        e = extract_expected_output(brief, "Review Task 1")
+        self.assertEqual(e.text, "Final message: the report itself, beginning with the two verdict lines.")
+        self.assertEqual(e.source, "imperative line")
+
+    def test_write_your_full_report_to(self):
+        brief = ("You are implementing Task 0, in the repo at E:\\proj.\n\n"
+                 "You do not dispatch subagents.\n\n"
+                 "Write your full report to E:/proj/task-0-report.md (what you did, test counts, commits). "
+                 "Then reply with ONLY a short summary.\n")
+        e = extract_expected_output(brief, "Implement Task 0")
+        self.assertTrue(e.text.startswith("Write your full report to E:/proj/task-0-report.md"))
+
+    def test_when_you_are_done_heading(self):
+        brief = ("You are fixing the parser.\n\n## When you are done, report back with\n\n"
+                 "- the files you changed\n- the test output\n")
+        e = extract_expected_output(brief, "Fix the parser")
+        self.assertEqual(e.text, "- the files you changed\n- the test output")
+        self.assertIn("When you are done", e.source)
+
+    def test_numbered_report_back_step(self):
+        brief = ("You are polishing the header.\n\n1. Read the spec.\n2. Change the CSS.\n"
+                 "3. Report back concisely: what you changed and what you verified.\n")
+        e = extract_expected_output(brief, "Polish the header")
+        self.assertEqual(e.text, "3. Report back concisely: what you changed and what you verified.")
+
+    def test_a_bulleted_return_instruction_is_not_a_deliverable(self):
+        # Only the specific phrasings may sit behind a list marker; a step that
+        # starts with a bare "Return" stays an instruction, as before.
+        brief = "You are tidying the cache.\n\n- Return early when the cache is warm.\n"
+        self.assertEqual(extract_expected_output(brief, "Tidy the cache").source, "not stated")
+
+
 class TestObjective(unittest.TestCase):
     def test_objective_heading(self):
         brief = "## Objective\n\nMake the tests pass.\n\n## Deliverable\n\nA commit.\n"

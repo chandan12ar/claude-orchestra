@@ -5,12 +5,41 @@ finished agent can be resumed with SendMessage. An agent therefore has a list
 of rounds, not a single start and end.
 """
 
-from typing import List, Optional
+import re
+from typing import List, Optional, Tuple
 
 from orchestra import constants as C
 from orchestra.agentlog import AgentDigest
 from orchestra.model import Round
 from orchestra.parent import LaunchRecord, Notification, ResultRecord
+
+# Since Claude Code 2.1.277 an agent hands its report back through a SubagentHandback
+# tool call, and the parent's tool result or task-notification holds only this pointer.
+_HANDBACK_POINTER = re.compile(r"delivered to you as a message from \S+ \(its SubagentHandback call\)")
+# Timestamps come from two files; allow this much skew between them.
+HANDBACK_SLACK_S = 5.0
+
+
+def is_handback_pointer(text: str) -> bool:
+    """The short pointer only, never a real report that happens to mention the tool."""
+    return bool(text) and len(text) < 400 and bool(_HANDBACK_POINTER.search(text))
+
+
+def fill_handbacks(rounds: List[Round], handbacks: List[Tuple[Optional[float], str]]) -> None:
+    """Put back the report a pointer refers to: the latest one handed back by the round's end.
+
+    Not only reports inside the round: the call comes 8-14 s before the parent hears of
+    it, and the same stop is sometimes notified twice, 1 ms apart, making a "round" that
+    starts after its report (both seen on real sessions).
+    """
+    for round_ in rounds:
+        if not is_handback_pointer(round_.result):
+            continue
+        for at, message in handbacks:   # transcript order: the last match is the latest
+            if at is not None and round_.ended_at is not None and at > round_.ended_at + HANDBACK_SLACK_S:
+                continue
+            if message:
+                round_.result = message
 
 
 def _notification_status(raw: str) -> str:

@@ -165,8 +165,9 @@ class TestKeyboard(unittest.TestCase):
         return run_js(body)
 
     def test_number_keys_switch_views(self):
-        out = self.keys({"key": "3"}, {"key": "1"})
-        self.assertEqual(out["calls"], [["view", "insights"], ["view", "timeline"]])
+        out = self.keys({"key": "3"}, {"key": "4"}, {"key": "9"}, {"key": "1"})
+        self.assertEqual(out["calls"], [["view", "agents"], ["view", "insights"], ["view", "history"],
+                                        ["view", "timeline"]])
 
     def test_letters_run_their_commands(self):
         out = self.keys({"key": "t"}, {"key": "r"}, {"key": "?"})
@@ -186,8 +187,8 @@ class TestKeyboard(unittest.TestCase):
 
     def test_a_static_report_ignores_fleet_and_history_keys(self):
         out = run_js("global.window = {}; state.offline = true;"
-                     "onGlobalKey({key: '7', target: {tagName: 'BODY'}, preventDefault() {}});"
                      "onGlobalKey({key: '8', target: {tagName: 'BODY'}, preventDefault() {}});"
+                     "onGlobalKey({key: '9', target: {tagName: 'BODY'}, preventDefault() {}});"
                      "console.log(JSON.stringify(calls));")
         self.assertEqual(out, [])
 

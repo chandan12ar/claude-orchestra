@@ -321,3 +321,93 @@ class TestConcurrentRefreshDoesNotDoubleCount(BuildTestCase):
         final = shared.refresh()
         self.assertEqual(final.totals()["tokens"], expected_tokens)
         self.assertEqual(len(final.agent("a3").tool_calls), expected_calls)
+
+
+def _pointer(agent_id):
+    """What Claude Code (2.1.277+) puts where the report used to be."""
+    return ('This agent\'s report was delivered to you as a message from "{}" '
+            '(its SubagentHandback call). Read it there; it is not repeated here.').format(agent_id)
+
+
+def _handback(message, at, use_id):
+    return agent_entry([{"type": "tool_use", "id": use_id, "name": "SubagentHandback",
+                         "input": {"message": message}}], at)
+
+
+class TestSubagentHandback(unittest.TestCase):
+    """An agent that reports through SubagentHandback: the parent only gets a pointer.
+
+    aaaa0001  background, reports at 58s, resumed, reports again at 198s
+    aaaa0002  launched after aaaa0001, its brief quotes aaaa0001's second report (a handoff)
+    aaaa0003  a real report that merely mentions SubagentHandback stays as it is
+    """
+
+    REPORT = ("Second pass done. The importer now keeps every row whose match is null in the "
+              "errors log instead of the flagged log, the column mapping is resolved per row, "
+              "and the workbook writer preserves the original sheet order. All five new tests "
+              "pass and the full suite is green on the branch, so the next task can start from "
+              "the merged importer without any further changes to the mapping code.")
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        project = os.path.join(self.root, "projects", "E--proj")
+        sub = os.path.join(project, "h", "subagents")
+        session = os.path.join(project, "h.jsonl")
+        from tests.fixtures import background_result, launch, notification
+        mention = "Documented how SubagentHandback replaces the plain final message, with examples."
+        write_jsonl(session, [
+            launch("toolu_h1", "Import rows", "Import the rows.\n", 0),
+            background_result("toolu_h1", "aaaa0001", 1),
+            notification("aaaa0001", "toolu_h1", _pointer("aaaa0001"), 60),
+            notification("aaaa0001", "toolu_h1", _pointer("aaaa0001"), 200),
+            launch("toolu_h2", "Next task", "Start from this:\n\n" + self.REPORT + "\n", 210,
+                   turn="turn-2"),
+            background_result("toolu_h2", "aaaa0002", 211),
+            launch("toolu_h3", "Write docs", "Write the docs.\n", 0, turn="turn-3"),
+            background_result("toolu_h3", "aaaa0003", 1),
+            notification("aaaa0003", "toolu_h3", mention, 50),
+        ])
+        write_jsonl(os.path.join(sub, "agent-aaaa0001.jsonl"), [
+            _handback("First pass: imported 40 rows, 3 flagged.", 58, "hb1"),
+            {"isSidechain": True, "type": "user", "timestamp": ts(120),
+             "message": {"role": "user", "content": "Now handle the null matches."}},
+            _handback(self.REPORT, 198, "hb2"),
+        ])
+        write_jsonl(os.path.join(sub, "agent-aaaa0002.jsonl"), [
+            agent_entry([{"type": "text", "text": "Starting."}], 215)])
+        write_jsonl(os.path.join(sub, "agent-aaaa0003.jsonl"), [
+            _handback("A different message that must not replace the real report.", 49, "hb3")])
+        from orchestra.locate import SessionPaths
+        paths = SessionPaths(session_id="h", session_jsonl=session, subagents_dir=sub,
+                             project_dir=project)
+        now = parse_timestamp(ts(230))
+        os.utime(session, (now, now))
+        self.run_ = RunBuilder(paths, now_fn=lambda: now).refresh()
+
+    def test_the_report_replaces_the_pointer(self):
+        first = self.run_.agent("aaaa0001")
+        self.assertEqual(first.result, self.REPORT)
+        self.assertNotIn("SubagentHandback", first.result)
+
+    def test_each_round_gets_its_own_report(self):
+        rounds = self.run_.agent("aaaa0001").rounds
+        self.assertEqual([r.result for r in rounds[:2]],
+                         ["First pass: imported 40 rows, 3 flagged.", self.REPORT])
+
+    def test_a_repeated_notification_gets_the_same_report(self):
+        # Seen on real sessions: the same stop notified twice, 1 ms apart, so the
+        # second "round" starts 8 s after the report was handed back.
+        from orchestra.model import Round
+        from orchestra.status import fill_handbacks
+        pointer = _pointer("aaaa0001")
+        rounds = [Round(started_at=100.0, ended_at=163.454, result=pointer),
+                  Round(started_at=163.454, ended_at=163.455, result=pointer)]
+        fill_handbacks(rounds, [(155.4, "The report.")])
+        self.assertEqual([r.result for r in rounds], ["The report.", "The report."])
+
+    def test_a_real_report_that_mentions_handback_is_kept(self):
+        self.assertTrue(self.run_.agent("aaaa0003").result.startswith("Documented how SubagentHandback"))
+
+    def test_a_handed_back_report_quoted_in_a_brief_is_a_handoff(self):
+        kinds = {(e.src, e.dst): e.kind for e in self.run_.edges}
+        self.assertIn(("aaaa0001", "aaaa0002"), kinds)

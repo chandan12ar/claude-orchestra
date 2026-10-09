@@ -438,8 +438,26 @@ def _prompt_for(agent: _Agent, by_key: Dict[str, _Agent]) -> str:
         quoted = by_key[key].result
         if quoted:
             parts.append("Context from an earlier agent:\n" + quoted + "\n")
-    parts.append("## Deliverable\n\nReport what you changed and what is left.\n")
+    parts.append("## Deliverable\n\n" + _DELIVERABLES.get(agent.key, "Report what you changed and what is left.") + "\n")
     return "\n".join(parts)
+
+
+# What each brief asks for, so the Agents tab sets it beside what came back.
+_DELIVERABLES = {
+    "audit": "The problems in today's checkout, worst first.",
+    "providers": "One recommended payment provider, with the trade-offs.",
+    "events": "Which analytics events fire during checkout, and which have no consumer.",
+    "design": "An architecture note with the service boundaries and the order to build them.",
+    "cart": "The cart service in src/cart, with its tests passing.",
+    "payments": "A payment adapter for the chosen provider, with its tests passing.",
+    "webhooks": "A webhook handler that verifies signatures and ignores repeats.",
+    "ui": "The new checkout UI behind a feature flag.",
+    "migration": "A reversible migration for payment intents.",
+    "unit": "Unit tests for the cart and payments, all passing.",
+    "e2e": "A green end-to-end run of the whole checkout.",
+    "security": "Security findings, each with a severity and a fix.",
+    "docs": "Developer docs for checkout v2: setup, flags and rollback.",
+}
 
 
 def build_demo(root: str, now: Optional[float] = None,

@@ -22,7 +22,7 @@ from orchestra import insights
 from orchestra.parent import ParentIndex, parse_timestamp
 from orchestra.pricing import PriceSource, PriceTable
 from orchestra.runaway import detect_loop
-from orchestra.status import build_rounds, compute_status
+from orchestra.status import build_rounds, compute_status, fill_handbacks
 from orchestra.transcript import IncrementalReader
 from orchestra import verify
 from orchestra.outcomes import OutcomeLog
@@ -270,6 +270,7 @@ class RunBuilder:
 
         rounds = build_rounds(launch, result, notifications, digest)
         self._apply_stop_event(rounds, digest, live.agent_stops.get(agent_id))
+        fill_handbacks(rounds, digest.handbacks)
         status = compute_status(rounds, digest, now, session_live)
         if status in (C.RUNNING, C.STALLED) and agent_id in live.agent_waiting:
             status = C.WAITING
@@ -290,7 +291,7 @@ class RunBuilder:
                 final_result = round_.result
                 break
         if not final_result and rounds and rounds[-1].ended_at is not None:
-            final_result = digest.final_text
+            final_result = digest.report
 
         shape = meta.get("requestShape")
         launch_mode = "background" if shape == "background" else (
@@ -395,7 +396,7 @@ class RunBuilder:
         last.ended_at = stopped_at
         last.status = C.FAILED if digest.ended_mid_tool else C.COMPLETED
         if not last.result:
-            last.result = digest.final_text
+            last.result = digest.report
 
     def _batches(self, agents: List[Agent]) -> List[Batch]:
         by_tool_use = {a.tool_use_id: a.agent_id for a in agents if a.tool_use_id}
