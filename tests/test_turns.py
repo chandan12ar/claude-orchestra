@@ -190,7 +190,7 @@ class TestBuiltAndShown(unittest.TestCase):
         return ui
 
     FNS = ("esc", "fmtDuration", "fmtCount", "fmtPct", "fmtMoney", "fmtClock", "statusVar", "insMetric",
-           "insCard", "insEmpty", "fileLabel", "promptsHtml")
+           "insCard", "cardKey", "insEmpty", "fileLabel", "promptsHtml")
 
     def tab(self, mutate=None, events=True):
         ui = self.ui()

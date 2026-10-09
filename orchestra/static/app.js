@@ -1442,11 +1442,11 @@ function renderHealth(run) {
   // A context near its window is about to be compacted (orchestra/pressure.py).
   const pressure = run.insights && run.insights.pressure;
   for (const near of (pressure && pressure.near) || []) {
-    items.push({ id: near.agent_id, kind: "context", card: "pressure",
+    items.push({ id: near.agent_id, kind: "context", card: "how-full-each-context-got",
       text: "CONTEXT " + fmtPct(near.fill) + " FULL — " + near.label + " (" + fmtCount(near.tokens) + " tokens)" });
   }
   const mainStuck = stuckFor("");
-  if (mainStuck) items.push({ id: "", kind: "retrying", card: "errors", text: retrying("Main session", mainStuck) });
+  if (mainStuck) items.push({ id: "", kind: "retrying", card: "what-went-wrong", text: retrying("Main session", mainStuck) });
   const box = $("health");
   if (!items.length) { box.hidden = true; return; }
   box.hidden = false;
@@ -1465,10 +1465,11 @@ function renderHealth(run) {
   box.appendChild(list);
 }
 
-// Insights, scrolled to one card (its extra class: "pressure", "errors").
-function openCard(name) {
+// Insights, scrolled to one card (by its key, the title as a slug), opened if it was folded.
+function openCard(key) {
+  if (foldedCards().delete(key)) saveFolded();      // a card you jump to opens
   setView("insights");
-  const card = document.querySelector("#insights ." + name);
+  const card = document.querySelector('#insights [data-card="' + key + '"]');
   if (!card) return;
   // Keep the card's title out from under the top bar where it is sticky (not on phones).
   const bar = document.querySelector(".topbar");
@@ -3553,9 +3554,146 @@ function insMetric(value, label) {
   return '<div class="metric"><strong>' + esc(value) + "</strong><span>" + esc(label) + "</span></div>";
 }
 
+// A card's key: its title as a slug, "What went wrong" -> "what-went-wrong".
+function cardKey(title) {
+  return String(title).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+// The keys of folded Insights cards, remembered in this browser when it allows.
+function foldedCards() {
+  if (!state.folded) {
+    let keys = [];
+    try {
+      const raw = typeof localStorage !== "undefined" ? JSON.parse(localStorage.getItem("cuelight-folded") || "[]") : [];
+      if (Array.isArray(raw)) keys = raw.filter((k) => typeof k === "string");
+    } catch (err) { /* blocked or unreadable: start unfolded */ }
+    state.folded = new Set(keys);
+  }
+  return state.folded;
+}
+
+function saveFolded() {
+  try { if (typeof localStorage !== "undefined") localStorage.setItem("cuelight-folded", JSON.stringify([...foldedCards()])); }
+  catch (err) { /* private window: folding lasts for this visit */ }
+}
+
+// While Insights draws (state.cardsFold), its cards fold and the title is the toggle; a folded
+// card shows its headline (state.cardHeadlines, from insHeadlines). Cards elsewhere do not fold.
 function insCard(title, sub, body, cls) {
-  return '<section class="card' + (cls ? " " + cls : "") + '"><h3>' + esc(title) + "</h3>" +
-    (sub ? '<p class="card-sub">' + esc(sub) + "</p>" : "") + body + "</section>";
+  const key = cardKey(title);
+  const open = '<section class="card' + (cls ? " " + cls : "");
+  if (!state.cardsFold) {
+    return open + '" data-card="' + key + '"><h3>' + esc(title) + "</h3>" +
+      (sub ? '<p class="card-sub">' + esc(sub) + "</p>" : "") + body + "</section>";
+  }
+  const folded = foldedCards().has(key);
+  const head = '<h3><button type="button" class="card-fold" data-fold="' + key + '" aria-expanded="' + !folded + '">' +
+    esc(title) + "</button></h3>";
+  if (folded) {
+    const line = (state.cardHeadlines || {})[key];
+    return open + ' folded" data-card="' + key + '">' + head +
+      (line ? '<p class="card-headline" data-tone="' + line.tone + '">' + esc(line.text) + "</p>" : "") + "</section>";
+  }
+  return open + '" data-card="' + key + '">' + head + (sub ? '<p class="card-sub">' + esc(sub) + "</p>" : "") + body + "</section>";
+}
+
+function plural(n, one, many) {
+  return n + " " + (n === 1 ? one : many);
+}
+
+// One line per Insights card that has something to say: "bad" (something is wrong), "warn" (worth a
+// look) or "info" (a plain fact). Worst first, then card order. Read from the cards' own data.
+function insHeadlines(ins, run) {
+  const out = [];
+  const add = (title, text, tone) => out.push({ key: cardKey(title), text: text, tone: tone });
+  const p = ins.parallelism;
+  if (p && p.peak > 1) add("Parallelism", "peak " + p.peak + " agents at once", "info");
+  const c = ins.critical_path;
+  if (c && c.chain && c.chain.length > 1) add("Critical path", "critical path " + fmtPct(c.share) + " of the run", "info");
+  const o = ins.outcomes;
+  if (o) {
+    const made = [];
+    if (o.commits) made.push(plural(o.commits, "commit", "commits"));
+    if (o.prs) made.push(plural(o.prs, "PR", "PRs"));
+    if (o.pushes && !o.prs) made.push(plural(o.pushes, "push", "pushes"));
+    if (made.length) add("What the run produced", made.join(", "), "info");
+  }
+  const k = ins.checks;
+  if (k && k.edited) {
+    const n = k.counts;
+    const parts = [];
+    if (n.failing) parts.push(plural(n.failing, "failing check", "failing checks"));
+    if (n.unchecked) parts.push(n.unchecked + " unchecked");
+    add("Did they check their work?", parts.length ? parts.join(", ") : n.checked + " of " + k.edited + " checked their work",
+      n.failing ? "bad" : n.unchecked ? "warn" : "info");
+  }
+  const e = ins.errors;
+  if (e) {
+    const parts = [];
+    if (e.stuck.length) parts.push(plural(e.stuck.length, "agent stuck retrying", "agents stuck retrying"));
+    if (e.api_count) {
+      parts.push(plural(e.api_count, "API stall", "API stalls") + (e.api_lost_s ? " (" + fmtDuration(e.api_lost_s) + ")" : ""));
+    }
+    if (e.failed) parts.push(plural(e.failed, "failed call", "failed calls"));
+    if (parts.length) add("What went wrong", parts.slice(0, 2).join(", "), e.stuck.length ? "bad" : e.api_count ? "warn" : "info");
+  }
+  const w = ins.waits;
+  if (w && w.count) add("Waiting on you", "waited on you " + fmtDuration(w.you_s), w.open ? "warn" : "info");
+  const ws = ins.waste;
+  if (ws && ws.rebuilds) add("Where tokens were wasted", fmtCount(ws.rebuilt_tokens) + " tokens rewritten to the cache", "warn");
+  const pr = ins.pressure;
+  if (pr && pr.near.length) {
+    add("How full each context got", plural(pr.near.length, "context near its window", "contexts near their window"), "bad");
+  } else if (pr && pr.main) {
+    add("How full each context got", "context peaked at " + fmtPct(pr.main.fill), pr.main.fill >= pr.near_at ? "warn" : "info");
+  }
+  const ch = ins.changes;
+  if (ch && ch.files) add("What changed", "+" + fmtCount(ch.added) + " −" + fmtCount(ch.removed) + " in " + plural(ch.files, "file", "files"), "info");
+  const cx = ins.context;
+  if (cx && cx.missing.length) {
+    add("What each agent was told", plural(cx.missing.length, "agent without your instructions", "agents without your instructions"), "warn");
+  }
+  const t = ins.tokens;
+  if (t && t.cache_hit_ratio !== null && t.cache_hit_ratio !== undefined) add("Tokens and cache", fmtPct(t.cache_hit_ratio) + " from the cache", "info");
+  const cost = run.cost;
+  if (cost && cost.enabled) {
+    const b = cost.budget;
+    add("Spend", b ? fmtMoney(cost.total, cost.currency) + " of " + fmtMoney(b.limit, cost.currency) : fmtMoney(cost.total, cost.currency) + " spent",
+      b && b.state === "exceeded" ? "bad" : b && b.state === "warn" ? "warn" : "info");
+  }
+  const f = ins.files;
+  if (f && f.contended && f.contended.length) {
+    add("Files", plural(f.contended.length, "file written by more than one agent", "files written by more than one agent"), "warn");
+  }
+  const rank = { bad: 0, warn: 1, info: 2 };
+  return out.map((line, i) => [line, i]).sort((a, b) => rank[a[0].tone] - rank[b[0].tone] || a[1] - b[1]).map((pair) => pair[0]);
+}
+
+// The strip above the cards: a chip per headline that jumps to its card, and fold or unfold all.
+function insGlance(lines) {
+  const anyFolded = foldedCards().size > 0;
+  return '<nav class="glance" aria-label="Insights at a glance">' + lines.map((line) =>
+    '<button type="button" class="glance-chip" data-tone="' + line.tone + '" data-jump="' + line.key + '">' +
+    esc(line.text) + "</button>").join("") +
+    '<button type="button" class="glance-fold" data-fold-all="' + (anyFolded ? "unfold" : "fold") + '">' +
+    (anyFolded ? "Unfold all" : "Fold all") + "</button></nav>";
+}
+
+function toggleFold(key) {
+  const folded = foldedCards();
+  if (folded.has(key)) folded.delete(key); else folded.add(key);
+  saveFolded();
+  if (state.run) renderInsights(state.run);
+  const again = document.querySelector('#insights [data-fold="' + key + '"]');
+  if (again) again.focus();      // the button was redrawn: keep keyboard focus on it
+}
+
+function foldAll(fold) {
+  const folded = foldedCards();
+  folded.clear();
+  if (fold) for (const el of document.querySelectorAll("#insights [data-card]")) folded.add(el.getAttribute("data-card"));
+  saveFolded();
+  if (state.run) renderInsights(state.run);
 }
 
 function insEmpty(text) {
@@ -4285,13 +4423,26 @@ function renderInsights(run) {
     return;
   }
   const width = Math.max(320, (box.clientWidth || 960) - 38);
-  box.innerHTML = insParallelism(ins, width) + insCritical(ins) + insOutcomes(ins) + insChecks(ins) + insErrors(ins) + insWaits(ins, run) + insWaste(ins) + insPressure(ins, width) + insChanges(ins) + insContext(ins) + insTools(ins) +
-    insTokens(ins, run) + insSpend(run) + insSlowest(ins) + insFiles(ins);
+  const lines = insHeadlines(ins, run);
+  state.cardHeadlines = {};
+  for (const line of lines) state.cardHeadlines[line.key] = line;
+  state.cardsFold = true;
+  let cards = "";
+  try {
+    cards = insParallelism(ins, width) + insCritical(ins) + insOutcomes(ins) + insChecks(ins) + insErrors(ins) + insWaits(ins, run) + insWaste(ins) + insPressure(ins, width) + insChanges(ins) + insContext(ins) + insTools(ins) +
+      insTokens(ins, run) + insSpend(run) + insSlowest(ins) + insFiles(ins);
+  } finally {
+    state.cardsFold = false;
+  }
+  box.innerHTML = insGlance(lines) + cards;
   for (const el of box.querySelectorAll("[data-agent]")) {
     const open = () => openDrawer(el.getAttribute("data-agent"));
     el.onclick = open;
     el.onkeydown = (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); open(); } };
   }
+  for (const el of box.querySelectorAll("[data-fold]")) el.onclick = () => toggleFold(el.getAttribute("data-fold"));
+  for (const el of box.querySelectorAll("[data-jump]")) el.onclick = () => openCard(el.getAttribute("data-jump"));
+  for (const el of box.querySelectorAll("[data-fold-all]")) el.onclick = () => foldAll(el.getAttribute("data-fold-all") === "fold");
 }
 
 // ----------------------------------------------------------------- graph

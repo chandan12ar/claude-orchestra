@@ -50,6 +50,13 @@ const cardShot = (title) => `(async () => { await new Promise(r => setTimeout(r,
   window.scrollTo(0, card.getBoundingClientRect().top + window.scrollY - h - 12);
   await new Promise(r => setTimeout(r, 300)); })()`;
 
+// Insights from its top: the at-a-glance strip, optionally with some cards folded first.
+const glanceShot = (fold) => `(async () => { await new Promise(r => setTimeout(r, 600));
+  ${fold ? "foldAll(true); for (const k of ['what-went-wrong', 'did-they-check-their-work']) toggleFold(k);" : "foldAll(false);"}
+  const h = document.querySelector('header').getBoundingClientRect().height;
+  window.scrollTo(0, document.getElementById('insights').getBoundingClientRect().top + window.scrollY - h - 12);
+  await new Promise(r => setTimeout(r, 300)); })()`;
+
 // The Prompts tab with one prompt opened, scrolled to just under the header.
 const promptShot = (n) => `(async () => { await new Promise(r => setTimeout(r, 600));
   const d = document.querySelector('details[data-prompt="${n}"]'); d.open = true;
@@ -123,6 +130,9 @@ const shots = [
   ["44-errors-light", DEMO + "#view=insights", 1440, 900, "light", cardShot("What went wrong")],
   ["45-errors-dark", DEMO + "#view=insights", 1440, 900, "dark", cardShot("What went wrong")],
   ["46-phone-errors-dark", DEMO + "#view=insights", 390, 1500, "dark", cardShot("What went wrong")],
+  ["47-glance-light", DEMO + "#view=insights", 1440, 520, "light", glanceShot(false)],
+  ["48-glance-folded-dark", DEMO + "#view=insights", 1440, 1100, "dark", glanceShot(true)],
+  ["49-phone-glance-dark", DEMO + "#view=insights", 390, 900, "dark", glanceShot(false)],
   ...(NEAR ? [["43-health-context-light", NEAR, 1440, 420, "light",
     `(async () => { await new Promise(r => setTimeout(r, 600)); const h = document.querySelector('header').getBoundingClientRect().height;
       window.scrollTo(0, document.getElementById('health').getBoundingClientRect().top + window.scrollY - h - 12);

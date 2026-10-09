@@ -1084,10 +1084,28 @@ pure functions in `app.js`, tested under node.
   again, failed calls by tool and by agent, past the timeout; rows reuse `.check-list`, with `.check-ok`
   for a retry that worked). `errorsRow` is the agent panel's "errors" line. `renderHealth` adds a
   `retrying` item for a stuck agent, or "failing every time" on its POSSIBLE LOOP line, and one for a
-  stuck main session that opens the card (`openCard("errors")`).
+  stuck main session that opens the card (`openCard("what-went-wrong")`).
 - Dropped from the design: background commands "left running". 54 commands went to the background
   and only 9 were followed by an output or stop call, but Claude Code reports completion in task
   notifications that do not reliably tie back, so it could not be told apart from forgotten.
+
+### Insights at a glance (front end only)
+- Every card from `insCard` has `data-card`, its title as a slug (`cardKey`). `renderInsights` sets
+  `state.cardsFold` while it draws, so only Insights cards fold; the same helper elsewhere (the Prompts
+  tab) draws a plain `<h3>`. In Insights the title is `<h3><button class="card-fold" data-fold=… aria-expanded>`.
+- `insHeadlines(ins, run)` makes one `{key, text, tone}` per card with something to say, from the same
+  data the cards use: tone `bad` (failing check, stuck agent, over budget, a context near its window),
+  `warn` (unchecked, an API stall, cache rebuilds, time waiting on you while a wait is open, agents
+  without the project instructions, a file with two writers, a budget past its warning), else `info`.
+  Sorted by tone, then card order. Cards with nothing to report (Tool use, Longest-running agents) get
+  none.
+- `insGlance` draws the strip (`nav.glance`): a button per headline with `data-jump`, and
+  `data-fold-all`. A folded card is drawn as its title button plus `card-headline` (no body). The
+  folded keys are `state.folded`, read once from `localStorage["cuelight-folded"]` (a JSON array of
+  strings; anything else is ignored) and written on every change, inside try/catch so a blocked store
+  still folds for the visit. `toggleFold` redraws and puts focus back on the redrawn toggle;
+  `foldAll(fold)` folds every `[data-card]` or clears the set; `openCard(key)` unfolds the card before
+  switching to Insights and scrolling to it, so chips and Health box items always land on an open card.
 
 ### Graph and Work Floor
 - **Graph layout** (`layoutGraph`) is a pure function split into `graphRankColumns`

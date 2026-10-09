@@ -122,7 +122,12 @@ You can try every one of these without a real run: `python -m orchestra --demo`.
   its length; speeding up anything else will not finish it sooner), which tools
   and files dominated, the prompt-cache hit rate, who used the most fresh tokens,
   and, with a price file, where the money went and when a budget runs out at the
-  current burn rate.
+  current burn rate. A strip at the top says what each card found in a few words,
+  worst first (red for something wrong, amber for worth a look), and each chip
+  jumps to its card. Cards fold to their title and that line, and stay folded in
+  this browser.
+
+  ![The top of Insights, light theme: chips for a failing check, an agent stuck retrying, the budget, cache rebuilds and more, above the first card](docs/evidence/screenshots/47-glance-light.png)
 - **Did they check their work?** — for every agent that edited code: did it run a
   test, build, type check or lint (or the very file it edited) after its last edit,
   and did that pass? Finished agents with no check, or a failing one, go in the

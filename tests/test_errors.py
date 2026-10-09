@@ -243,7 +243,7 @@ class TestShown(unittest.TestCase):
             self.skipTest("node is not on PATH")
         return ui
 
-    FNS = ("esc", "fmtDuration", "fmtClock", "insMetric", "insCard", "insRank", "apiKind", "callText", "apiLost", "insErrors")
+    FNS = ("esc", "fmtDuration", "fmtClock", "insMetric", "insCard", "cardKey", "insRank", "apiKind", "callText", "apiLost", "insErrors")
 
     def card(self, e):
         ui = self.ui()
@@ -326,7 +326,7 @@ class TestShown(unittest.TestCase):
             ["RETRYING — Review it: Bash npm audit failed 4 times in a row", "retrying"],
             ["POSSIBLE LOOP — Loop it: same call x9, failing every time", "loop"],
             ["RETRYING — Main session: Bash npm audit failed 4 times in a row", "retrying"]])
-        self.assertEqual(out["opened"], ["drawer:a1", "drawer:a2", "card:errors"])
+        self.assertEqual(out["opened"], ["drawer:a1", "drawer:a2", "card:what-went-wrong"])
         self.assertEqual(out["head"], "<strong>The main session and 2 agent(s) need attention</strong>")
 
 

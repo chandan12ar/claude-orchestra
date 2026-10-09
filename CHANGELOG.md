@@ -6,6 +6,24 @@ versions follow [SemVer](https://semver.org/) (the `version` in
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-10-08
+
+### Added
+- **Insights at a glance**: a strip at the top of Insights with one chip per card that has something
+  to say, in a few words ("1 agent stuck retrying, 1 API stall (2m 20s)", "58.6k tokens rewritten to the
+  cache", "context peaked at 19%"). Worst first: red for something wrong (a failing check, a stuck agent,
+  over budget, a context near its window), amber for worth a look (unchecked work, cache rebuilds, time
+  waiting on you, agents without your instructions, a file with two writers), grey for plain facts; then
+  card order. Each chip jumps to its card. Read from data the cards already have.
+- **Cards fold**: an Insights card's title is a toggle; a folded card keeps its title and its chip's line.
+  "Fold all" / "Unfold all" sits at the end of the strip. Folding is remembered in this browser (and lasts
+  for the visit where storage is blocked); jumping to a card from a chip or the Health box opens it.
+  Everything starts unfolded.
+
+### Changed
+- Cards carry `data-card` (their title as a slug) and `openCard` takes that key, so a Health box item
+  opens the right card even when it was folded.
+
 ## [0.16.0] - 2026-10-08
 
 ### Added

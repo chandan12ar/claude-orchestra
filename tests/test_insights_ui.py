@@ -63,6 +63,7 @@ INSIGHT_FNS = ("esc", "fmtDuration", "fmtCount", "fmtPct", "fmtMoney", "fmtModel
                "fmtClock", "liveSpan", "waitNow", "insWaits", "fileName", "checkText", "insChecks", "insChanges", "safeLink", "insOutcomes", "fileLabel", "insContext", "wasteCause", "insWaste",
                "fmtWindow", "compactionCause", "insPressureChart", "insPressure",
                "apiKind", "callText", "apiLost", "insErrors",
+               "cardKey", "foldedCards", "saveFolded", "plural", "insHeadlines", "insGlance",
                "transportSeconds", "fmtTimecode", "renderInsights")
 
 
@@ -98,7 +99,7 @@ class TestInsightsTab(unittest.TestCase):
     def test_every_card_is_drawn(self):
         for title in ("Parallelism", "Critical path", "Tool use", "Tokens and cache",
                       "Longest-running agents", "Files"):
-            self.assertIn("<h3>" + title + "</h3>", self.html)
+            self.assertIn(">" + title + "</button></h3>", self.html)
 
     def test_numbers_are_real_not_nan_or_undefined(self):
         for bad in ("NaN", "undefined", "null", "Infinity"):
@@ -121,8 +122,7 @@ class TestInsightsTab(unittest.TestCase):
         self.assertIn("$", self.html.split("By model")[1])
 
     def test_spend_card_ranks_agents_by_cost(self):
-        self.assertIn("<h3>Spend</h3>", self.html)
-        spend = self.html.split("<h3>Spend</h3>")[1].split("</section>")[0]
+        spend = card(self.html, "Spend")
         self.assertIn("Most expensive agents", spend)
         self.assertIn("average burn", spend)
 
@@ -138,7 +138,7 @@ class TestSpendBudget(unittest.TestCase):
         return render_insights(demo_run(mutate))
 
     def test_no_prices_means_no_spend_card(self):
-        self.assertNotIn("<h3>Spend</h3>", self.spend(cost=False))
+        self.assertNotIn('data-card="spend"', self.spend(cost=False))
 
     def test_over_budget_says_by_how_much(self):
         html = self.spend({"limit": 0.01, "spent": 9.0, "ratio": 900.0, "state": "exceeded"})
@@ -152,7 +152,11 @@ class TestSpendBudget(unittest.TestCase):
 
 
 def card(html, title):
-    return html.split("<h3>" + title + "</h3>")[1].split("</section>")[0]
+    """One card's markup after its title (Insights titles are fold buttons; elsewhere plain h3)."""
+    for head in (">" + title + "</button></h3>", "<h3>" + title + "</h3>"):
+        if head in html:
+            return html.split(head)[1].split("</section>")[0]
+    raise AssertionError("no card titled " + title)
 
 
 @unittest.skipIf(NODE is None, "node is not on PATH")
