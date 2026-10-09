@@ -19,12 +19,17 @@ class TestNoNetworkEgress(unittest.TestCase):
     """The local-only guarantee is a hard constraint; this is its enforcement."""
 
     def test_no_external_src_or_href(self):
-        for name in ("index.html", "app.js", "style.css"):
+        for name in ("index.html", "app.js", "tabs.js", "style.css"):
             self.assertIsNone(EXTERNAL.search(read(name)),
                               "{} reaches an external host".format(name))
 
     def test_no_absolute_fetch(self):
-        self.assertIsNone(FETCH_ABSOLUTE.search(read("app.js")))
+        for name in ("app.js", "tabs.js"):
+            self.assertIsNone(FETCH_ABSOLUTE.search(read(name)), name)
+
+    def test_every_script_the_page_loads_is_checked_here(self):
+        scripts = __import__("re").findall(r'<script src="([^"]+)"', read("index.html"))
+        self.assertEqual(scripts, ["app.js", "tabs.js"])
 
     def test_no_font_imports(self):
         self.assertNotIn("@import", read("style.css"))

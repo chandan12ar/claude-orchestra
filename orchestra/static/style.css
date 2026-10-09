@@ -42,6 +42,13 @@
   --tool-bash: #1baf7a;
   --tool-task: #eda100;
   --tool-other: #e87ba4;
+  /* Chart series (the Spend tab): categorical, in fixed order. The same validated steps as
+     the tool colours, as their own role so a model never reads as a tool. */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
 
   --font: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "SF Pro Text",
     Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -84,6 +91,11 @@
   --tool-bash: #199e70;
   --tool-task: #c98500;
   --tool-other: #d55181;
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
   --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-2: 0 18px 48px -10px rgba(0, 0, 0, 0.7), 0 2px 8px rgba(0, 0, 0, 0.4);
   --scrim: rgba(3, 5, 8, 0.62);
@@ -115,6 +127,11 @@
     --tool-bash: #199e70;
     --tool-task: #c98500;
     --tool-other: #d55181;
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --series-5: #d55181;
     --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
     --shadow-2: 0 18px 48px -10px rgba(0, 0, 0, 0.7), 0 2px 8px rgba(0, 0, 0, 0.4);
     --scrim: rgba(3, 5, 8, 0.62);
@@ -739,6 +756,41 @@ details[open] > summary .prompt-n::before { transform: rotate(90deg); }
   .agents-table tr.flagged { box-shadow: inset 3px 0 0 var(--stalled); padding-left: 12px; }
   .agents-table tr.flagged td:first-child { box-shadow: none; padding-left: 0; }
 }
+/* Spend: the running total stacked by who (or model), the budget, a crosshair readout. */
+.spend-split { display: inline-flex; flex-wrap: wrap; gap: 4px; margin: 2px 0 8px; }
+.spend-plot { position: relative; }
+/* Drawn at the card's width; its height follows (the shared 150px would shrink it to fit). */
+.ins-chart.spend-chart { height: auto; }
+.spend-chart:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: 4px; }
+.spend-band { fill-opacity: 0.14; stroke: none; }
+.spend-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.spend-end { fill: var(--ink-2); font-size: 11px; }
+.spend-budget { stroke: var(--failed); stroke-width: 1.2; stroke-dasharray: 5 4; }
+.spend-warn, .spend-limit { stroke-width: 1.4; stroke-dasharray: 3 3; }
+.spend-warn { stroke: var(--stalled); }
+.spend-limit { stroke: var(--failed); }
+.spend-warn-label, .spend-limit-label { font-size: 10.5px; font-weight: 650; }
+.spend-warn-label { fill: var(--stalled); }
+.spend-limit-label { fill: var(--failed); }
+.spend-cross { stroke: var(--ink); stroke-width: 1; }
+.spend-tip { position: absolute; top: 30px; z-index: 2; min-width: 150px; padding: 6px 9px; pointer-events: none;
+  background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--r-sm); box-shadow: var(--shadow-2);
+  font-size: 12px; color: var(--ink-2); }
+.spend-tip-time { margin-bottom: 3px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.spend-tip div { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.spend-tip i { width: 12px; height: 2px; border-radius: 1px; flex: none; }
+.spend-tip b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.spend-legend { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 8px 0 10px; padding: 0; list-style: none;
+  font-size: 12.5px; color: var(--ink-2); }
+.spend-legend li { display: inline-flex; align-items: center; gap: 6px; }
+.spend-legend i { width: 10px; height: 10px; border-radius: 2px; }
+.spend-legend b { color: var(--ink); font-weight: 650; font-variant-numeric: tabular-nums; }
+.spend-table { min-width: 280px; margin: 4px 0 14px; border-collapse: collapse; font-size: 12.5px; }
+.spend-table th, .spend-table td { padding: 4px 16px 4px 0; border-bottom: 1px solid var(--line); text-align: left; }
+.spend-table td, .spend-table thead th:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }
+.spend-table thead th { color: var(--muted); font-size: 11.5px; font-weight: 600; }
+.spend-table tbody th { color: var(--ink); font-weight: 500; }
+.spend-peak { margin: 0 0 12px; color: var(--ink-2); font-size: 13px; }
 .change-total { margin: 0 0 8px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .change { border: 1px solid var(--line); border-radius: var(--r-md); margin: 0 0 6px; background: var(--panel); }
 .change summary { display: flex; align-items: center; gap: 8px; padding: 7px 10px; cursor: pointer; font-size: 13px; }

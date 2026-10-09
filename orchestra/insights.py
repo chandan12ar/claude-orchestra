@@ -22,6 +22,8 @@ from orchestra import waste
 from orchestra import turns
 from orchestra import pressure
 from orchestra import errors
+from orchestra import spend
+from orchestra import constants as C
 
 # Mirrors the dashboard's tool taxonomy (app.js TOOL_BUCKETS), so a colour means the
 # same thing in the drawer, the ticker and here.
@@ -452,6 +454,13 @@ def _errors(run: Run, now: float) -> Optional[Dict[str, Any]]:
     return errors.summary(sources, run.session_live, now)
 
 
+def _spend(run: Run, now: float, table: Any) -> Optional[Dict[str, Any]]:
+    """Spend over the run, main session and agents apart, with the budget's crossings."""
+    sources = [("", "Main session", run.main_waste)]
+    sources += [(a.agent_id, scrub(a.description)[:60] or a.agent_id[:12], a.waste) for a in run.agents]
+    return spend.summary(sources, table, now, run.session_live, C.BUDGET, C.BUDGET_WARN_RATIO)
+
+
 def compute(run: Run, now: float, table: Any = None) -> Dict[str, Any]:
     """The Insights payload for a run. `table` is the optional PriceTable."""
     par = _parallelism(run, now)
@@ -470,4 +479,5 @@ def compute(run: Run, now: float, table: Any = None) -> Dict[str, Any]:
             "waste": _waste(run, now, table),
             "pressure": pressure.summary(run),
             "errors": _errors(run, now),
-            "prompts": turns.summary(run.main_turns, run, table, now)}
+            "prompts": turns.summary(run.main_turns, run, table, now),
+            "spend": _spend(run, now, table)}

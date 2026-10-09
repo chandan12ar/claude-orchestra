@@ -46,7 +46,7 @@ def const(js, name):
 
 
 def run_js(names, consts, body):
-    js = read("app.js")
+    js = read("app.js") + "\n" + read("tabs.js")       # the tabs of their own live in tabs.js
     prelude = "\n".join([SETUP] + [const(js, c) for c in consts] + [fn(js, n) for n in names])
     path = os.path.join(tempfile.mkdtemp(), "i.js")
     with open(path, "w", encoding="utf-8") as fh:
@@ -59,7 +59,7 @@ def run_js(names, consts, body):
 
 INSIGHT_FNS = ("esc", "fmtDuration", "fmtCount", "fmtPct", "fmtMoney", "fmtModelShort", "statusVar",
                "insMetric", "insCard", "insEmpty", "insRank", "insStepChart", "insParallelism",
-               "insCritical", "insTools", "insTokens", "insSpend", "insFiles", "insSlowest",
+               "insCritical", "insTools", "insTokens", "insFiles", "insSlowest",
                "fmtClock", "liveSpan", "waitNow", "insWaits", "fileName", "checkText", "insChecks", "insChanges", "safeLink", "insOutcomes", "fileLabel", "insContext", "wasteCause", "insWaste",
                "fmtWindow", "compactionCause", "insPressureChart", "insPressure",
                "apiKind", "callText", "apiLost", "insErrors",
@@ -121,34 +121,9 @@ class TestInsightsTab(unittest.TestCase):
     def test_cost_per_model_appears_when_prices_exist(self):
         self.assertIn("$", self.html.split("By model")[1])
 
-    def test_spend_card_ranks_agents_by_cost(self):
-        spend = card(self.html, "Spend")
-        self.assertIn("Most expensive agents", spend)
-        self.assertIn("average burn", spend)
-
-
-@unittest.skipIf(NODE is None, "node is not on PATH")
-class TestSpendBudget(unittest.TestCase):
-    def spend(self, budget=None, cost=True):
-        def mutate(summary):
-            if not cost:
-                summary["cost"] = None
-            elif budget is not None:
-                summary["cost"]["budget"] = budget
-        return render_insights(demo_run(mutate))
-
-    def test_no_prices_means_no_spend_card(self):
-        self.assertNotIn('data-card="spend"', self.spend(cost=False))
-
-    def test_over_budget_says_by_how_much(self):
-        html = self.spend({"limit": 0.01, "spent": 9.0, "ratio": 900.0, "state": "exceeded"})
-        self.assertIn("Over budget by", html)
-        self.assertIn("background:var(--failed)", html)
-
-    def test_under_budget_forecasts_when_it_runs_out(self):
-        html = self.spend({"limit": 1000.0, "spent": 1.0, "ratio": 0.001, "state": "ok"})
-        self.assertIn("the budget runs out in", html)
-        self.assertIn("background:var(--completed)", html)
+    def test_spend_is_a_tab_of_its_own_now(self):
+        # The Spend card moved to the Spend tab (tests/test_spend_ui.py).
+        self.assertNotIn('data-card="spend"', self.html)
 
 
 def card(html, title):

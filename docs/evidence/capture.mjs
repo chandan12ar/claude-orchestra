@@ -72,6 +72,18 @@ const agentsShot = (flagged) => `(async () => { await new Promise(r => setTimeou
   window.scrollTo(0, document.getElementById('agents').getBoundingClientRect().top + window.scrollY - h - 12);
   await new Promise(r => setTimeout(r, 300)); })()`;
 
+// The Spend tab, optionally split by model, with the crosshair reading 70% of the way along.
+const spendShot = (byModel) => `(async () => { await new Promise(r => setTimeout(r, 600));
+  ${byModel ? "document.querySelector('[data-split=\"model\"]').click(); await new Promise(r => setTimeout(r, 200));" : ""}
+  const h = document.querySelector('header').getBoundingClientRect().height;
+  window.scrollTo(0, document.getElementById('spend').getBoundingClientRect().top + window.scrollY - h - 12);
+  await new Promise(r => setTimeout(r, 200));
+  const svg = document.querySelector('svg.spend-chart'); const g = JSON.parse(svg.getAttribute('data-geo'));
+  const r = svg.getBoundingClientRect();
+  svg.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientY: r.top + 40,
+    clientX: r.left + (g.left + 0.7 * g.plotW) / svg.viewBox.baseVal.width * r.width }));
+  await new Promise(r => setTimeout(r, 300)); })()`;
+
 // name, url, width, height, colour scheme, optional script run before the shot
 const shots = [
   ["01-timeline-light", DEMO, 1440, 900, "light"],
@@ -143,6 +155,9 @@ const shots = [
   ["50-agents-light", DEMO + "#view=agents", 1440, 1180, "light", agentsShot(false)],
   ["51-agents-flagged-dark", DEMO + "#view=agents", 1440, 760, "dark", agentsShot(true)],
   ["52-phone-agents-dark", DEMO + "#view=agents", 390, 1400, "dark", agentsShot(false)],
+  ["53-spend-light", DEMO + "#view=spend", 1440, 1000, "light", spendShot(false)],
+  ["54-spend-by-model-dark", DEMO + "#view=spend", 1440, 760, "dark", spendShot(true)],
+  ["55-phone-spend-dark", DEMO + "#view=spend", 390, 1300, "dark", spendShot(false)],
   ...(NEAR ? [["43-health-context-light", NEAR, 1440, 420, "light",
     `(async () => { await new Promise(r => setTimeout(r, 600)); const h = document.querySelector('header').getBoundingClientRect().height;
       window.scrollTo(0, document.getElementById('health').getBoundingClientRect().top + window.scrollY - h - 12);
