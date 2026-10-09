@@ -30,10 +30,10 @@ def const(js, name):
 def run_js(body):
     js = read("app.js")
     prelude = "\n".join([
-        const(js, "HISTORY_METRICS"),
+        const(js, "HISTORY_METRICS"), const(js, "FOCUS_NAMES"),
         *[fn(js, n) for n in ("esc", "fmtCount", "fmtDuration", "fmtMoney", "fmtPct",
-                              "fmtWhen", "fmtHistoryValue", "deltaVerdict",
-                              "renderHistory", "renderCompare")]])
+                              "fmtWhen", "fmtHistoryValue", "deltaVerdict", "focusMatches",
+                              "noteFocus", "restoreFocus", "renderHistory", "renderCompare")]])
     program = prelude + "\n" + body
     path = os.path.join(tempfile.mkdtemp(), "h.js")
     with open(path, "w", encoding="utf-8") as fh:

@@ -488,6 +488,18 @@ instead of overwriting a newer view — without this, two poll loops (an old
 one winding down, a new one starting) could race and flicker between two
 sessions' data.
 
+**Keyboard focus across redraws** (0.21.1). A view drawn with `innerHTML` replaces every
+control on each poll, which drops keyboard focus to the page. Each such view (Prompts, Insights,
+Agents, Spend, Work Floor, Fleet, History) calls `noteFocus(box)` before writing its markup and
+`restoreFocus(box, spot)` after binding its handlers. `noteFocus` names the focused control by the
+first of `FOCUS_NAMES` it carries (`data-agent`, `data-session`, `data-prompt`, `data-fold`,
+`data-jump`, `data-view`, `data-sort`, `data-split`), a `<summary>` by its `<details>`, and a control
+with none of them by its tag and first class (the Fold all button, the "needs a look" toggle, the Spend
+chart), plus which of the matches it was (an agent can be named twice in one view). A control that is
+gone after the redraw leaves focus where it fell rather than moving it somewhere unexpected.
+`tests/test_focus_ui.py` redraws each view over a small parsing DOM stub and checks focus lands on the
+same control.
+
 **Text fitting.** SVG has no `text-overflow: ellipsis`. `fitText()` measures
 real pixel width with an offscreen `<canvas>` 2D context
 (`context.measureText`) and binary-searches for the longest prefix (plus an
@@ -1149,7 +1161,7 @@ pure functions in `app.js`, tested under node.
   column's first-click direction; ties keep launch order). `agentSortValue` ranks status worst first (more
   flags first within a status) and checks failing-unchecked-checked-none. `agentSpend` is money when the
   run is priced, else fresh tokens. `renderAgents` redraws on every poll and puts keyboard focus back on
-  the row (`data-agent`), heading (`data-sort`) or toggle it was on.
+  the row (`data-agent`), heading (`data-sort`) or toggle it was on (`noteFocus`/`restoreFocus`, section 6).
 
 ### Spend tab (`spend.py`, `tabs.js`)
 - **Calls.** `WasteLog.calls` (one row per API message id, latest usage winning) now also keeps

@@ -4,10 +4,11 @@ Repo: `chandan12ar/cuelight` (public) · default branch **`main`**, which change
 PR (the owner clicks Merge on GitHub; `gh pr merge` from here is blocked). The product is
 **Cuelight**; the internal package is still `orchestra`.
 
-State (2026-10-09, **stopped here at the owner's request**, out of credits): **0.21.0 is on main**.
-PRs #30-#34 are all merged and CI on main is green (run 37889257756, after the #34 merge). Local
-suite: **1,148 tests, 3 skipped**. The last GitHub Release is **v0.17.0**; one for 0.21.0 needs the
-owner's yes. Nothing is in flight: no open PRs, no unpushed work.
+State (2026-10-09): **0.21.0 is on main**. PRs #30-#34 are all merged and CI on main is green
+(run 37889257756, after the #34 merge). Work resumed the same day: **PR #36 (0.21.1, keyboard focus
+kept across live refreshes in every redrawn view)** is open, stacked on the docs PR #35, so merge #35
+first. Local suite: **1,167 tests, 3 skipped**. The last GitHub Release is **v0.17.0**; one for 0.21.x
+needs the owner's yes.
 Details: `PROGRESS.md` (status by round), `.claude/CLAUDE.md` (rules + lessons), `CHANGELOG.md`
 (per version), `docs/ARCHITECTURE.md` (how it works), `docs/FOLLOW-UPS.md` (older review items).
 
@@ -42,22 +43,23 @@ Tabs: Timeline, Graph, Insights, Prompts, Activity, Work Floor, Fleet, History.
 
 ## 4. Still open
 - **Next, in order (when work resumes):**
-  1. GitHub Release v0.21.0 (notes from CHANGELOG 0.18.0-0.21.0), owner's yes first.
-  2. Keyboard focus lost on live refresh in the Prompts tab and the Insights fold buttons/chips
-     (the Agents and Spend tabs already keep it; copy `renderAgents`' keep/restore block). A
-     ready brief exists as a proposed session card "Keep keyboard focus across live refreshes".
+  1. Owner merges #35 (docs), then #36 (0.21.1 focus fix) once its CI is green.
+  2. GitHub Release v0.21.1 (notes from CHANGELOG 0.18.0-0.21.1), owner's yes first.
   3. Agent teams (teammates): needs one real team run from the owner to build against.
+  - Done: keyboard focus across live refreshes (#36). It went wider than the Prompts and Insights
+    tabs: Spend's toggle and links, Work Floor, Fleet and History lost focus the same way; one shared
+    `noteFocus`/`restoreFocus` now covers all of them, Agents included. The older proposed session
+    card "Keep keyboard focus across live refreshes" is stale; dismiss it if it is still shown.
 - **Owner's calls:** the release above; trademark search for "Cuelight"; checking the directory
-  review result for 0.21.0 in the portal (every merge to main is re-scanned).
+  review result for 0.21.x in the portal (every merge to main is re-scanned).
 - **Unverified:** agent teams (teammates): no handling, and no team run in the local
   transcripts to test against; `bin/cuelight` launcher's permission prompt in a live Claude
   Code; the API-error hook fields `error_type`/`error_message` (docs only).
 - **Known gaps:** `agent_type` is empty on `agent_stop`; the permission notification carries no
   tool name; history records only sessions that were viewed or scanned.
-- **Ideas not started:** Fleet ticker; the Prompts tab and Insights fold buttons lose keyboard
-  focus on each live refresh (the Agents and Spend tabs already keep it; same fix applies).
-- **File size:** the plugin directory takes no non-image file over 256 KiB. `app.js` is ~234 KB in
-  a CRLF checkout; put new tab-sized views in `static/tabs.js` (`test_directory_readiness` fails
+- **Ideas not started:** Fleet ticker.
+- **File size:** the plugin directory takes no non-image file over 256 KiB. `app.js` is ~234 KiB in
+  a CRLF checkout (239,706 bytes at 0.21.1); put new tab-sized views in `static/tabs.js` (`test_directory_readiness` fails
   first if a file grows past the limit).
 
 ## 5. Practical notes

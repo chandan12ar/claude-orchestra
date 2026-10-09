@@ -34,9 +34,10 @@ const agentSpriteSheet = {};
 """
 
 CONSTS = ("AGENT_SPRITE_STATE", "AGENT_CELEBRATE_STATE", "AGENT_CELEBRATE_MS", "FLOOR_STATUS_ORDER",
-          "FLOOR_STATUS_LABEL")
+          "FLOOR_STATUS_LABEL", "FOCUS_NAMES")
 FNS = ("esc", "fmtDuration", "agentTokenTotal", "humanizeAgentType", "baseName", "floorRank",
-       "toolTargetLabel", "sparkHtml", "floorSignature", "renderWorkfloor")
+       "toolTargetLabel", "sparkHtml", "floorSignature", "focusMatches", "noteFocus", "restoreFocus",
+       "renderWorkfloor")
 
 
 def read(name):

@@ -24,8 +24,8 @@ work** = the record (transcripts) + the live truth (hooks), across all sessions.
   0 Foundations/bug fixes -> 1 Event layer (hooks) -> 2 Attention (pill, sounds,
   cost) -> 4 History/replay/export, then two research-led rounds of five features
   and "Insights at a glance", then a third round (Agents tab, Spend tab, Activity
-  search, graph routing). **All merged (0.21.0).** What is left: `RESUME.md`
-  section 4.
+  search, graph routing). **All merged (0.21.0).** Then 0.21.1 (keyboard focus kept
+  across live refreshes, PR #36). What is left: `RESUME.md` section 4.
 
 ## Working rules the owner set (follow exactly)
 

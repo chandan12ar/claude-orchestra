@@ -890,6 +890,7 @@ function renderWorkfloor(run) {
     '</div>';
   }
 
+  const spot = noteFocus(box);
   box.innerHTML = groupLabels.map((label) => {
     const agents = groups.get(label);
     const groupTokens = agents.reduce((sum, a) => sum + agentTokenTotal(a.tokens), 0);
@@ -923,6 +924,7 @@ function renderWorkfloor(run) {
       }
     };
   }
+  restoreFocus(box, spot);
 }
 
 // Elapsed time for a still-running agent should visibly tick like Claude
@@ -1744,6 +1746,37 @@ function setView(view) {
 
 const AGENT_VIEWS = ["timeline", "graph", "agents", "insights", "activity", "workfloor"];
 
+// A live view is redrawn on every poll, which would throw a keyboard user back to the top of the
+// page every few seconds. noteFocus(box) names the control in box that has focus: by the attribute
+// that identifies it (a summary by its <details>; a control with none by its tag and first class)
+// and which of the matches it is. restoreFocus(box, spot) focuses the same control after the
+// redraw, once its handlers are bound. A control that is gone leaves focus where it fell.
+const FOCUS_NAMES = ["data-agent", "data-session", "data-prompt", "data-fold", "data-jump", "data-view", "data-sort", "data-split"];
+
+function focusMatches(box, spot) {
+  return Array.from(box.querySelectorAll(spot.sel)).filter((el) => !spot.attr || el.getAttribute(spot.attr) === spot.value);
+}
+
+function noteFocus(box) {
+  const active = typeof document !== "undefined" ? document.activeElement : null;
+  if (!active || active === box || !box.contains || !box.contains(active)) return null;
+  const summary = active.tagName === "SUMMARY" && active.parentElement ? active.parentElement : null;
+  const el = summary || active;
+  const attr = FOCUS_NAMES.find((name) => el.hasAttribute(name)) || null;
+  const spot = { attr: attr, value: attr && el.getAttribute(attr), summary: !!summary,
+    sel: attr ? "[" + attr + "]" : el.tagName.toLowerCase() + (el.classList.length ? "." + el.classList[0] : "") };
+  spot.nth = focusMatches(box, spot).indexOf(el);
+  return spot.nth < 0 ? null : spot;
+}
+
+function restoreFocus(box, spot) {
+  if (!spot) return;
+  const same = focusMatches(box, spot);
+  let el = same[Math.min(spot.nth, same.length - 1)];
+  if (el && spot.summary) el = el.querySelector("summary");
+  if (el && el !== document.activeElement) el.focus({ preventScroll: true });
+}
+
 function render() {
   if (!state.run) return;
   const boot = $("boot");
@@ -2354,6 +2387,7 @@ function renderHistory() {
     return;
   }
   const sel = new Set(state.history.selected);
+  const spot = noteFocus(box);
   const rows = data.runs.map((r) =>
     '<tr data-session="' + esc(r.session_id) + '" aria-selected="' + sel.has(r.session_id) + '" tabindex="0">' +
     "<td>" + esc(fmtWhen(r.started_at || r.first_seen_at)) + "</td>" +
@@ -2374,6 +2408,7 @@ function renderHistory() {
       if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectHistoryRun(tr.dataset.session); }
     };
   }
+  restoreFocus(box, spot);
 }
 
 function renderCompare() {
@@ -2873,6 +2908,7 @@ function renderFleet() {
     return;
   }
   const current = state.run && state.run.session_id;
+  const spot = noteFocus(box);
   box.innerHTML = data.sessions.map((s) => fleetRow(s, current)).join("");
   for (const row of box.querySelectorAll(".fleet-row")) {
     const open = () => { switchSession(row.dataset.session); setView("timeline"); };
@@ -2881,6 +2917,7 @@ function renderFleet() {
       if (event.key === "Enter" || event.key === " ") { event.preventDefault(); open(); }
     };
   }
+  restoreFocus(box, spot);
 }
 
 // Announce a prompt or failure in a session you are NOT looking at — the case
@@ -4334,6 +4371,7 @@ function renderInsights(run) {
   } finally {
     state.cardsFold = false;
   }
+  const spot = noteFocus(box);
   box.innerHTML = insGlance(lines) + cards;
   for (const el of box.querySelectorAll("[data-agent]")) {
     const open = () => openDrawer(el.getAttribute("data-agent"));
@@ -4344,6 +4382,7 @@ function renderInsights(run) {
   for (const el of box.querySelectorAll("[data-jump]")) el.onclick = () => openCard(el.getAttribute("data-jump"));
   for (const el of box.querySelectorAll(".glance-chip[data-view]")) el.onclick = () => setView(el.getAttribute("data-view"));
   for (const el of box.querySelectorAll("[data-fold-all]")) el.onclick = () => foldAll(el.getAttribute("data-fold-all") === "fold");
+  restoreFocus(box, spot);
 }
 
 // ----------------------------------------------------------------- graph

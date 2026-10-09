@@ -80,6 +80,7 @@ function renderPrompts(run) {
     return;
   }
   if (!state.openPrompts) state.openPrompts = new Set();
+  const spot = noteFocus(box);
   box.innerHTML = promptsHtml(p, run);
   for (const d of box.querySelectorAll("details[data-prompt]")) {
     d.ontoggle = () => {
@@ -92,6 +93,7 @@ function renderPrompts(run) {
     el.onclick = openAgent;
     el.onkeydown = (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openAgent(); } };
   }
+  restoreFocus(box, spot);
 }
 
 // ---------------------------------------------------------------- agents
@@ -219,23 +221,8 @@ function agentsHtml(run) {
 function renderAgents(run) {
   const box = $("agents");
   if (!box) return;
-  // A live session redraws the table on every poll: keep keyboard focus on the row or
-  // control it was on, or a keyboard user is thrown back to the page every few seconds.
-  const active = typeof document !== "undefined" ? document.activeElement : null;
-  let keep = null;
-  if (active && box.contains && box.contains(active)) {
-    for (const [attr, sel] of [["data-agent", "tr[data-agent]"], ["data-sort", "[data-sort]"]]) {
-      const value = active.getAttribute && active.getAttribute(attr);
-      if (value) keep = { sel, attr, value };
-    }
-    if (!keep && active.matches && active.matches(".agents-only")) keep = { sel: ".agents-only" };
-  }
+  const spot = noteFocus(box);
   box.innerHTML = agentsHtml(run);
-  if (keep) {
-    for (const el of box.querySelectorAll(keep.sel)) {
-      if (!keep.attr || el.getAttribute(keep.attr) === keep.value) { el.focus({ preventScroll: true }); break; }
-    }
-  }
   for (const btn of box.querySelectorAll("[data-sort]")) {
     btn.onclick = () => {
       const key = btn.getAttribute("data-sort");
@@ -255,6 +242,7 @@ function renderAgents(run) {
     row.onclick = openAgent;
     row.onkeydown = (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openAgent(); } };
   }
+  restoreFocus(box, spot);
 }
 
 // ----------------------------------------------------------------- spend
@@ -437,8 +425,7 @@ function spendHtml(run, width) {
 function renderSpend(run) {
   const box = $("spend");
   if (!box) return;
-  const hadFocus = typeof document !== "undefined" && box.contains && box.contains(document.activeElement) &&
-    document.activeElement.matches && document.activeElement.matches("svg.spend-chart");
+  const spot = noteFocus(box);
   const oldTip = box.querySelector && box.querySelector(".spend-tip");
   const reading = oldTip && !oldTip.hidden ? state.spendAt : null;
   box.innerHTML = spendHtml(run, Math.max(320, (box.clientWidth || 960) - 38));
@@ -453,7 +440,7 @@ function renderSpend(run) {
   const sp = run.insights && run.insights.spend;
   const svg = box.querySelector && box.querySelector("svg.spend-chart");
   const tip = box.querySelector && box.querySelector(".spend-tip");
-  if (!sp || !svg || !tip) return;
+  if (!sp || !svg || !tip) { restoreFocus(box, spot); return; }
   const split = state.spendSplit === "model" ? "model" : "who";
   const geo = JSON.parse(svg.getAttribute("data-geo"));
   const cross = svg.querySelector(".spend-cross");
@@ -509,7 +496,7 @@ function renderSpend(run) {
   };
   // A live refresh redraws the chart: keep the reading (and focus) where it was. The reading is
   // put back directly, since a focus event does not fire while the window is in the background.
-  if (hadFocus) svg.focus({ preventScroll: true });
+  restoreFocus(box, spot);
   if (reading !== null && reading !== undefined) show(reading);
 }
 
