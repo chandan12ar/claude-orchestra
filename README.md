@@ -117,6 +117,16 @@ You can try every one of these without a real run: `python -m orchestra --demo`.
 
   ![The Pulse strip, dark theme: running agents, tool calls per minute, fresh tokens, what needs you, and the event tape](docs/evidence/screenshots/19-pulse-dark.png)
 
+- **Agents** — a tab of its own, every agent on one row: what it was asked, what
+  its brief said to deliver, and the start of what it reported back, side by side,
+  with its status, whether it checked its work, its time, cost (or tokens) and
+  failed calls. Rows that need a look say why (failed, stalled, waiting on you,
+  checks failing, unchecked, no report, a possible loop, stuck retrying), and one
+  button shows only those. Every column that holds a number or a state sorts; the
+  filter bar applies; a row opens the agent's panel.
+
+  ![The Agents tab, light theme: thirteen agents with what each was asked, expected to deliver and reported back; flagged rows marked unchecked, stalled and retrying](docs/evidence/screenshots/50-agents-light.png)
+
 - **Insights** — the questions a run raises once it is over (or half over):
   how parallel it really was, **the critical path** (the chain of agents that set
   its length; speeding up anything else will not finish it sooner), which tools

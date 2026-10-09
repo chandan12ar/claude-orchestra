@@ -110,6 +110,31 @@ class TestLightDictIsActuallyLight(unittest.TestCase):
         self.assertNotIn("ABCDEFGHIJ", a.to_light_dict()["objective"])
 
 
+class TestAgentsTableFields(unittest.TestCase):
+    """The Agents tab sets what was expected beside what came back, for every agent at once."""
+
+    def test_expected_output_is_capped_in_light_but_whole_in_detail(self):
+        long_text = "a diff " * 100
+        a = make_agent(expected_output=Extraction(long_text, 'heading "## Deliverable"'))
+        self.assertTrue(a.to_light_dict()["expected_output"].endswith("…"))
+        self.assertLessEqual(len(a.to_light_dict()["expected_output"]), 201)
+        self.assertEqual(a.to_detail_dict()["expected_output"], long_text)
+
+    def test_result_gist_is_the_reports_opening_on_one_line(self):
+        report = ("## Summary\n\n**Status:** DONE\n\n- Commit: `528e24c` feat: add apply_results\n"
+                  "---\n| a | b |\n|---|---|\n")
+        self.assertEqual(make_agent(result=report).to_light_dict()["result_gist"],
+                         "Summary · Status: DONE · Commit: 528e24c feat: add apply_results · | a | b |")
+
+    def test_result_gist_is_capped_and_redacted(self):
+        gist = make_agent(result="Done. " + fake.GITHUB_TOKEN + "\n" + "more words " * 80).to_light_dict()["result_gist"]
+        self.assertLessEqual(len(gist), 201)
+        self.assertNotIn("ABCDEFGHIJ", gist)
+
+    def test_no_result_no_gist(self):
+        self.assertEqual(make_agent(result="").to_light_dict()["result_gist"], "")
+
+
 if __name__ == "__main__":
     unittest.main()
 

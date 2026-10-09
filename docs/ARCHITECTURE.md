@@ -1107,6 +1107,34 @@ pure functions in `app.js`, tested under node.
   `foldAll(fold)` folds every `[data-card]` or clears the set; `openCard(key)` unfolds the card before
   switching to Insights and scrolling to it, so chips and Health box items always land on an open card.
 
+### Agents tab, and reports handed back (`status.fill_handbacks`, `model._gist`, `extract.py`)
+- **Reports handed back.** Since Claude Code 2.1.277 a subagent ends by calling `SubagentHandback({message})`;
+  the parent's tool result or `<task-notification>` `<result>` then holds only a pointer ("This agent's report
+  was delivered to you as a message from "…" (its SubagentHandback call)…"). `AgentDigest.handbacks` keeps
+  `(when, message)` for each call, and `AgentDigest.report` is the latest one, else the last text block.
+  `fill_handbacks(rounds, handbacks)` replaces each round's pointer (`is_handback_pointer`: the pointer shape,
+  under 400 characters, so a real report that mentions the tool is kept) with the latest report handed back
+  by that round's end plus 5 s of clock skew. Not "inside the round": on real sessions the call comes 8-14 s
+  before the parent hears of it, and the same stop is sometimes notified twice 1 ms apart, which makes a
+  round that starts after its report. Every later consumer (the result, handoff edges, exports) sees the
+  real report.
+- **Deliverables.** `extract_expected_output` also recognizes, from a census of real briefs: headings that
+  start "When you are done", "Report back", "Final message" and the like (`_OUTPUT_HEADING_STARTS`), and
+  lines that start "Final message", "Write your (full) report", "Reply with", "Report back", "When you are
+  done", which may sit behind a list marker. A bare "Return"/"Output" step behind a list marker is still an
+  instruction, not a deliverable.
+- **Payload.** The light agent dict adds `expected_output` and `result_gist`, both scrubbed, then capped at
+  `LIGHT_TEXT_CAP`. `_gist` drops markdown marks (headings, bullets, emphasis, backticks), skips rules
+  and table separators, and joins lines with " · ", stopping once past the cap.
+- **Front end.** `agentFlags(agent)` gives `{text, tone}` reasons a row needs a look (status failed /
+  orphaned / stalled / waiting; checks failing, or unchecked once finished; completed with no report; a
+  possible loop, else stuck retrying). `agentsRows(run)` applies the filter bar and "only the ones that need
+  a look" (`state.agentsFlagged`), then sorts by `state.agentsSort` (`{key, dir}`; `AGENT_SORTS` holds each
+  column's first-click direction; ties keep launch order). `agentSortValue` ranks status worst first (more
+  flags first within a status) and checks failing-unchecked-checked-none. `agentSpend` is money when the
+  run is priced, else fresh tokens. `renderAgents` redraws on every poll and puts keyboard focus back on
+  the row (`data-agent`), heading (`data-sort`) or toggle it was on.
+
 ### Graph and Work Floor
 - **Graph layout** (`layoutGraph`) is a pure function split into `graphRankColumns`
   (longest path over exact edges; columns indexed, never raw rank), `graphOrderColumns`

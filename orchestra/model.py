@@ -1,5 +1,6 @@
 """Dataclasses for an Orchestra run. No I/O, no parsing."""
 
+import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -25,6 +26,25 @@ def _cap(text: Optional[str], limit: int = LIGHT_TEXT_CAP) -> str:
     if not text:
         return ""
     return text if len(text) <= limit else text[:limit] + "…"
+
+
+_GIST_MARK = re.compile(r"^(#{1,6}\s+|[-*+]\s+|\d+[.)]\s+|>\s*)")
+
+
+def _gist(text: str) -> str:
+    """A report's opening on one line, for the Agents table: markdown marks dropped,
+    rules and table separators skipped, lines joined with " · ". Stops once past the cap."""
+    lines: List[str] = []
+    size = 0
+    for raw in text.splitlines():
+        line = _GIST_MARK.sub("", raw.strip()).replace("**", "").replace("__", "").replace("`", "").strip()
+        if not line or not line.strip("-=*_|: "):
+            continue
+        lines.append(line)
+        size += len(line) + 3
+        if size > LIGHT_TEXT_CAP:
+            break
+    return " · ".join(lines)
 
 
 @dataclass
@@ -166,6 +186,8 @@ class Agent:
             "rounds": [{"started_at": r.started_at, "ended_at": r.ended_at,
                         "status": r.status} for r in self.rounds],
             "objective": _cap(scrub(self.objective.text)),
+            "expected_output": _cap(scrub(self.expected_output.text)),
+            "result_gist": _cap(_gist(scrub(self.result))),
             "files_written_count": len(self.files_written),
             "tool_call_count": len(self.tool_calls),
             "activity": self._activity(),

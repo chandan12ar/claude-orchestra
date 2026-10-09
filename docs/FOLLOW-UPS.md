@@ -74,6 +74,12 @@ is visible rather than forgotten. Ranked roughly by value.
 
 ## Resolved
 
+- **Table view (#1).** Done in 0.18.0 as the Agents tab: asked / expected / came back side by
+  side for every agent, flagged rows, sortable columns. Building it on real sessions showed the
+  "came back" side was a pointer for every agent on Claude Code 2.1.277+ (reports travel through
+  `SubagentHandback`), and that most real briefs' deliverables were missed; both fixed in the same
+  version.
+
 - **Dead code and leaked log handle (#9, #11).** Removed `IncrementalReader.reset`,
   the `parent.content_text` alias, the never-true `a is not None` filter and
   `SessionInfo.size_bytes`; `cmd_start` now closes its log handle. (The

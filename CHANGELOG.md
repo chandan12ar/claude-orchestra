@@ -6,6 +6,39 @@ versions follow [SemVer](https://semver.org/) (the `version` in
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-10-09
+
+### Added
+- **Agents**: a tab of its own (key 3; Insights and the views after it move up one number), with one
+  row per agent. Each row shows what the agent was asked, what its brief said to deliver, and the start
+  of what it reported back, side by side. It also shows the agent's status, whether it checked its work,
+  its time (counting up while it runs), its cost (or fresh tokens without prices) and its failed calls.
+  - Rows that need a look say why: failed or orphaned, stalled, waiting on you, checks failing,
+    unchecked, finished with no report, a possible loop, or stuck retrying. "Only the ones that need a
+    look" shows just those.
+  - The tab leads with how many agents there are, how many need a look, and how many briefs said what
+    to deliver.
+  - Status, Checked, Time, Cost and Errors sort (worst or biggest first), and the Agent column sorts by
+    launch order. The filter bar applies, and a row opens the agent's panel (Enter on a focused row too).
+  - A live refresh keeps keyboard focus on the row or heading it was on.
+  - The poll payload carries each agent's expected output and the first line or two of its report, both
+    capped at 200 characters; the panel still has the whole text.
+- The demo's briefs each name their own deliverable.
+
+### Fixed
+- **An agent's report was missing on Claude Code 2.1.277 and later.** Agents there hand their report back
+  through a `SubagentHandback` tool call, and the parent session only gets a pointer ("This agent's report
+  was delivered to you as a message from …"). Cuelight showed that pointer as the agent's result,
+  everywhere. It now reads the report from the agent's own transcript. A pointer takes the latest report
+  handed back by the end of its round (the call comes 8 to 14 seconds before the parent hears of it, and
+  the same stop can be notified twice). On local sessions: 88 of 88 such agents had only the pointer,
+  and now all 88 have their report. Handoff edges in those sessions went from 0 to 13, because a brief
+  that quotes an earlier agent's report is now recognized.
+- **Deliverables that real briefs state were read as "not stated".** Briefs often say what to hand back
+  as "Final message: …", "Write your full report to …", a "When you are done, report back with" heading,
+  or a numbered "Report back …" step. Those are recognized now. On local sessions, briefs with no
+  deliverable found went from 41 to 10; the rest only mention it mid-sentence.
+
 ## [0.17.0] - 2026-10-08
 
 ### Added

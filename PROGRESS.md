@@ -209,3 +209,14 @@ Known limit of #1: a wait ends at the agent's next transcript entry, so an appro
 is included (Bash results record no duration; checked on real transcripts). The one real permission
 prompt in the local event spool was never answered (the session was left), which is why "unanswered"
 waits are counted but given no length.
+
+## Third round (agreed with the owner 2026-10-09: all four, each new view its own tab)
+
+GitHub Release v0.17.0 published the same day (owner's yes). One branch, PR and minor version each:
+
+| # | Feature | State |
+|---|---|---|
+| 1 | **Agents tab** (`feature/agents-table`, 0.18.0): one row per agent with asked / expected / came back side by side, status, checked, time, cost, errors; flagged rows say why; "only the ones that need a look"; sortable; focus kept across live refreshes. Found and fixed on real sessions while building it: reports handed back through `SubagentHandback` (Claude Code 2.1.277+) showed as a pointer for 88 of 88 such agents, and deliverables phrased "Final message: ..." / "Write your full report to ..." were missed (41 briefs "not stated", now 10) | built; tests, real-session and browser checks (light, dark, phone) done; PR open |
+| 2 | **Spend tab** (`feature/spend-tab`, 0.19.0): running cost over the run, main session vs agents (or by model), budget line and when warn/limit were crossed; tokens without a price file | next |
+| 3 | **Activity search** (0.20.0): a search box on the Activity tab over tool, path, command and result text, with a match count and Enter for the next match | to do |
+| 4 | **Graph edge routing** (0.21.0): edges that skip a column bend around the nodes in between | to do |

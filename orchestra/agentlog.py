@@ -181,6 +181,9 @@ class AgentDigest:
     files_read: List[str] = field(default_factory=list)
     last_activity_at: Optional[float] = None
     final_text: str = ""
+    # (when, message) of each SubagentHandback call: since Claude Code 2.1.277 an agent's
+    # report travels through that tool, and the parent is only told where to find it.
+    handbacks: List[Tuple[Optional[float], str]] = field(default_factory=list)
     model: str = ""
     ended_mid_tool: bool = False
     # (timestamp, fresh tokens added): when the tokens were spent, for the live
@@ -235,6 +238,11 @@ class AgentDigest:
         self.waste.ingest(entries)
         self.errors.ingest(entries)
 
+    @property
+    def report(self) -> str:
+        """What the agent handed back: its latest SubagentHandback message, else its last text."""
+        return self.handbacks[-1][1] if self.handbacks else self.final_text
+
     def _note_tokens(self, at: float, added: int) -> None:
         if len(self.token_events) >= MAX_TOKEN_EVENTS:
             when, total = self.token_events[-1]
@@ -259,6 +267,8 @@ class AgentDigest:
                 self._open_tool_ids[str(block.get("id", ""))] = call
                 if name in EDIT_TOOLS:
                     self._pending_edits[str(block.get("id", ""))] = (name, params)
+                if name == "SubagentHandback" and isinstance(params.get("message"), str):
+                    self.handbacks.append((at, params["message"].strip()))
                 self._record_files(name, params)
             elif kind == "tool_result":
                 use_id = str(block.get("tool_use_id", ""))

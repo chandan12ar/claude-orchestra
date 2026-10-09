@@ -1702,7 +1702,7 @@ function renderTimeline(run) {
 
 // ------------------------------------------------------------ view state
 
-const VIEWS = ["timeline", "graph", "insights", "prompts", "activity", "workfloor", "fleet", "history"];
+const VIEWS = ["timeline", "graph", "agents", "insights", "prompts", "activity", "workfloor", "fleet", "history"];
 
 function setView(view) {
   if (VIEWS.indexOf(view) < 0) view = "timeline";
@@ -1731,7 +1731,7 @@ function setView(view) {
   if (view === "history") loadHistory();
 }
 
-const AGENT_VIEWS = ["timeline", "graph", "insights", "activity", "workfloor"];
+const AGENT_VIEWS = ["timeline", "graph", "agents", "insights", "activity", "workfloor"];
 
 function render() {
   if (!state.run) return;
@@ -1764,6 +1764,7 @@ function render() {
   else if (state.view === "history") renderHistory();
   else if (state.view === "insights") renderInsights(state.run);
   else if (state.view === "prompts") renderPrompts(state.run);
+  else if (state.view === "agents") renderAgents(state.run);
   else renderTicker();
 }
 
@@ -3007,9 +3008,9 @@ async function loadSessions() {
 // report, from the details baked into it). Keyboard first: Ctrl/Cmd+K or /.
 
 const PALETTE_VIEWS = [
-  ["timeline", "Timeline", "1"], ["graph", "Graph", "2"], ["insights", "Insights", "3"],
-  ["prompts", "Prompts", "4"], ["activity", "Activity", "5"], ["workfloor", "Work Floor", "6"],
-  ["fleet", "Fleet", "7"], ["history", "History", "8"],
+  ["timeline", "Timeline", "1"], ["graph", "Graph", "2"], ["agents", "Agents", "3"], ["insights", "Insights", "4"],
+  ["prompts", "Prompts", "5"], ["activity", "Activity", "6"], ["workfloor", "Work Floor", "7"],
+  ["fleet", "Fleet", "8"], ["history", "History", "9"],
 ];
 const palette = { open: false, query: "", items: [], index: 0, remote: null, seq: 0, timer: null, opener: null };
 const PALETTE_SEARCH_DELAY_MS = 160;
@@ -3233,7 +3234,7 @@ function closePalette(keepFocus) {
 
 const SHORTCUTS = [
   [["Ctrl K", "/"], "Search agents, tool calls, files and commands"],
-  [["1", "–", "8"], "Switch view"],
+  [["1", "–", "9"], "Switch view"],
   [["L"], "Pause or resume live updates"],
   [["R"], "Replay the run"],
   [["F"], "Filter agents"],
@@ -3300,7 +3301,7 @@ function onGlobalKey(event) {
     if (live && !live.hidden) live.click();
     return;
   }
-  const index = "12345678".indexOf(key);
+  const index = "123456789".indexOf(key);
   if (index >= 0 && key.length === 1 && viewAvailable(PALETTE_VIEWS[index][0])) setView(PALETTE_VIEWS[index][0]);
 }
 
@@ -4145,6 +4146,169 @@ function renderPrompts(run) {
     const openAgent = () => openDrawer(el.getAttribute("data-agent"));
     el.onclick = openAgent;
     el.onkeydown = (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openAgent(); } };
+  }
+}
+
+// ---------------------------------------------------------------- agents
+//
+// The Agents tab: every agent on one row, so what each was asked and expected to produce
+// sits beside what came back, and the rows that need a look say why. Columns sort (the
+// Agent column by launch order), the filter bar applies, and a row opens the agent's panel.
+
+// Each sortable column and the direction of its first click: biggest first for numbers.
+const AGENT_SORTS = { start: 1, status: 1, checked: 1, time: -1, cost: -1, errors: -1 };
+
+function agentFlags(agent) {
+  const flags = [];
+  const s = agent.status;
+  if (s === "failed" || s === "orphaned") flags.push({ text: s, tone: "bad" });
+  else if (s === "stalled") flags.push({ text: "stalled", tone: "warn" });
+  else if (s === "waiting") flags.push({ text: "waiting on you", tone: "warn" });
+  const v = agent.verification;
+  if (v && v.state === "failing") flags.push({ text: "checks failing", tone: "bad" });
+  else if (v && v.final && v.state === "unchecked") flags.push({ text: "unchecked", tone: "warn" });
+  if (s === "completed" && !agent.result_gist) flags.push({ text: "no report", tone: "warn" });
+  if (agent.loop) flags.push({ text: "possible loop", tone: "bad" });
+  else if (agent.errors && agent.errors.stuck) flags.push({ text: "retrying", tone: "bad" });
+  return flags;
+}
+
+// Money when the run is priced, else the fresh tokens it spent.
+function agentSpend(agent, cost) {
+  if (cost && cost.enabled) return { value: agent.cost || 0, text: fmtMoney(agent.cost, cost.currency) };
+  const t = agent.tokens || {};
+  const n = (t.input || 0) + (t.output || 0) + (t.cache_create || 0);
+  return { value: n, text: fmtCount(n) };
+}
+
+function agentSortValue(row, key, run, now) {
+  const a = row.agent;
+  if (key === "status") {
+    const rank = ["failed", "orphaned", "stalled", "waiting", "running", "completed"].indexOf(a.status);
+    return (rank < 0 ? 6 : rank) * 10 - row.flags.length;
+  }
+  if (key === "checked") {
+    const v = a.verification;
+    return v ? ["failing", "unchecked", "checked"].indexOf(v.state) : 3;
+  }
+  if (key === "time") {
+    if (a.duration_s !== null && a.duration_s !== undefined) return a.duration_s;
+    return a.started_at ? Math.max(0, now - a.started_at) : 0;
+  }
+  if (key === "cost") return agentSpend(a, run.cost).value;
+  if (key === "errors") return (a.errors && a.errors.failed) || 0;
+  return a.started_at || 0;
+}
+
+function agentsRows(run) {
+  const sort = state.agentsSort || { key: "start", dir: 1 };
+  const now = waitNow(run);
+  const rows = run.agents.filter(agentMatchesFilter).map((agent, i) => ({ agent, i, flags: agentFlags(agent) }))
+    .filter((r) => !state.agentsFlagged || r.flags.length);
+  const cmp = (x, y) => (typeof x === "string" ? x.localeCompare(y) : (x > y) - (x < y));
+  rows.sort((p, q) => cmp(agentSortValue(p, sort.key, run, now), agentSortValue(q, sort.key, run, now)) * sort.dir ||
+    p.i - q.i);
+  return rows;
+}
+
+function agentsHtml(run) {
+  const sort = state.agentsSort || { key: "start", dir: 1 };
+  const shown = run.agents.filter(agentMatchesFilter);
+  const flagged = shown.filter((a) => agentFlags(a).length).length;
+  const stated = shown.filter((a) => a.expected_output).length;
+  const money = !!(run.cost && run.cost.enabled);
+  const now = waitNow(run);
+  const live = run.replay_at === undefined && !state.offline;
+  const metrics = [insMetric(shown.length, shown.length === 1 ? "agent" : "agents"), insMetric(flagged, "need a look"),
+    insMetric(stated + " of " + shown.length, "said what to deliver")];
+  const bar = '<div class="agents-bar"><div class="metrics">' + metrics.join("") + "</div>" +
+    '<button type="button" class="agents-only" aria-pressed="' + !!state.agentsFlagged + '">Only the ones that need a look</button></div>';
+  const rows = agentsRows(run);
+  if (!rows.length) {
+    return insCard("Agents", "", bar + insEmpty(state.agentsFlagged ? "No agent needs a look right now." : "No agent matches the filter."), "wide");
+  }
+  const head = (label, key) => {
+    if (!key) return "<th>" + esc(label) + "</th>";
+    const on = sort.key === key;
+    return '<th aria-sort="' + (on ? (sort.dir > 0 ? "ascending" : "descending") : "none") + '"><button type="button" data-sort="' +
+      key + '">' + esc(label) + "</button></th>";
+  };
+  const text = (value, empty) => (value ? '<span title="' + esc(value) + '">' + esc(value) + "</span>"
+    : '<em class="muted">' + esc(empty) + "</em>");
+  const body = rows.map((r) => {
+    const a = r.agent;
+    const v = a.verification;
+    const check = !v ? '<span class="muted" title="It edited no code">—</span>'
+      : '<span class="ag-check" data-state="' + esc(v.state) + '" title="' + esc(checkText(v)) + '">' +
+        esc(v.state === "unchecked" && !v.final ? "not yet" : v.state) + "</span>";
+    const done = a.duration_s !== null && a.duration_s !== undefined;
+    const time = done ? esc(fmtDuration(a.duration_s))
+      : !a.started_at ? "—" : live ? liveSpan(0, a.started_at, now) : esc(fmtDuration(Math.max(0, now - a.started_at)));
+    const back = a.result_gist ? text(a.result_gist)
+      : text("", a.status === "running" ? "still running" : a.status === "completed" ? "no report" : "no report yet");
+    const failed = a.errors && a.errors.failed;
+    const flags = r.flags.length ? '<span class="flags">' + r.flags.map((f) =>
+      '<span class="flag ' + f.tone + '">' + esc(f.text) + "</span>").join("") + "</span>" : "";
+    return '<tr data-agent="' + esc(a.agent_id) + '" tabindex="0"' + (r.flags.length ? ' class="flagged"' : "") + ">" +
+      '<td class="ag-agent" data-label="Agent"><b>' + esc(a.description || a.agent_id) + "</b><small>" +
+      esc([a.agent_type, fmtModelShort(a.model)].filter(Boolean).join(" · ")) + "</small>" + flags + "</td>" +
+      '<td class="ag-text" data-label="Asked">' + text(a.objective, "not found in the brief") + "</td>" +
+      '<td class="ag-text" data-label="Expected">' + text(a.expected_output, "not stated") + "</td>" +
+      '<td class="ag-text" data-label="Came back">' + back + "</td>" +
+      '<td data-label="Status"><i class="dot" style="background:' + statusVar(a.status) + '"></i>' + esc(a.status) + "</td>" +
+      '<td data-label="Checked">' + check + "</td>" +
+      '<td class="num" data-label="Time">' + time + "</td>" +
+      '<td class="num" data-label="' + (money ? "Cost" : "Tokens") + '">' + esc(agentSpend(a, run.cost).text) + "</td>" +
+      '<td class="num" data-label="Errors">' + (failed ? esc(failed + " failed") : '<span class="muted">—</span>') + "</td></tr>";
+  }).join("");
+  const table = '<div class="agents-wrap"><table class="agents-table" aria-label="Agents"><thead><tr>' +
+    head("Agent", "start") + head("Asked") + head("Expected") + head("Came back") + head("Status", "status") +
+    head("Checked", "checked") + head("Time", "time") + head(money ? "Cost" : "Tokens", "cost") + head("Errors", "errors") +
+    "</tr></thead><tbody>" + body + "</tbody></table></div>";
+  return insCard("Agents",
+    "Every agent on one row: what it was asked, what its brief said to deliver, and the start of what it reported back. " +
+    "Rows that need a look say why. Click a heading to sort; the Agent column sorts by launch order. Open a row for the agent's panel.",
+    bar + table, "wide");
+}
+
+function renderAgents(run) {
+  const box = $("agents");
+  if (!box) return;
+  // A live session redraws the table on every poll: keep keyboard focus on the row or
+  // control it was on, or a keyboard user is thrown back to the page every few seconds.
+  const active = typeof document !== "undefined" ? document.activeElement : null;
+  let keep = null;
+  if (active && box.contains && box.contains(active)) {
+    for (const [attr, sel] of [["data-agent", "tr[data-agent]"], ["data-sort", "[data-sort]"]]) {
+      const value = active.getAttribute && active.getAttribute(attr);
+      if (value) keep = { sel, attr, value };
+    }
+    if (!keep && active.matches && active.matches(".agents-only")) keep = { sel: ".agents-only" };
+  }
+  box.innerHTML = agentsHtml(run);
+  if (keep) {
+    for (const el of box.querySelectorAll(keep.sel)) {
+      if (!keep.attr || el.getAttribute(keep.attr) === keep.value) { el.focus({ preventScroll: true }); break; }
+    }
+  }
+  for (const btn of box.querySelectorAll("[data-sort]")) {
+    btn.onclick = () => {
+      const key = btn.getAttribute("data-sort");
+      const sort = state.agentsSort || { key: "start", dir: 1 };
+      state.agentsSort = { key, dir: sort.key === key ? -sort.dir : AGENT_SORTS[key] };
+      renderAgents(state.run);
+    };
+  }
+  for (const btn of box.querySelectorAll(".agents-only")) {
+    btn.onclick = () => {
+      state.agentsFlagged = !state.agentsFlagged;
+      renderAgents(state.run);
+    };
+  }
+  for (const row of box.querySelectorAll("tr[data-agent]")) {
+    const openAgent = () => openDrawer(row.getAttribute("data-agent"));
+    row.onclick = openAgent;
+    row.onkeydown = (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openAgent(); } };
   }
 }
 
