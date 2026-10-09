@@ -155,5 +155,128 @@ class TestLayout(unittest.TestCase):
         self.assertLessEqual(out["crossings"], 12)
 
 
+ROUTE_FNS = FNS + ("graphRoute", "graphPath")
+ROUTE_CONSTS = CONSTS + ("GRAPH_LANE_PAD",)
+
+# Samples each drawn segment exactly as graphPath draws it (a cubic with flat tangents at both
+# ends) and reports any sample inside a node that is not one of the edge's own two.
+ROUTE_CHECK = """
+function cubic(p, q, t) {
+  const dx = (q.x >= p.x ? 1 : -1) * Math.max(12, Math.min(Math.abs(q.x - p.x) / 2, 160));
+  const c1 = {x: p.x + dx, y: p.y}, c2 = {x: q.x - dx, y: q.y};
+  const u = 1 - t;
+  return {x: u*u*u*p.x + 3*u*u*t*c1.x + 3*u*t*t*c2.x + t*t*t*q.x,
+          y: u*u*u*p.y + 3*u*u*t*c1.y + 3*u*t*t*c2.y + t*t*t*q.y};
+}
+const hits = [];
+const routes = [];
+for (const e of L.edges) {
+  const pts = graphRoute(L, e);
+  routes.push({src: e.src, dst: e.dst, points: pts.length, d: graphPath(pts)});
+  for (let s = 0; s + 1 < pts.length; s++) {
+    for (let k = 1; k < 40; k++) {
+      const p = cubic(pts[s], pts[s + 1], k / 40);
+      for (const n of L.nodes) {
+        if (n.id === e.src || n.id === e.dst) continue;
+        if (p.x > n.x + 2 && p.x < n.x + NODE_W - 2 && p.y > n.y + 2 && p.y < n.y + NODE_H - 2) {
+          hits.push(e.src + ">" + e.dst + " through " + n.id);
+          break;
+        }
+      }
+    }
+  }
+}
+console.log(JSON.stringify({hits: [...new Set(hits)], routes}));
+"""
+
+
+def routed(run):
+    js = read("app.js")
+    prelude = "\n".join([SETUP] + [const(js, c) for c in ROUTE_CONSTS] + [fn(js, n) for n in ROUTE_FNS])
+    program = prelude + "\nconst L = layoutGraph(%s);\n" % json.dumps(run) + ROUTE_CHECK
+    path = os.path.join(tempfile.mkdtemp(), "r.js")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(program)
+    proc = subprocess.run([NODE, path], capture_output=True, encoding="utf-8", timeout=60)
+    if proc.returncode != 0:
+        raise AssertionError(proc.stderr[-1500:])
+    return json.loads(proc.stdout)
+
+
+@unittest.skipIf(NODE is None, "node is not on PATH")
+class TestEdgeRouting(unittest.TestCase):
+    """An edge that skips columns must not run through the nodes it skips."""
+
+    # a -> b -> c, with x also in b's column, and a long edge a -> c that a straight
+    # curve would draw straight through b.
+    BLOCKED = run_of([agent("a", 0), agent("b", 1), agent("c", 2)],
+                     [edge("main", "a", "spawn"), edge("a", "b"), edge("b", "c"), edge("a", "c", "message")])
+
+    def test_a_blocked_long_edge_bends_around(self):
+        out = routed(self.BLOCKED)
+        self.assertEqual(out["hits"], [])
+        long_edge = next(r for r in out["routes"] if (r["src"], r["dst"]) == ("a", "c"))
+        self.assertGreater(long_edge["points"], 2)
+
+    def test_edges_between_neighbouring_columns_are_drawn_as_before(self):
+        out = routed(self.BLOCKED)
+        short = next(r for r in out["routes"] if (r["src"], r["dst"]) == ("a", "b"))
+        self.assertEqual(short["points"], 2)
+        # The same single curve as before routing existed: bend = half the gap, 36..160.
+        self.assertRegex(short["d"], r"^M[\d.]+,[\d.]+ C[\d.]+,[\d.]+ [\d.]+,[\d.]+ [\d.]+,[\d.]+$")
+
+    def test_a_clear_long_edge_keeps_one_curve(self):
+        # Placed by hand: a and c on the top row, b two rows down in the column between.
+        def points(b_y):
+            js = read("app.js")
+            prelude = "\n".join([SETUP] + [const(js, c) for c in ROUTE_CONSTS] + [fn(js, n) for n in ROUTE_FNS])
+            program = prelude + """
+const col = NODE_W + COL_GAP;
+const nodes = [{id: "a", x: 20, y: 20}, {id: "b", x: 20 + col, y: %d}, {id: "c", x: 20 + 2 * col, y: 20}];
+const L = {nodes, byId: {a: nodes[0], b: nodes[1], c: nodes[2]}, height: 400};
+console.log(JSON.stringify(graphRoute(L, {src: "a", dst: "c"}).length));
+""" % b_y
+            path = os.path.join(tempfile.mkdtemp(), "p.js")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(program)
+            proc = subprocess.run([NODE, path], capture_output=True, encoding="utf-8", timeout=60)
+            if proc.returncode != 0:
+                raise AssertionError(proc.stderr[-1500:])
+            return json.loads(proc.stdout)
+        self.assertEqual(points(200), 2)       # nothing in the way: the same single curve
+        self.assertGreater(points(20), 2)      # b in the way: around it
+
+    def test_an_edge_back_to_an_earlier_column_leaves_from_the_left(self):
+        # x is ranked after y by its exact edges, then hands back to y (an inferred handoff).
+        run = run_of([agent("y", 0), agent("m", 1), agent("x", 2)],
+                     [edge("main", "y", "spawn"), edge("y", "m"), edge("m", "x"),
+                      edge("x", "y", "handoff", "inferred")])
+        out = routed(run)
+        self.assertEqual(out["hits"], [])
+        back = next(r for r in out["routes"] if (r["src"], r["dst"]) == ("x", "y"))
+        nodes = {n["id"]: n for n in layout(run)["nodes"]}
+        start = float(back["d"][1:].split(",")[0])
+        self.assertEqual(start, nodes["x"]["x"])                      # x's left side
+        end_x = float(back["d"].split(" ")[-1].split(",")[0])
+        self.assertEqual(end_x, nodes["y"]["x"] + 210 + 6)             # y's right side, short of the arrow
+
+    def test_no_edge_in_the_demo_runs_through_a_node(self):
+        root = tempfile.mkdtemp()
+        now = time.time()
+        paths, _ = demo.build_demo(root, now=now)
+        built = RunBuilder(paths, now_fn=lambda: now).refresh().to_summary_dict()
+        out = routed({"agents": built["agents"], "edges": built["edges"]})
+        self.assertEqual(out["hits"], [])
+
+    def test_many_long_edges_still_route_quickly_and_cleanly(self):
+        agents = [agent("a%d" % i, i) for i in range(60)]
+        edges = [edge("main", "a0", "spawn")] + [edge("a%d" % i, "a%d" % (i + 1)) for i in range(59)]
+        edges += [edge("a%d" % i, "a%d" % (i + 4), "message") for i in range(0, 55, 2)]
+        t0 = time.time()
+        out = routed(run_of(agents, edges))
+        self.assertLess(time.time() - t0, 15)
+        self.assertEqual(out["hits"], [])
+
+
 if __name__ == "__main__":
     unittest.main()

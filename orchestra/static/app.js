@@ -4566,6 +4566,90 @@ function layoutGraph(run) {
            width: 40 + rowsDrawn * (NODE_W + COL_GAP) - COL_GAP, height: bottom + NODE_H + 40 };
 }
 
+// The points an edge is drawn through: from the right side of its source to the left side of
+// its target. An edge that skips columns keeps its single curve unless that curve would run
+// through a node it skips; then it crosses each skipped column level, through the free lane
+// (above, between or below that column's nodes) nearest the straight line between its ends.
+// The bends happen in the gaps between columns, where there are no nodes.
+const GRAPH_LANE_PAD = 8;
+
+function graphRoute(layout, edge) {
+  const a = layout.byId[edge.src];
+  const b = layout.byId[edge.dst];
+  // An edge to an earlier column (an inferred handoff can point back) leaves its source's left
+  // side and enters its target's right side, so it never loops back across its own source.
+  const back = b.x + NODE_W <= a.x;
+  const start = { x: back ? a.x : a.x + NODE_W, y: a.y + NODE_H / 2 };
+  const end = { x: back ? b.x + NODE_W : b.x, y: b.y + NODE_H / 2 };
+  if (Math.abs(b.x - a.x) <= NODE_W + COL_GAP) return [start, end];   // neighbours, or the same column
+  const lo = Math.min(a.x, b.x);
+  const hi = Math.max(a.x, b.x);
+  const cols = new Map();
+  for (const n of layout.nodes) {
+    if (n === a || n === b || n.x <= lo || n.x >= hi) continue;
+    if (!cols.has(n.x)) cols.set(n.x, []);
+    cols.get(n.x).push(n);
+  }
+  const blocked = (pts) => {
+    for (let s = 0; s + 1 < pts.length; s++) {
+      const p = pts[s];
+      const q = pts[s + 1];
+      const dir = q.x >= p.x ? 1 : -1;
+      const bend = dir * Math.max(12, Math.min(Math.abs(q.x - p.x) / 2, 160));
+      for (let k = 1; k < 32; k++) {
+        const t = k / 32;
+        const u = 1 - t;
+        const x = u * u * u * p.x + 3 * u * u * t * (p.x + bend) + 3 * u * t * t * (q.x - bend) + t * t * t * q.x;
+        const y = u * u * u * p.y + 3 * u * u * t * p.y + 3 * u * t * t * q.y + t * t * t * q.y;
+        for (const nodes of cols.values()) {
+          for (const n of nodes) {
+            if (x > n.x && x < n.x + NODE_W && y > n.y - 2 && y < n.y + NODE_H + 2) return true;
+          }
+        }
+      }
+    }
+    return false;
+  };
+  if (!cols.size || !blocked([start, end])) return [start, end];
+  const pts = [start];
+  const bottom = (layout.height || Infinity) - 4;
+  for (const x of [...cols.keys()].sort((p, q) => (back ? q - p : p - q))) {
+    const nodes = cols.get(x).slice().sort((p, q) => p.y - q.y);
+    const want = start.y + (end.y - start.y) * (x + NODE_W / 2 - start.x) / (end.x - start.x);
+    let lane = null;
+    const consider = (lo, hi) => {
+      if (hi < lo) return;
+      const y = Math.max(lo, Math.min(hi, want));
+      if (lane === null || Math.abs(y - want) < Math.abs(lane - want)) lane = y;
+    };
+    consider(4, nodes[0].y - GRAPH_LANE_PAD);
+    for (let i = 0; i + 1 < nodes.length; i++) {
+      consider(nodes[i].y + NODE_H + GRAPH_LANE_PAD, nodes[i + 1].y - GRAPH_LANE_PAD);
+    }
+    consider(nodes[nodes.length - 1].y + NODE_H + GRAPH_LANE_PAD, bottom);
+    if (lane === null) lane = nodes[nodes.length - 1].y + NODE_H + GRAPH_LANE_PAD;
+    if (back) pts.push({ x: x + NODE_W + 10, y: lane }, { x: x - 10, y: lane });
+    else pts.push({ x: x - 10, y: lane }, { x: x + NODE_W + 10, y: lane });
+  }
+  pts.push(end);
+  return pts;
+}
+
+// A smooth path through the points: each step a curve that leaves and arrives level, its bend
+// half the step (12 to 160 wide), either way. The last point stops short for the arrowhead.
+function graphPath(pts) {
+  let d = "M" + pts[0].x + "," + pts[0].y;
+  for (let i = 1; i < pts.length; i++) {
+    const p = pts[i - 1];
+    const q = pts[i];
+    const dir = q.x >= p.x ? 1 : -1;
+    const bend = dir * Math.max(12, Math.min(Math.abs(q.x - p.x) / 2, 160));
+    d += " C" + (p.x + bend) + "," + p.y + " " + (q.x - bend) + "," + q.y + " " +
+      (i === pts.length - 1 ? q.x - dir * 6 : q.x) + "," + q.y;
+  }
+  return d;
+}
+
 function graphClamp(k) {
   return Math.max(GRAPH_MIN_K, Math.min(GRAPH_MAX_K, k));
 }
@@ -4721,17 +4805,9 @@ function renderGraph(run) {
   const edgeEls = [];
   const hiddenEls = [];
   for (const edge of layout.edges) {
-    const a = layout.byId[edge.src];
-    const b = layout.byId[edge.dst];
-    const x1 = a.x + NODE_W;
-    const y1 = a.y + NODE_H / 2;
-    const x2 = b.x;
-    const y2 = b.y + NODE_H / 2;
-    // A bend wide enough that an edge leaving a node clears its own column.
-    const bend = Math.max(36, Math.min((x2 - x1) / 2, 160));
+    // Around the nodes it skips (graphRoute), as one smooth path (graphPath).
     const isCritical = layout.criticalEdges.has(edge.src + "→" + edge.dst);
-    const d = "M" + x1 + "," + y1 + " C" + (x1 + bend) + "," + y1 + " " + (x2 - bend) + "," + y2 +
-      " " + (x2 - 6) + "," + y2;
+    const d = graphPath(graphRoute(layout, edge));
     const path = svgEl("path", {
       d: d,
       class: "edge" + (edge.confidence === "inferred" ? " edge-inferred" : "") +

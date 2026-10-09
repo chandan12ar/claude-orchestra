@@ -93,14 +93,20 @@ const activityShot = `(async () => { await new Promise(r => setTimeout(r, 600));
   window.scrollTo(0, document.getElementById('view-activity').getBoundingClientRect().top + window.scrollY - h - 12);
   await new Promise(r => setTimeout(r, 300)); })()`;
 
+// The Graph, scrolled so the whole canvas sits under the header (alerts grow as the demo runs).
+const graphShot = `(async () => { await new Promise(r => setTimeout(r, 900));
+  const h = document.querySelector('header').getBoundingClientRect().height;
+  window.scrollTo(0, document.getElementById('view-graph').getBoundingClientRect().top + window.scrollY - h - 12);
+  await new Promise(r => setTimeout(r, 300)); })()`;
+
 // name, url, width, height, colour scheme, optional script run before the shot
 const shots = [
   ["01-timeline-light", DEMO, 1440, 900, "light"],
   ["02-timeline-dark", DEMO, 1440, 900, "dark"],
   ["03-insights-light", DEMO + "#view=insights", 1440, 1500, "light"],
   ["04-insights-dark", DEMO + "#view=insights", 1440, 1500, "dark"],
-  ["05-graph-light", DEMO + "#view=graph", 1440, 960, "light"],
-  ["06-graph-dark", DEMO + "#view=graph", 1440, 960, "dark"],
+  ["05-graph-light", DEMO + "#view=graph", 1440, 960, "light", graphShot],
+  ["06-graph-dark", DEMO + "#view=graph", 1440, 960, "dark", graphShot],
   ["07-workfloor-by-role-light", DEMO + "#view=workfloor", 1440, 1000, "light"],
   ["08-workfloor-by-status-dark", DEMO + "#view=workfloor", 1440, 1000, "dark",
     `(async () => { const s = document.getElementById('floor-group'); s.value = 'status';
