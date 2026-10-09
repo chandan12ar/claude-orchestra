@@ -63,8 +63,9 @@ def _target(name: str, params: Any) -> str:
 
 class WasteLog:
     def __init__(self) -> None:
-        # message id -> [first seen at, model, cache_create, cache_read, input]; the three token
-        # counts together are the context the model saw on that call (orchestra.pressure).
+        # message id -> [first seen at, model, cache_create, cache_read, input, output]; the first
+        # three token counts together are the context the model saw on that call
+        # (orchestra.pressure), and all four price the call (orchestra.spend).
         self.calls: "OrderedDict[str, List[Any]]" = OrderedDict()
         # Compactions, once each (Claude Code can write the same boundary twice): at, trigger,
         # pre and post tokens, duration.
@@ -129,13 +130,13 @@ class WasteLog:
             return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 0
 
         created, read = count("cache_creation_input_tokens"), count("cache_read_input_tokens")
-        fresh = count("input_tokens")
+        fresh, output = count("input_tokens"), count("output_tokens")
         if mid in self.calls:                      # the same API message again: latest usage wins
             row = self.calls[mid]
             row[1] = model or row[1]
-            row[2], row[3], row[4] = created, read, fresh
+            row[2], row[3], row[4], row[5] = created, read, fresh, output
         elif len(self.calls) < MAX_CALLS:
-            self.calls[mid] = [at, model, created, read, fresh]
+            self.calls[mid] = [at, model, created, read, fresh, output]
 
     def _result(self, block: Dict[str, Any], at: Optional[float]) -> None:
         name, params = self._tools.pop(block.get("tool_use_id"), ("", None))

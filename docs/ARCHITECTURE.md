@@ -451,9 +451,16 @@ process actually runs). Covered in [§2](#2-how-you-run-it--the-cuelightopen-sla
 
 ## 6. Frontend architecture (`orchestra/static/`)
 
-No build step, no framework, no dependency — one `app.js`, one `style.css`,
-one `index.html`, plain `fetch`/DOM/SVG APIs. The whole file is organized
+No build step, no framework, no dependency — `app.js` (plus `tabs.js`, below), one
+`style.css`, one `index.html`, plain `fetch`/DOM/SVG APIs. The code is organized
 around one `state` object and one `render()` dispatcher:
+
+`tabs.js` holds the views that are tabs of their own (Prompts, Agents, Spend). It is a
+second classic script loaded after `app.js`, so it shares `app.js`'s top-level globals
+(`state`, `esc`, `insCard`, `openDrawer`...) and `render()` calls into it. It exists
+because the plugin directory takes no non-image file over 256 KiB and `app.js` reached
+that limit in 0.19.0. The static report inlines both, in that order; `tests/test_insights_ui.run_js`
+reads both, so a test can extract a function from either file.
 
 ```js
 state = {
@@ -1134,6 +1141,26 @@ pure functions in `app.js`, tested under node.
   flags first within a status) and checks failing-unchecked-checked-none. `agentSpend` is money when the
   run is priced, else fresh tokens. `renderAgents` redraws on every poll and puts keyboard focus back on
   the row (`data-agent`), heading (`data-sort`) or toggle it was on.
+
+### Spend tab (`spend.py`, `tabs.js`)
+- **Calls.** `WasteLog.calls` (one row per API message id, latest usage winning) now also keeps
+  output tokens: `[at, model, cache_create, cache_read, input, output]`. `spend.summary` prices each
+  call by its model (`PriceTable.price_for`; an unpriced model adds nothing and is listed), or without
+  a table counts fresh tokens (input + output + cache writes), as the rest of the dashboard does. On
+  51 real sessions the curve's total equals `cost.total` to float rounding.
+- **Series.** 120 bins from the first call to now (live) or the last call (ended): running totals for
+  the main session, the agents, and the top four models plus "other". The budget (`ORCHESTRA_BUDGET`,
+  money only) records the call that passed `warn_ratio × limit` and the one that passed the limit.
+  `rate_now` is the last five minutes per minute (live only); `peak` is the costliest five-minute
+  window starting at a call, with its top three spenders.
+- **Front end.** `spendSeries` stacks main then agents, or models by name ("other" last) so a model
+  keeps its colour while rankings change. Colours are `--series-1..5`: the reference categorical
+  palette (validated light and dark with the dataviz validator; light needs visible labels, so the
+  legend carries values and a table lists every series). `spendChart` draws bands (a 14% wash) with
+  2px lines, the budget line, the warning/limit crossings (names on opposite sides when close),
+  clock ticks, and direct end labels where a band is tall enough. The crosshair (`spendReadout`)
+  follows the pointer or the arrow keys (Home/End, PageUp/PageDown); a live redraw puts the reading
+  and focus back. The Insights Spend card moved here; its glance chip carries `view: "spend"`.
 
 ### Graph and Work Floor
 - **Graph layout** (`layoutGraph`) is a pure function split into `graphRankColumns`

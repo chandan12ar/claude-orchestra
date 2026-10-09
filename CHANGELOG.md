@@ -6,6 +6,30 @@ versions follow [SemVer](https://semver.org/) (the `version` in
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-10-09
+
+### Added
+- **Spend**: a tab of its own (key 5; Prompts and the views after it move up one number, History is
+  key 0). It shows what the session cost as it ran, as a running total from every API call:
+  - the main session and its agents stacked, or each model (top four, then "other");
+  - your budget as a line, with where its warning (`ORCHESTRA_BUDGET_WARN_RATIO`, 80%) and its limit
+    were passed;
+  - a crosshair that reads every series at a moment, by pointer or by arrow keys on the focused
+    chart. A legend with values and a table carry every number without it.
+
+  It leads with the total, the main session's and the agents' shares, the average pace and the pace over
+  the last five minutes. With a budget set, it shows how much of it is used, and either how far over it
+  is or when it runs out at the current pace. Below the chart are the most expensive five minutes (and
+  who spent them) and the most expensive agents. Without a price file it counts fresh tokens, and says
+  where to put prices. On 51 real sessions the curve ends exactly at the cost the header shows.
+
+### Changed
+- The Insights Spend card moved to the Spend tab; its chip in the Insights strip opens the tab.
+- The views that are tabs of their own (Prompts, Agents, Spend) moved from `app.js` to a second script,
+  `static/tabs.js`. `app.js` had reached the plugin directory's 256 KiB limit for a file; a static
+  report still inlines everything.
+- Each API call's record keeps its output tokens too, so a call can be priced on its own.
+
 ## [0.18.0] - 2026-10-09
 
 ### Added

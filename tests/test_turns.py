@@ -228,8 +228,8 @@ class TestBuiltAndShown(unittest.TestCase):
         js, html = ui.read("app.js"), ui.read("index.html")
         self.assertIn('data-view="prompts"', html)
         self.assertIn('id="view-prompts"', html)
-        self.assertIn('["prompts", "Prompts", "5"]', js)
-        self.assertIn('"123456789".indexOf(key)', js)
+        self.assertIn('["prompts", "Prompts", "6"]', js)
+        self.assertIn('"1234567890".indexOf(key)', js)
         self.assertNotIn("Your prompts", ui.render_insights(ui.demo_run()))
         from orchestra import report
         i = report._SHELL.index('data-view="prompts"')
