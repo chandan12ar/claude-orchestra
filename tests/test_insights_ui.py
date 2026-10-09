@@ -45,8 +45,14 @@ def const(js, name):
     return js[start:js.index(";\n", start) + 2]
 
 
+# Every redrawn view keeps keyboard focus through these (app.js), so every run has them.
+FOCUS_FNS = ("focusMatches", "noteFocus", "restoreFocus")
+
+
 def run_js(names, consts, body):
     js = read("app.js") + "\n" + read("tabs.js")       # the tabs of their own live in tabs.js
+    names = tuple(names) + tuple(n for n in FOCUS_FNS if n not in names)
+    consts = tuple(consts) + (() if "FOCUS_NAMES" in consts else ("FOCUS_NAMES",))
     prelude = "\n".join([SETUP] + [const(js, c) for c in consts] + [fn(js, n) for n in names])
     path = os.path.join(tempfile.mkdtemp(), "i.js")
     with open(path, "w", encoding="utf-8") as fh:

@@ -142,21 +142,7 @@ class TestAgentsTable(unittest.TestCase):
         for bad in ("NaN", "undefined", "null", "Infinity"):
             self.assertNotIn(bad, self.html)
 
-    def test_a_refresh_keeps_keyboard_focus_where_it_was(self):
-        # Every poll redraws the table; the row (or heading) you were on must keep focus.
-        def focus_after(active_attr, active_value, selector):
-            body = ("const target = {getAttribute: (n) => n === %(attr)s ? %(val)s : null,"
-                    " matches: (s) => s === %(sel)s, focused: false, focus() { this.focused = true; }};"
-                    "const other = {getAttribute: () => 'zzz', matches: () => false, focus() { throw new Error('wrong'); }};"
-                    "document.activeElement = {getAttribute: target.getAttribute, matches: target.matches};"
-                    "box.contains = () => true;"
-                    "box.querySelectorAll = (s) => s === %(sel)s ? [other, target] : [];"
-                    "renderAgents(RUN); console.log(JSON.stringify(target.focused));"
-                    % {"attr": json.dumps(active_attr), "val": json.dumps(active_value), "sel": json.dumps(selector)})
-            return run_js(body, self.summary)
-        agent = self.summary["agents"][2]["agent_id"]
-        self.assertTrue(focus_after("data-agent", agent, "tr[data-agent]"))
-        self.assertTrue(focus_after("data-sort", "cost", "[data-sort]"))
+    # A refresh keeping keyboard focus on a row or heading: tests/test_focus_ui.py.
 
     def test_no_agents_matching_says_so(self):
         html = html_of(self.summary, "state.filterText = 'nothing matches this';\n")

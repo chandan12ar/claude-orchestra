@@ -6,6 +6,16 @@ versions follow [SemVer](https://semver.org/) (the `version` in
 
 ## [Unreleased]
 
+## [0.21.1] - 2026-10-09
+
+### Fixed
+- **Keyboard focus survives a live refresh in every view that redraws.** A live session redraws the
+  open tab every few seconds, and that used to throw a keyboard user out of the Prompts tab, the
+  Insights fold buttons and chips (Fold all too), the Spend split toggle and agent links, the Work Floor
+  cards, the Fleet rows and the History rows. Focus now stays on the same control, so Tab carries on
+  from where you were. The Agents tab and the Spend chart already did this; all of them now share one
+  way of doing it. If the control is gone after the refresh, focus is left alone.
+
 ## [0.21.0] - 2026-10-09
 
 ### Changed

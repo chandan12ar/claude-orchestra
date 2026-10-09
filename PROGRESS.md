@@ -1,7 +1,8 @@
 # PROGRESS
 
-State on 2026-10-09 (stopped at the owner's request): 0.21.0 on `main`, every PR through #34 merged,
-CI green. Where to pick up: `RESUME.md` section 4 "Next, in order". One branch and PR
+State on 2026-10-09: 0.21.0 on `main`, every PR through #34 merged, CI green; resumed the same day
+with 0.21.1 (PR #36, focus fix, see "Resumed" at the end). Where to pick up: `RESUME.md` section 4
+"Next, in order". One branch and PR
 per feature; rules in `.claude/CLAUDE.md`, one-page handoff in `RESUME.md`. The tables below are
 the record of each round, oldest first.
 
@@ -228,3 +229,9 @@ The owner merged #30-#34 and asked to stop (out of credits). Main is at 0.21.0, 
 open or unpushed. Next steps, in order, are in `RESUME.md` section 4: (1) GitHub Release v0.21.0
 after the owner's yes, (2) keep keyboard focus across live refreshes in the Prompts tab and the
 Insights fold buttons, (3) agent teams once the owner provides a real team run.
+
+## Resumed (2026-10-09)
+
+| # | Item | State |
+|---|---|---|
+| 1 | **Keyboard focus across live refreshes** (`fix/keep-focus-on-refresh`, 0.21.1, stacked on #35). Not only Prompts and Insights: Spend's split toggle and agent links, Work Floor cards, Fleet rows and History rows lost focus on every redraw too. One helper (`noteFocus`/`restoreFocus` in `app.js`) now brackets every `innerHTML` redraw, Agents and the Spend chart included. `tests/test_focus_ui.py` (20 tests) redraws each view over a parsing DOM stub; checked in a real browser on the demo (each control replaced, focus on its replacement; a real poll 1.2 s in kept it; Tab continues from the right chip; the Spend chart keeps focus and its reading) | PR #36, CI pending |
