@@ -192,6 +192,12 @@ class TestKeyboard(unittest.TestCase):
                      "console.log(JSON.stringify(calls));")
         self.assertEqual(out, [])
 
+    def test_a_key_a_focused_control_already_used_is_left_alone(self):
+        # The graph fits itself on 0 and calls preventDefault; 0 must not also jump to History.
+        out = self.keys({"key": "0", "defaultPrevented": True}, {"key": "t", "defaultPrevented": True},
+                        {"key": "2"})
+        self.assertEqual(out["calls"], [["view", "graph"]])
+
     def test_ctrl_k_and_slash_are_intercepted(self):
         out = self.keys({"key": "k", "ctrlKey": True})
         self.assertIn("prevent", out["log"])

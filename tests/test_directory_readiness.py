@@ -243,5 +243,31 @@ class TestNoSecretShapedText(unittest.TestCase):
                 self.assertIsNone(pattern.search(text), "%s looks like it contains a credential (%s)" % (name, pattern.pattern))
 
 
+class TestNoCredentialReads(unittest.TestCase):
+    """The directory warns when plugin code reads a credential from the user's machine
+    ("Uses a credential from the user's machine"). Cuelight needs none: its only secret is the
+    dashboard token it makes itself. Keep every runtime file free of anything that reads one,
+    the demo's made-up tool calls included (0.21.0 was flagged for a fake agent searching the code for
+    environment variables)."""
+
+    RUNTIME = ("orchestra/", "hooks/", "bin/", "commands/", ".claude-plugin/")
+    PATTERNS = [
+        r"process\.env", r"\.credentials\.json", r"\b(?:keyring|netrc|getpass)\b",
+        r"\b(?:ANTHROPIC_API_KEY|OPENAI_API_KEY|CLAUDE_CODE_OAUTH_TOKEN|GITHUB_TOKEN|GH_TOKEN|AWS_SECRET_ACCESS_KEY)\b",
+        r"(?:environ(?:\.get)?\s*[\[(]|getenv\(\s*)\s*['\"][A-Z_]*(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)",
+    ]
+
+    def test_no_runtime_file_reads_a_credential(self):
+        compiled = [re.compile(p) for p in self.PATTERNS]
+        names = [n for n in tracked_files() if n.startswith(self.RUNTIME)
+                 and os.path.splitext(n)[1].lower() not in IMAGE_EXT | FONT_EXT]
+        self.assertTrue(any(n.startswith("orchestra/") for n in names))
+        for name in names:
+            with open(os.path.join(ROOT, name), encoding="utf-8", errors="ignore") as fh:
+                text = fh.read()
+            for pattern in compiled:
+                self.assertIsNone(pattern.search(text), "%s reads a credential (%s)" % (name, pattern.pattern))
+
+
 if __name__ == "__main__":
     unittest.main()

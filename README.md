@@ -236,7 +236,9 @@ You can try every one of these without a real run: `python -m orchestra --demo`.
 - **Search and shortcuts** — `Ctrl/Cmd+K` (or `/`) opens one box for agents,
   tool calls, files and commands. Number keys switch views; `L` pauses live
   updates, `R` replays, `T` changes the theme, `?` lists every shortcut. Shortcuts
-  never fire while you are typing. Search matches the redacted text only.
+  never fire while you are typing, or for a key the focused control uses itself
+  (`0` fits the graph). Keyboard focus stays where it was when a live update
+  redraws the view. Search matches the redacted text only.
 - **Light, dark or automatic** — designed together, with text and status colours
   held to WCAG 4.5:1 by a test; follows reduced-motion; usable at phone width.
 
@@ -325,7 +327,8 @@ permission*, or that it died to a rate limit — facts a transcript cannot show.
 
 - Each hook records one line to `<state dir>/events/<session>.jsonl` and exits.
   It never blocks or fails Claude Code (async, always exit 0, silent), and costs
-  roughly 50 ms of Python startup off Claude's critical path.
+  one short Python start (about 50 ms on Linux, about 0.2 s on Windows) off Claude's
+  critical path.
 - Only the event name, session/agent ids, working directory, and a short
   redacted message are stored. **Tool inputs, prompts, and file contents are
   never recorded.** Per-tool events (`PreToolUse`/`PostToolUse`) are not hooked.
@@ -417,7 +420,7 @@ Everything it does, in one place (the full policy is in [PRIVACY.md](PRIVACY.md)
 |---|---|
 | **Programs it runs** | `bin/cuelight`, a short shell script that starts `orchestra/__main__.py` with your Python (the dashboard, started only when you run `/cuelight:open`; Claude Code asks you before it runs, since the command pre-approves nothing, and "don't ask again" covers only `cuelight`) and `orchestra/hook.py` (one short-lived process per Claude Code event, installed by `hooks/hooks.json`). Both are plain Python from this repository; nothing is downloaded or installed. |
 | **Files it reads** | Claude Code transcripts under `~/.claude/projects`, its own hook spool, and an optional price file you provide |
-| **Files it writes** | The hook spool and a port/token file in a per-user state folder (deleted after 7 days or when the dashboard stops), an optional metrics-only history file (off by default), and an HTML report only when you ask for one. Never anything under `~/.claude` |
+| **Files it writes** | The hook spool and a port/token file in a per-user state folder (deleted after 7 days or when the dashboard stops) plus the dashboard's error log there (normally empty), an optional metrics-only history file (off by default), and an HTML report or CSV/JSON export only when you ask for one. Never anything under `~/.claude` |
 | **Network** | None. The server listens on `127.0.0.1` only and nothing is fetched or sent. Using Claude Code itself is unchanged |
 | **Permissions it needs** | None beyond running the two programs above. It is read-only and cannot approve, deny or change anything in Claude Code |
 | **Works in** | Claude Code (terminal, IDE extensions and the desktop Code tab). It needs a local Python 3.9+ and does not run on claude.ai chat or Cowork |
@@ -428,7 +431,10 @@ Everything it does, in one place (the full policy is in [PRIVACY.md](PRIVACY.md)
 python -m unittest discover -s tests -t . -v
 ```
 
-Standard library only, tests included.
+Standard library only, tests included. Node 22+ runs the tests that render the page; without it they skip
+themselves. `claude plugin validate --strict .claude-plugin/plugin.json` checks the plugin the way CI does.
+Before you push, read [CONTRIBUTING.md](CONTRIBUTING.md): Anthropic's plugin directory scans every file,
+tests and docs included, and rejects credential-shaped text even when it is fake.
 
 ## How it works
 

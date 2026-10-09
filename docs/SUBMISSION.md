@@ -3,7 +3,8 @@
 Status of Cuelight against Anthropic's published plugin requirements, plus ready-to-paste answers for the
 submission form. Sources: the [pre-submission checklist](https://claude.com/docs/plugins/pre-submission-checklist),
 [Submit your plugin](https://claude.com/docs/plugins/submit) and the
-[plugin manifest reference](https://code.claude.com/docs/en/plugins-reference), read on 2026-10-03 and again on 2026-10-04.
+[plugin manifest reference](https://code.claude.com/docs/en/plugins-reference), read on 2026-10-03 and again on 2026-10-04;
+the portal's findings were read on 2026-10-09 (below).
 Anthropic's rules change; re-check them before each submission.
 
 ## Where to submit
@@ -34,13 +35,34 @@ The repository is already public, which the listing requires before it goes live
 | Only text, PNG, JPEG, GIF, WebP and font files | Done | **test** |
 | No system files (`.DS_Store`, `Thumbs.db`, `desktop.ini`, `__MACOSX`) | Done | **test** |
 | No symlinks, submodules or Git LFS | Done | **test** |
-| No real credentials in any file | Done | `tests/test_redact.py` covers the redactor; review by hand before each release |
+| No credential-shaped text in any file, **fake ones included** (tests and docs too) | Done (0.21.2; 0.21.0 was blocked for a fake `Authorization: Bearer` header in a test) | **test** (`TestNoSecretShapedText`: key formats, Bearer/Basic values, password and AWS secret assignments, quoted keys and tokens, passwords in URLs). Fakes are built from pieces in `tests/fake_secrets.py`; docs use `<fake-...>` placeholders |
+| No runtime file reads a credential from the user's machine (env tokens, credential files), the demo's made-up tool calls included | Done (0.21.3) | **test** (`TestNoCredentialReads`) |
 | Commit readable source, not minified or packed code | Done | by construction (no build step) |
 | Describe in the README everything the plugin runs, sends or fetches | Done | README section "What Cuelight runs and touches" |
 | Component files use the exact names Claude Code expects | Done | `claude plugin validate` |
 | The slash command pre-approves no tools (no `allowed-tools`): broad shell access is held for a reviewer | Done (0.10.1) | **test** |
 | README shows bundled images with Markdown image syntax only, no `<img>` or `<picture>` | Done (0.10.1) | **test** |
 | No image the directory reads as carrying long embedded text (held for a reviewer) | Done (0.10.3: removed the unused `docs/assets/pill-states.png`, the one file it named) | the version's history in the portal |
+
+## Findings in the portal, and what each one means for Cuelight
+
+The portal lists every finding on a version (Review tab; expand a finding for its files). Only **Needs you**
+items block. The rest are warnings a reviewer reads, so Cuelight is always held for a person: it ships hooks,
+`bin/cuelight` and images its code uses. Read on v0.21.0 (2026-10-09):
+
+| Finding | Files | What it is here | Action |
+|---|---|---|---|
+| **Secret in a shipped file** (blocking, `SECRET_IN_SCRIPT`) | `tests/test_runaway.py` | A made-up `Authorization: Bearer ...` header in a loop test. The scanner flags fakes too | Fixed in 0.21.2; the guard test now catches this shape |
+| Image or font file that the plugin's code could run (`UNREAD_ASSET_REFERENCED`), 9 | `plugin.json`, `orchestra/static/app.js`, `orchestra/report.py`, two scripts and four documents under `docs/` | `plugin.json` names the listing icon; `app.js` draws the Work Floor from `agent-sprite.png`; `report.py` inlines it into a report; `docs/evidence/capture-icon.mjs` and `make_pill_gif.py` write the README's images; the documents mention image names. Nothing runs an image | None: a reviewer confirms |
+| Uses a credential from the user's machine (`MCP_FORWARDS_CREDENTIAL_ENV`), 5 | `CHANGELOG.md`, an old plan in `docs/superpowers/`, `orchestra/demo.py`, `orchestra/static/app.js`, `plugin.json` | Cuelight reads no credential. `app.js` sends the dashboard's own token (made at launch, in the page's own URL) back to its own `127.0.0.1` server; the demo had a fake agent search the code for environment variables; the documents talk about tokens | Demo text changed in 0.21.3; `TestNoCredentialReads` keeps runtime code free of credential reads. The rest is for the reviewer |
+| Files or downloads the validator couldn't inspect (`BINARIES_NOT_INSPECTED`) | `orchestra/static/agent-sprite.png` | A 1.46 MB, 1024x1248 full-colour PNG with no text chunks (only IHDR, IDAT, IEND). Its size is the likely reason | None: shrinking it would change how the sprites look |
+| Unrecognized field in plugin.json, 3 | `documentationUrl`, `privacyPolicyUrl`, `supportUrl` | Listing fields the directory reads; Claude Code ignores them | None (the portal says so) |
+| Field from another tool's manifest | `plugin.json` `icon` | The listing icon | None (the portal says so) |
+| Contains a download-and-run command | `docs/evidence/screenshots/52-phone-agents-dark.png` | Text read out of a documentation screenshot | None (documentation only) |
+| Uses hooks | `hooks/hooks.json` | The seven async observer hooks | None (information) |
+| Ships executable files (`BUNDLES_BINARIES`) | `bin/cuelight` | A short readable POSIX shell script that starts `orchestra/__main__.py`, so "don't ask again" covers only `cuelight` (0.11.0) | None: a reviewer reads it |
+
+After merging a fix, **Check for new commits** in the portal rescans at once instead of within about 6 hours.
 
 ## What to expect from review
 

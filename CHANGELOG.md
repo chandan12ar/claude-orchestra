@@ -6,6 +6,29 @@ versions follow [SemVer](https://semver.org/) (the `version` in
 
 ## [Unreleased]
 
+## [0.21.3] - 2026-10-09
+
+An audit after the plugin directory's review of 0.21.0. No new features.
+
+### Fixed
+- **`0` on the Graph fits it and stays there.** The graph fits itself on `0`, and the same key press then
+  went on to the page's view shortcuts, which since the tenth tab send `0` to History. A key a focused
+  control has already used now never also runs a shortcut.
+- **The demo no longer looks like it reads a credential.** Its made-up security review searched the code
+  for environment variables, which the directory listed under "Uses a credential from the user's machine".
+  It now searches for something else. Cuelight itself reads no credential; a new test keeps every runtime
+  file free of anything that does.
+
+### Changed
+- Documents brought up to date: the README (the hooks' start-up cost as measured on Windows too, keyboard
+  behaviour, how to check the plugin before pushing), PRIVACY.md (the dashboard's error log and exports are
+  now listed), docs/SUBMISSION.md (every finding the portal lists, what it is here and what to do about it),
+  CONTRIBUTING.md (what the directory's scanner flags), and the workflow, roadmap and follow-up notes.
+- Checked, with nothing to fix: every real session on the maintainer's machine (59 sessions, 144 agents)
+  through every API call and the static report; every tab and agent panel of the largest one in a real
+  browser; the hook with empty, malformed, hostile and 3 MB input (always exit 0); both strict plugin
+  validators.
+
 ## [0.21.2] - 2026-10-09
 
 ### Fixed

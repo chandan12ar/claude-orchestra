@@ -9,11 +9,11 @@ The deep reference is [ARCHITECTURE.md](ARCHITECTURE.md); the threat model is [.
 ```mermaid
 flowchart LR
   CC["Claude Code<br/>(your session)"] -->|writes| TR[("Transcripts<br/>~/.claude/projects")]
-  CC -->|"async hook, ~50 ms"| HK["hook.py"]
+  CC -->|"async hook, 0.05-0.2 s"| HK["hook.py"]
   HK -->|"one redacted line"| SP[("Hook spool<br/>per-user state folder")]
   TR --> SV
   SP --> SV
-  SV["Cuelight server<br/>127.0.0.1 + token"] -->|"HTML, JSON, live stream"| UI["Browser tab<br/>Timeline, Graph, Work Floor, Insights, Fleet"]
+  SV["Cuelight server<br/>127.0.0.1 + token"] -->|"HTML, JSON, live stream"| UI["Browser tab<br/>Timeline, Graph, Agents, Insights, Spend,<br/>Prompts, Activity, Work Floor, Fleet, History"]
   UI --> PILL["Pill window and tab icon"]
   PR[("Price file<br/>optional")] -.-> SV
   HI[("History<br/>optional, metrics only")] -.-> SV

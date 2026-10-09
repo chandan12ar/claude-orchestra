@@ -3334,6 +3334,8 @@ function onGlobalKey(event) {
     return;
   }
   if (event.ctrlKey || event.metaKey || event.altKey) return;
+  // A focused control already used this key (the graph fits itself on 0): no shortcut as well.
+  if (event.defaultPrevented) return;
   if (palette.open || helpOpen() || isTyping(event.target)) return;
   const key = event.key;
   if (key === "/") { event.preventDefault(); openPalette(); return; }
