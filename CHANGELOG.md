@@ -6,6 +6,17 @@ versions follow [SemVer](https://semver.org/) (the `version` in
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-10-09
+
+### Changed
+- **Graph edges go around the agents they skip.** An edge between neighbouring columns is drawn as
+  before. A longer one used to cut straight through any agent in the columns between. Now, when its
+  curve would pass through one, it crosses each of those columns through the nearest free gap and bends
+  only between columns. In the demo, 8 of 27 edges passed through agents (16 times); now none does.
+- An edge back to an earlier column (an inferred handoff can point back) now leaves its source's left
+  side and enters its target's right side. It used to loop back across the whole graph from the
+  source's right side.
+
 ## [0.20.0] - 2026-10-09
 
 ### Added

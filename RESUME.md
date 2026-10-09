@@ -4,9 +4,10 @@ Repo: `chandan12ar/cuelight` (public) · default branch **`main`**, which change
 PR (the owner clicks Merge on GitHub; `gh pr merge` from here is blocked). The product is
 **Cuelight**; the internal package is still `orchestra`.
 
-State (2026-10-09): **0.17.0 is on main** (PR #29 merged). CI on main is green on all 10 jobs
-(Linux/macOS/Windows x Python 3.9/3.12/3.13 + plugin validation). Local suite: **1,066 tests,
-3 skipped**. The last GitHub Release is **v0.10.3**; a release for 0.17.0 waits on the owner's yes.
+State (2026-10-09): **0.17.0 is on main** and released (GitHub Release v0.17.0). The third round
+(0.18.0-0.21.0) is built as a **stack of open PRs that must merge in order: #30 (docs) -> #31
+(Agents tab) -> #32 (Spend tab) -> #33 (Activity search) -> #34 (graph routing)**. Read each PR's
+CI before asking for its merge. Local suite on the top branch: **1,148 tests, 3 skipped**.
 Details: `PROGRESS.md` (status by round), `.claude/CLAUDE.md` (rules + lessons), `CHANGELOG.md`
 (per version), `docs/ARCHITECTURE.md` (how it works), `docs/FOLLOW-UPS.md` (older review items).
 
@@ -29,7 +30,7 @@ Tabs: Timeline, Graph, Insights, Prompts, Activity, Work Floor, Fleet, History.
 7. Every merge to `main` becomes the version the Claude plugin directory reviews (it
    re-scans about every 6 hours), so keep `main` clean.
 
-## 3. What is built (all merged)
+## 3. What is built
 | Versions | Delivered |
 |---|---|
 | 0.2-0.5 | Live layer (async hooks -> spool -> SSE), Fleet, pill + sounds, cost/budget, loops, replay, export, history; Insights, Graph, Work Floor, palette, `--demo`; rename to Cuelight; Pulse strip; directory-readiness docs |
@@ -37,18 +38,21 @@ Tabs: Timeline, Graph, Insights, Prompts, Activity, Work Floor, Fleet, History.
 | 0.10.1-0.11 | Directory review fixes (no `allowed-tools`, removed an uninspectable image); `bin/cuelight` launcher so "don't ask again" covers Cuelight only |
 | 0.12-0.16 | Catch me up (titles, recaps); Where tokens were wasted; Prompts tab; Context pressure; What went wrong (API stalls, failed calls, retries, timeouts) |
 | 0.17 | Insights at a glance: chip strip (worst first) + foldable cards |
+| 0.18-0.21 (PRs open) | Agents tab (+ SubagentHandback reports, deliverable phrasings); Spend tab (running cost, budget crossings; tab views moved to `static/tabs.js` for the 256 KiB limit); Activity search (`/api/calls`); graph edge routing |
 
 ## 4. Still open
-- **Owner's calls:** GitHub Release for 0.17.0; trademark search for "Cuelight"; checking the
-  directory review result for the latest version in the portal.
+- **Owner's calls:** merging the stack #30-#34 in order; a GitHub Release once it is merged;
+  trademark search for "Cuelight"; checking the directory review result in the portal.
 - **Unverified:** agent teams (teammates): no handling, and no team run in the local
   transcripts to test against; `bin/cuelight` launcher's permission prompt in a live Claude
   Code; the API-error hook fields `error_type`/`error_message` (docs only).
 - **Known gaps:** `agent_type` is empty on `agent_stop`; the permission notification carries no
   tool name; history records only sessions that were viewed or scanned.
-- **Ideas not started:** agents table (asked / expected output / result side by side,
-  `docs/FOLLOW-UPS.md` #1); Activity-tab text filter; cost-over-time chart; graph routing for
-  edges that skip columns; Fleet ticker.
+- **Ideas not started:** Fleet ticker; the Prompts tab and Insights fold buttons lose keyboard
+  focus on each live refresh (the Agents and Spend tabs already keep it; same fix applies).
+- **File size:** the plugin directory takes no non-image file over 256 KiB. `app.js` is ~234 KB in
+  a CRLF checkout; put new tab-sized views in `static/tabs.js` (`test_directory_readiness` fails
+  first if a file grows past the limit).
 
 ## 5. Practical notes
 - Tests: `python -m unittest discover -s tests -t .` (Node 22+ needed for the UI tests).

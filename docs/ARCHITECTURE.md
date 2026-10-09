@@ -1179,6 +1179,16 @@ pure functions in `app.js`, tested under node.
   violators: each node level with its neighbours, no overlap, order kept) and
   `graphCriticalPath`. The orchestrator's spawn edge to an agent is hidden whenever that
   agent has another incoming exact edge. Pan/zoom is a transform on one viewport group.
+- **Edge routing** (`graphRoute`, `graphPath`, 0.21.0). An edge between neighbouring columns is
+  the same single curve as before. A longer one keeps its single curve unless a sample of
+  that curve lands inside a node it skips; then it crosses each skipped column level, through
+  the free lane (above, between or below that column's nodes, `GRAPH_LANE_PAD` clear) nearest
+  the straight line between its ends, and bends only in the gaps between columns, where there
+  are no nodes. An edge to an earlier column (an inferred handoff can point back) leaves its
+  source's left side and enters its target's right side, routed the same way. `graphPath`
+  draws any list of points as level-in, level-out cubic steps. `tests/test_graph_layout`
+  samples every drawn segment of the demo graph and fails if one passes through a node other
+  than its own two (before this change, 8 of the demo's 27 edges did, 16 crossings in all).
 - **Work Floor** cards show `last_tool` and the `activity` bins from the light payload.
   The floor records a signature of everything it draws and skips the rebuild when it is
   unchanged, so running sprites are not restarted every poll.
