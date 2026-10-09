@@ -238,6 +238,11 @@ function ingestToolCalls(agentId, label, toolCalls) {
 }
 
 async function refreshTicker(run) {
+  // While searching, a live session's results are asked for again on every poll.
+  if (typeof activitySearching === "function" && activitySearching()) {
+    if (!state.offline) loadCalls();
+    return;
+  }
   const running = run.agents.filter((a) => a.status === "running");
   for (const agent of running) {
     let detail;
@@ -483,6 +488,10 @@ function renderConflicts(run) {
 function renderTicker() {
   const box = $("ticker");
   if (!box) return;
+  // A search (tabs.js) replaces the live tail with every matching call in the run.
+  if (typeof activitySearching === "function" && activitySearching()) { renderCalls(box); return; }
+  const count = $("calls-count");
+  if (count) count.textContent = "";
   const byId = state.run ? agentById(state.run) : {};
   const rows = state.ticker.filter((e) => {
     const agent = byId[e.agentId];
@@ -491,7 +500,9 @@ function renderTicker() {
   if (!rows.length) {
     box.innerHTML = '<div class="ticker-empty">' + (state.ticker.length
       ? "No activity matches the current filter."
-      : "No live tool-call activity yet — this fills in while agents are running.") +
+      : state.run && !state.run.session_live
+        ? "Nothing is running now. Search above, or press Failed only, to look through every tool call this run made."
+        : "No live tool-call activity yet — this fills in while agents are running. Search above to look through every call so far.") +
       "</div>";
     return;
   }
@@ -3402,6 +3413,7 @@ function init() {
   applyTheme(themeMode());
   setupFloorGroup();
   setupPalette();
+  setupActivitySearch();
   setupPulse();
   setupGraphInteractions();
   const themeBtn = $("theme-toggle");

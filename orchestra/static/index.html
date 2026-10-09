@@ -137,6 +137,11 @@ try { var t = localStorage.getItem("orchestra-theme");
     <div id="prompts" class="prompts"></div>
   </section>
   <section id="view-activity" class="view" hidden>
+    <div class="calls-bar" role="search">
+      <input id="calls-q" type="search" placeholder="Search every tool call: tool, file or command" aria-label="Search every tool call in this run" autocomplete="off" spellcheck="false">
+      <button type="button" id="calls-failed" aria-pressed="false">Failed only</button>
+      <span id="calls-count" class="calls-count" aria-live="polite"></span>
+    </div>
     <div id="ticker" class="ticker"></div>
   </section>
   <section id="view-fleet" class="view" hidden>

@@ -102,6 +102,17 @@ class TestApi(HttpTestCase):
         self.assertEqual(data["sessions"][0]["session_id"], "s1")
         self.assertEqual(data["sessions"][0]["agent_count"], 3)
 
+    def test_calls_searches_every_tool_call(self):
+        data = self.get_json("/api/calls?q=plan.md")
+        self.assertGreater(data["matched"], 0)
+        self.assertTrue(all("plan.md" in r["target"].lower() for r in data["rows"]))
+        self.assertEqual(self.get_json("/api/calls?failed=1")["failed_only"], True)
+        self.assertEqual(self.get_json("/api/calls?q=x")["rows"], [])
+
+    def test_calls_needs_the_token(self):
+        with self.assertRaises(urllib.error.HTTPError):
+            self.get("/api/calls?q=plan", token=None)
+
     def test_health_needs_no_token(self):
         self.assertEqual(self.get("/api/health", token=None).status, 200)
 

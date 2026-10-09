@@ -6,6 +6,29 @@ versions follow [SemVer](https://semver.org/) (the `version` in
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-10-09
+
+### Added
+- **Activity search**: a search box on the Activity tab that looks through every tool call the run made,
+  not only the live tail of running agents, so it works on finished sessions and static reports too.
+  - It matches the tool, the file or command (scrubbed, as everywhere) and the agent. "Failed only"
+    lists the calls whose result was an error, with or without words.
+  - Repeats of one call by one agent are one row with how often and how many failed. Matched text is
+    marked, the newest come first, and the count says how many calls matched (at most 300 rows are
+    shown, and it says so).
+  - Enter steps to the next match (Shift+Enter back) and Escape clears; a row opens its agent's panel.
+  - New endpoint `GET /api/calls?q=…&failed=1` (token required). A static report runs the same rules
+    over its baked-in details, and a test checks both give the same rows on a whole run.
+- When nothing is running, the Activity tab says how to look back through the run instead of only
+  "no live activity".
+
+### Changed
+- On a phone, an Activity row wraps: time, agent and tool on the first line, the whole command under it.
+
+### Not included
+- Result text: Cuelight does not keep each call's output (only whether it failed), so it cannot be
+  searched.
+
 ## [0.19.0] - 2026-10-09
 
 ### Added
