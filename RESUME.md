@@ -4,10 +4,10 @@ Repo: `chandan12ar/cuelight` (public) · default branch **`main`**, which change
 PR (the owner clicks Merge on GitHub; `gh pr merge` from here is blocked). The product is
 **Cuelight**; the internal package is still `orchestra`.
 
-State (2026-10-09): **0.17.0 is on main** and released (GitHub Release v0.17.0). The third round
-(0.18.0-0.21.0) is built as a **stack of open PRs that must merge in order: #30 (docs) -> #31
-(Agents tab) -> #32 (Spend tab) -> #33 (Activity search) -> #34 (graph routing)**. Read each PR's
-CI before asking for its merge. Local suite on the top branch: **1,148 tests, 3 skipped**.
+State (2026-10-09, **stopped here at the owner's request**, out of credits): **0.21.0 is on main**.
+PRs #30-#34 are all merged and CI on main is green (run 37889257756, after the #34 merge). Local
+suite: **1,148 tests, 3 skipped**. The last GitHub Release is **v0.17.0**; one for 0.21.0 needs the
+owner's yes. Nothing is in flight: no open PRs, no unpushed work.
 Details: `PROGRESS.md` (status by round), `.claude/CLAUDE.md` (rules + lessons), `CHANGELOG.md`
 (per version), `docs/ARCHITECTURE.md` (how it works), `docs/FOLLOW-UPS.md` (older review items).
 
@@ -38,11 +38,17 @@ Tabs: Timeline, Graph, Insights, Prompts, Activity, Work Floor, Fleet, History.
 | 0.10.1-0.11 | Directory review fixes (no `allowed-tools`, removed an uninspectable image); `bin/cuelight` launcher so "don't ask again" covers Cuelight only |
 | 0.12-0.16 | Catch me up (titles, recaps); Where tokens were wasted; Prompts tab; Context pressure; What went wrong (API stalls, failed calls, retries, timeouts) |
 | 0.17 | Insights at a glance: chip strip (worst first) + foldable cards |
-| 0.18-0.21 (PRs open) | Agents tab (+ SubagentHandback reports, deliverable phrasings); Spend tab (running cost, budget crossings; tab views moved to `static/tabs.js` for the 256 KiB limit); Activity search (`/api/calls`); graph edge routing |
+| 0.18-0.21 (merged) | Agents tab (+ SubagentHandback reports, deliverable phrasings); Spend tab (running cost, budget crossings; tab views moved to `static/tabs.js` for the 256 KiB limit); Activity search (`/api/calls`); graph edge routing |
 
 ## 4. Still open
-- **Owner's calls:** merging the stack #30-#34 in order; a GitHub Release once it is merged;
-  trademark search for "Cuelight"; checking the directory review result in the portal.
+- **Next, in order (when work resumes):**
+  1. GitHub Release v0.21.0 (notes from CHANGELOG 0.18.0-0.21.0), owner's yes first.
+  2. Keyboard focus lost on live refresh in the Prompts tab and the Insights fold buttons/chips
+     (the Agents and Spend tabs already keep it; copy `renderAgents`' keep/restore block). A
+     ready brief exists as a proposed session card "Keep keyboard focus across live refreshes".
+  3. Agent teams (teammates): needs one real team run from the owner to build against.
+- **Owner's calls:** the release above; trademark search for "Cuelight"; checking the directory
+  review result for 0.21.0 in the portal (every merge to main is re-scanned).
 - **Unverified:** agent teams (teammates): no handling, and no team run in the local
   transcripts to test against; `bin/cuelight` launcher's permission prompt in a live Claude
   Code; the API-error hook fields `error_type`/`error_message` (docs only).

@@ -1,6 +1,7 @@
 # PROGRESS
 
-State on 2026-10-09: 0.17.0 on `main`, every PR through #29 merged, CI green. One branch and PR
+State on 2026-10-09 (stopped at the owner's request): 0.21.0 on `main`, every PR through #34 merged,
+CI green. Where to pick up: `RESUME.md` section 4 "Next, in order". One branch and PR
 per feature; rules in `.claude/CLAUDE.md`, one-page handoff in `RESUME.md`. The tables below are
 the record of each round, oldest first.
 
@@ -216,7 +217,14 @@ GitHub Release v0.17.0 published the same day (owner's yes). One branch, PR and 
 
 | # | Feature | State |
 |---|---|---|
-| 1 | **Agents tab** (`feature/agents-table`, 0.18.0): one row per agent with asked / expected / came back side by side, status, checked, time, cost, errors; flagged rows say why; "only the ones that need a look"; sortable; focus kept across live refreshes. Found and fixed on real sessions while building it: reports handed back through `SubagentHandback` (Claude Code 2.1.277+) showed as a pointer for 88 of 88 such agents, and deliverables phrased "Final message: ..." / "Write your full report to ..." were missed (41 briefs "not stated", now 10) | built; PR #31, CI green (20/20) |
-| 2 | **Spend tab** (`feature/spend-tab`, 0.19.0): running cost over the run, main session vs agents (or by model), budget line and when warn/limit were crossed; crosshair by pointer or keys; pace now; most expensive five minutes; tokens without a price file. The Insights Spend card moved here. `app.js` hit the directory's 256 KiB file limit, so the tab views moved to `static/tabs.js` | built; PR #32 (stacked on #31) |
-| 3 | **Activity search** (`feature/activity-search`, 0.20.0): a search box on the Activity tab over every tool call in the run (tool, file or command, agent) or only failed ones; repeats counted; matches marked; Enter/Shift+Enter step through; `GET /api/calls`; static reports search their baked-in details by the same rules (tested to agree). Result text dropped from the plan: per-call output is not kept | built; PR #33 (stacked on #32) |
-| 4 | **Graph edge routing** (`feature/graph-routing`, 0.21.0): an edge whose curve would pass through an agent it skips crosses those columns through the nearest free gap and bends only between columns; edges back to an earlier column leave from the left. Demo: 8 of 27 edges crossed agents (16 times), now none; a test samples every drawn segment | built; tests and screenshots done; PR open (stacked on #33) |
+| 1 | **Agents tab** (`feature/agents-table`, 0.18.0): one row per agent with asked / expected / came back side by side, status, checked, time, cost, errors; flagged rows say why; "only the ones that need a look"; sortable; focus kept across live refreshes. Found and fixed on real sessions while building it: reports handed back through `SubagentHandback` (Claude Code 2.1.277+) showed as a pointer for 88 of 88 such agents, and deliverables phrased "Final message: ..." / "Write your full report to ..." were missed (41 briefs "not stated", now 10) | merged (PR #31) |
+| 2 | **Spend tab** (`feature/spend-tab`, 0.19.0): running cost over the run, main session vs agents (or by model), budget line and when warn/limit were crossed; crosshair by pointer or keys; pace now; most expensive five minutes; tokens without a price file. The Insights Spend card moved here. `app.js` hit the directory's 256 KiB file limit, so the tab views moved to `static/tabs.js` | merged (PR #32) |
+| 3 | **Activity search** (`feature/activity-search`, 0.20.0): a search box on the Activity tab over every tool call in the run (tool, file or command, agent) or only failed ones; repeats counted; matches marked; Enter/Shift+Enter step through; `GET /api/calls`; static reports search their baked-in details by the same rules (tested to agree). Result text dropped from the plan: per-call output is not kept | merged (PR #33) |
+| 4 | **Graph edge routing** (`feature/graph-routing`, 0.21.0): an edge whose curve would pass through an agent it skips crosses those columns through the nearest free gap and bends only between columns; edges back to an earlier column leave from the left. Demo: 8 of 27 edges crossed agents (16 times), now none; a test samples every drawn segment | merged (PR #34) |
+
+## Stopped here (2026-10-09)
+
+The owner merged #30-#34 and asked to stop (out of credits). Main is at 0.21.0, CI green, nothing
+open or unpushed. Next steps, in order, are in `RESUME.md` section 4: (1) GitHub Release v0.21.0
+after the owner's yes, (2) keep keyboard focus across live refreshes in the Prompts tab and the
+Insights fold buttons, (3) agent teams once the owner provides a real team run.
