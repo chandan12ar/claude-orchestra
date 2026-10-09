@@ -4,6 +4,9 @@ Everything here was raised by the final whole-branch review and judged
 non-blocking. The branch ships without these; they are recorded so the decision
 is visible rather than forgotten. Ranked roughly by value.
 
+**Status (2026-10-09, 0.21.x):** #1-#5 and #9-#11 are done (see [Resolved](#resolved)). Still open: #6
+(status shown by label and colour, not shape) and the spec wording in #7 and #8.
+
 ## Worth doing next
 
 1. **Add a table view.** `expected_output` is extracted for every agent but is
@@ -90,7 +93,7 @@ is visible rather than forgotten. Ranked roughly by value.
   the default); table in README.
 
 - **Idle builders never evicted (#5).** `OrchestraService` keeps an LRU of
-  `MAX_BUILDERS` (8); the default session is pinned; evicted sessions are
+  `MAX_BUILDERS` (8 then, 24 now, `ORCHESTRA_MAX_BUILDERS`); the default session is pinned; evicted sessions are
   rebuilt from disk on next visit.
 - **`report` wrote to the plugin dir (#3) and `--cwd` did not exist (#4).**
   `--cwd` now exists: base for relative report paths and fallback session

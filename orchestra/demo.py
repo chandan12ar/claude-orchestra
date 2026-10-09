@@ -172,7 +172,7 @@ def _scenario() -> List[_Agent]:
         _Agent("security", "Review the checkout for security issues", "general-purpose", "opus",
                400, None, "stalled",
                _read("src/payments/adapter.ts", "src/payments/webhooks.ts")
-               + [("Grep", "process.env")] + [("Bash", "npm audit --omit=dev")] * 3,
+               + [("Grep", "dangerouslySetInnerHTML")] + [("Bash", "npm audit --omit=dev")] * 3,
                wave="review", quiet_for=330, fails=(3, 4, 5),
                fail_output="Exit code 1\nnpm ERR! audit endpoint returned an error (503)"),
         _Agent("docs", "Update the developer docs", "general-purpose", "haiku", 700, None, "running",

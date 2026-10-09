@@ -500,6 +500,11 @@ gone after the redraw leaves focus where it fell rather than moving it somewhere
 `tests/test_focus_ui.py` redraws each view over a small parsing DOM stub and checks focus lands on the
 same control.
 
+**Keyboard shortcuts** (`onGlobalKey`, on `document`). Number keys `1`-`9`, `0` switch to the ten views in
+tab order (`PALETTE_VIEWS`); letters run commands. None fire with a modifier, while typing in a field, with
+the palette or help open, or for a key a focused control already handled (`event.defaultPrevented`): the
+graph's own handler fits it on `0`, which before 0.21.3 also jumped to History.
+
 **Text fitting.** SVG has no `text-overflow: ellipsis`. `fitText()` measures
 real pixel width with an offscreen `<canvas>` 2D context
 (`context.measureText`) and binary-searches for the longest prefix (plus an

@@ -3,7 +3,8 @@
 Cuelight is a Claude Code plugin that runs **entirely on your computer**. This page says exactly what
 it reads, what it writes, and what leaves your machine (nothing).
 
-*Last updated: 2026-10-03, for version 0.4.1.*
+*Last updated: 2026-10-09, for version 0.21.3 (checked against the code; the error log and exports are
+now listed, nothing else changed since 0.4.1).*
 
 ## Short version
 
@@ -30,6 +31,8 @@ not copy them anywhere else.
 |---|---|---|
 | One line per hook event: the event name, session and agent ids, working directory and a short **redacted** message. Never tool inputs, prompts or file contents | `<state dir>/events/` | 7 days, then deleted |
 | The dashboard's port and access token | `<state dir>` (mode `0600`) | Until the dashboard stops |
+| The dashboard's error log: Python error tracebacks only; requests and URLs are never logged (normally empty) | `<state dir>/<session>.log` | Until you delete it or the system clears its temp folder |
+| An export (CSV or JSON), **only when you ask** (the Export menu or `--export`) | your browser's downloads, or the path you choose | Until you delete it |
 | Optional run history (**off by default**; you turn it on with `ORCHESTRA_HISTORY=on`). **Metrics only**: counts, durations, tokens, cost and the project folder, with no prompts, task text, results or file paths | a small local SQLite file in Cuelight's per-user data folder | 90 days (adjustable), then pruned |
 | A static HTML report, **only when you ask** (`/cuelight:open report`) | the path you choose | Until you delete it |
 

@@ -25,7 +25,10 @@ work** = the record (transcripts) + the live truth (hooks), across all sessions.
   cost) -> 4 History/replay/export, then two research-led rounds of five features
   and "Insights at a glance", then a third round (Agents tab, Spend tab, Activity
   search, graph routing). **All merged (0.21.0).** Then 0.21.1 (keyboard focus kept
-  across live refreshes, PR #36). What is left: `RESUME.md` section 4.
+  across live refreshes), 0.21.2 (the directory block) and 0.21.3 (audit).
+- **New features are paused (owner, 2026-10-09).** Fix what exists, keep the docs
+  current, and keep directory findings from coming back. What is left: `RESUME.md`
+  section 4.
 
 ## Working rules the owner set (follow exactly)
 
@@ -53,6 +56,18 @@ work** = the record (transcripts) + the live truth (hooks), across all sessions.
   used by `tests/test_report_renders.py` if available).
 
 ## Lessons from this build (so they are not repeated)
+
+- **The plugin directory scans every file, tests and docs included, and blocks
+  credential-shaped text even when it is fake.** 0.21.0 was blocked for a made-up
+  `Authorization: Bearer` header in a test. Build fakes from `tests/fake_secrets.py`;
+  in docs write `<fake-...>`. Do not put credential-source names in demo data either.
+  `tests/test_directory_readiness.py` (`TestNoSecretShapedText`, `TestNoCredentialReads`)
+  fails first. Every portal finding and its meaning: `docs/SUBMISSION.md`.
+- **A focused control's key must not also run a page shortcut.** Adding a tenth tab
+  gave `0` a view, and `0` on the graph (fit) then jumped to History. `onGlobalKey`
+  now honours `event.defaultPrevented`; handle a key there by calling preventDefault.
+- **In a browser check, a `#hash`-only navigate does not reload the page**, so the old
+  code keeps running. Add a query string to reload.
 
 - **Read CI after every push, before the next feature.** It was red on Windows
   for three commits because only Linux was run locally.

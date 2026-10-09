@@ -1,8 +1,8 @@
 # PROGRESS
 
-State on 2026-10-09: 0.21.0 on `main`, every PR through #34 merged, CI green; resumed the same day
-with 0.21.1 (PR #36, focus fix, see "Resumed" at the end). Where to pick up: `RESUME.md` section 4
-"Next, in order". One branch and PR
+State on 2026-10-09: 0.21.2 on `main` (#35-#37 merged, CI green). The owner paused new features:
+fix what exists, keep docs current, keep directory findings from coming back. 0.21.3 (the audit, PR #38)
+is open; see "Audit after the directory review" at the end. Where to pick up: `RESUME.md` section 4. One branch and PR
 per feature; rules in `.claude/CLAUDE.md`, one-page handoff in `RESUME.md`. The tables below are
 the record of each round, oldest first.
 
@@ -234,7 +234,7 @@ Insights fold buttons, (3) agent teams once the owner provides a real team run.
 
 | # | Item | State |
 |---|---|---|
-| 1 | **Keyboard focus across live refreshes** (`fix/keep-focus-on-refresh`, 0.21.1, stacked on #35). Not only Prompts and Insights: Spend's split toggle and agent links, Work Floor cards, Fleet rows and History rows lost focus on every redraw too. One helper (`noteFocus`/`restoreFocus` in `app.js`) now brackets every `innerHTML` redraw, Agents and the Spend chart included. `tests/test_focus_ui.py` (20 tests) redraws each view over a parsing DOM stub; checked in a real browser on the demo (each control replaced, focus on its replacement; a real poll 1.2 s in kept it; Tab continues from the right chip; the Spend chart keeps focus and its reading) | PR #36, CI green (10/10, run 37917810689) |
+| 1 | **Keyboard focus across live refreshes** (`fix/keep-focus-on-refresh`, 0.21.1, stacked on #35). Not only Prompts and Insights: Spend's split toggle and agent links, Work Floor cards, Fleet rows and History rows lost focus on every redraw too. One helper (`noteFocus`/`restoreFocus` in `app.js`) now brackets every `innerHTML` redraw, Agents and the Spend chart included. `tests/test_focus_ui.py` (20 tests) redraws each view over a parsing DOM stub; checked in a real browser on the demo (each control replaced, focus on its replacement; a real poll 1.2 s in kept it; Tab continues from the right chip; the Spend chart keeps focus and its reading) | merged (PR #36) |
 
 Checked while picking the next item (real data, read-only):
 - **Agent teams:** still no team run on this machine (no `TeamCreate` call in any transcript, no
@@ -263,3 +263,22 @@ chunks, only IHDR/IDAT/IEND; 1.46 MB, so size is the likely reason); image/font 
 credential from the user's machine x5, unrecognized plugin.json field x3 (seen before); a
 download-and-run command read from the screenshot `docs/evidence/screenshots/52-phone-agents-dark.png`
 (documentation only, no change needed); uses hooks (information).
+
+## Audit after the directory review (2026-10-09; owner: no new features for now)
+
+The owner showed the portal: 0.21.0 "Needs changes" for Secret in a shipped file. Fixed by #37 (0.21.2,
+merged, main CI green). Then the owner asked for a full check of what exists, fixes, current docs, and no
+repeats. Done on `fix/directory-audit` (0.21.3, PR #38):
+
+| Check | Result |
+|---|---|
+| Portal findings, all expanded (read in the owner's Chrome, read-only) | 1 blocking (fixed in #37), 8 warnings, 1 note. Each one, with its files and what it means here, is now in `docs/SUBMISSION.md` |
+| "Uses a credential from the user's machine" | False positive on our own words: the dashboard's own token in `app.js`, a demo agent searching for environment variables, docs. Demo text changed; new guard `TestNoCredentialReads` (shown to fail on the old demo) |
+| "Couldn't inspect" `agent-sprite.png` | No text chunks (IHDR/IDAT/IEND only); 1024x1248, ~175k colours, 1.46 MB. Cannot shrink without a visible change; left for the reviewer |
+| Every real session (59, 144 agents) through every API call + the static report | 0 failures, nothing over 5 s, all JSON finite |
+| Largest real session (32 agents) in a real browser: every tab, every agent panel, the static report | No JS errors. Two "undefined" were the agents' own report text |
+| Hook with empty, garbage, non-object, path-traversal and 3 MB input | Always exit 0 in about 0.2 s; the session id is sanitised; the oversized event is dropped |
+| Security invariants | 127.0.0.1 bind, constant-time token check, Host/Origin checks, no writes under `~/.claude` |
+| `claude plugin validate --strict` (plugin and marketplace), compile, `node --check` | Pass |
+| **Bug found:** `0` on the focused graph fitted it and then jumped to History (the page shortcut ran too) | Fixed: `onGlobalKey` skips a key a control already handled (`defaultPrevented`); test first, then checked in a real browser |
+| Docs | README (hook cost measured on Windows ~0.2 s, keyboard, development checks), PRIVACY (error log + exports listed), SUBMISSION (findings table, two new test-enforced rows), CONTRIBUTING (what the scanner flags), WORKFLOW (10 tabs), ROADMAP and FOLLOW-UPS status lines, ARCHITECTURE (shortcuts) |
