@@ -9,6 +9,7 @@ from orchestra.build import RunBuilder
 from orchestra.model import ToolCall
 from orchestra.parent import parse_timestamp
 from orchestra.runaway import Loop, detect_loop
+from tests import fake_secrets as fake
 from tests.fixtures import agent_entry, build_session, ts, write_jsonl
 
 
@@ -145,12 +146,12 @@ class TestThroughTheBuilder(unittest.TestCase):
         self.assertIsNone(self.build().agent("a3").loop)
 
     def test_the_loop_reaches_the_summary_and_is_scrubbed(self):
-        self.add_calls("a3", 7, target="curl -H 'Authorization: Bearer abcdefghijklmnopqrstuvwxyz0123456789'")
+        self.add_calls("a3", 7, target="curl -H '" + fake.BEARER_HEADER + "'")
         os.utime(self.paths.session_jsonl, (self.now, self.now))
         summary = RunBuilder(self.paths, now_fn=lambda: self.now).refresh().to_summary_dict()
         a3 = [a for a in summary["agents"] if a["agent_id"] == "a3"][0]
         self.assertEqual(a3["loop"]["kind"], "repeat")
-        self.assertNotIn("abcdefghijklmnop", json.dumps(a3["loop"]))
+        self.assertNotIn(fake.BEARER_VALUE, json.dumps(a3["loop"]))
 
 
 if __name__ == "__main__":

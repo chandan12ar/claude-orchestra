@@ -249,3 +249,17 @@ Checked while picking the next item (real data, read-only):
 
 **Paused here (2026-10-09, owner's request).** Nothing in flight beyond PRs #35 and #36 (both
 open, #36 CI green). Next: `RESUME.md` section 4.
+
+**Directory hold on 0.21.0 (owner showed the portal, 2026-10-09).** Status "Needs changes", one
+blocking finding: Secret in a shipped file, `tests/test_runaway.py` (`SECRET_IN_SCRIPT`). Cause: a
+fake `Authorization: Bearer <32 chars>` in a curl command, written out in a loop test. Our guard
+(`TestNoSecretShapedText`) only knew key formats (sk-, ghp_, AKIA, JWT, PEM), not values after a
+header or a name. Fixed in `fix/no-secret-in-tests` (0.21.2, PR #37, stacked on #36): the test uses
+`fake_secrets.BEARER_HEADER`; an old plan doc's fake Bearer token and password became `<fake-...>`
+placeholders; the guard now also matches Bearer/Basic values, password and AWS secret assignments,
+quoted key/token assignments and URL credentials (shown to fail on the old files). Warnings in the
+same review, not blocking: `orchestra/static/agent-sprite.png` "couldn't inspect" (it has no text
+chunks, only IHDR/IDAT/IEND; 1.46 MB, so size is the likely reason); image/font the code could run x9,
+credential from the user's machine x5, unrecognized plugin.json field x3 (seen before); a
+download-and-run command read from the screenshot `docs/evidence/screenshots/52-phone-agents-dark.png`
+(documentation only, no change needed); uses hooks (information).

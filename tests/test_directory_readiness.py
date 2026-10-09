@@ -224,6 +224,12 @@ class TestNoSecretShapedText(unittest.TestCase):
         r"github_pat_[A-Za-z0-9_]{20,}", r"\b(?:AKIA|ASIA)[A-Z0-9]{12,}\b", r"xox[abprs]-[A-Za-z0-9-]{10,}",
         r"AIza[0-9A-Za-z_-]{30,}", r"-----BEGIN [A-Z ]*PRIVATE KEY",
         r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}",
+        # Values after a header or a name (0.21.0 was blocked for a Bearer token in a test's curl command).
+        r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{16,}", r"(?i)\bbasic\s+[A-Za-z0-9+/]{16,}={0,2}",
+        r"(?i)\b[A-Z_]*(?:password|passwd|pwd)\s*[=:]\s*[\"']?[^\s\"'`<>{}$]{6,}",
+        r"(?i)aws_secret_access_key\s*[=:]\s*[A-Za-z0-9/+]{20,}",
+        r"(?i)\b(?:api[_-]?key|secret|token|access[_-]?key)\s*[=:]\s*[\"'][A-Za-z0-9_./+-]{16,}[\"']",
+        r"[a-z][a-z0-9+.-]*://[^\s:/@]+:[^\s:/@]{6,}@",
     ]
 
     def test_no_tracked_text_file_looks_like_it_holds_a_key(self):

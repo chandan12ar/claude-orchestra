@@ -436,7 +436,7 @@ class TestScrub(unittest.TestCase):
         self.assertIn("redacted:aws_key_id", scrub("<fake-aws-key-id>"))
 
     def test_bearer_header(self):
-        out = scrub("Authorization: Bearer abcdefghijklmnopqrstuvwxyz123456")
+        out = scrub("Authorization: Bearer <fake-bearer-token>")
         self.assertIn("redacted:bearer", out)
 
     def test_jwt(self):
@@ -450,9 +450,9 @@ class TestScrub(unittest.TestCase):
         self.assertNotIn("MIIEpAIBAAKC", out)
 
     def test_assignment_keeps_the_key_name(self):
-        out = scrub('password="hunter2hunter2"')
+        out = scrub('password="<fake-password>"')
         self.assertIn("password", out)
-        self.assertNotIn("hunter2hunter2", out)
+        self.assertNotIn("<fake-password>", out)
 
     def test_ordinary_prose_is_untouched(self):
         text = "Read src/main.py and return a summary of the sk-learn usage."

@@ -43,7 +43,10 @@ Tabs: Timeline, Graph, Insights, Prompts, Activity, Work Floor, Fleet, History.
 
 ## 4. Still open
 - **Next, in order (when work resumes):**
-  1. Owner merges #35 (docs), then #36 (0.21.1 focus fix; CI green 10/10).
+  1. Owner merges #35 (docs), then #36 (0.21.1 focus fix; CI green 10/10), then #37 (0.21.2).
+     **#37 unblocks the directory:** 0.21.0 was held for "Secret in a shipped file" (a literal
+     Bearer token in `tests/test_runaway.py`). After merging, "Check for new commits" in the portal
+     rescans at once instead of within ~6 h.
   2. GitHub Release v0.21.1 (notes from CHANGELOG 0.18.0-0.21.1), owner's yes first.
   3. **Name the pending call on a permission prompt** (0.22.0): proposed, design not yet shown
      (the owner paused work 2026-10-09 before it was). Show a short design and wait for the
